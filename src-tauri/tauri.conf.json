@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "cosmog-tmp",
+  "productName": "cosmog",
   "version": "0.1.0",
-  "identifier": "com.sonu_s.cosmog-tmp",
+  "identifier": "com.sonus.cosmog",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "cosmog-tmp",
+        "title": "cosmog",
         "width": 800,
         "height": 600
       }

@@ -1,5 +1,5 @@
 {
-  "name": "cosmog-tmp",
+  "name": "cosmog",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "NO_STRIP=1 tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
