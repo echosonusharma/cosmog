@@ -103,7 +103,7 @@ impl Db {
     /// Atomically copy the live database to `dest` using SQLite's Backup API.
     /// Unlike a raw `fs::copy`, this is safe to run while other writers may
     /// be active — the backup driver coordinates with the WAL.
-    pub async fn backup_to(&self, _src: std::path::PathBuf, dest: std::path::PathBuf) -> AppResult<()> {
+    pub async fn backup_to(&self, dest: std::path::PathBuf) -> AppResult<()> {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }

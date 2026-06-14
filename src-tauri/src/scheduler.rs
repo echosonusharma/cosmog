@@ -12,21 +12,26 @@
 //!   poison the scheduler.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::state::AppState;
 use crate::sync::full_bucket_scan;
 use crate::transfer::ProgressSink;
+
+/// How long to skip an account after a `store_for` auth failure.
+const AUTH_BACKOFF_SECS: u64 = 300; // 5 minutes
 
 /// Spawn the scheduler. Returns immediately. The caller keeps the
 /// [`CancellationToken`] if it wants to stop the scheduler (e.g. for tests).
 pub fn spawn(state: AppState) -> CancellationToken {
     let cancel = CancellationToken::new();
     let token = cancel.clone();
+    let fail_times: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
     tokio::spawn(async move {
         info!("scheduler started");
         let mut tick = tokio::time::interval(Duration::from_secs(60));
@@ -37,7 +42,7 @@ pub fn spawn(state: AppState) -> CancellationToken {
                     return;
                 }
                 _ = tick.tick() => {
-                    if let Err(e) = run_once(&state).await {
+                    if let Err(e) = run_once(&state, &fail_times).await {
                         warn!("scheduler iteration failed: {e}");
                     }
                 }
@@ -47,12 +52,26 @@ pub fn spawn(state: AppState) -> CancellationToken {
     cancel
 }
 
-async fn run_once(state: &AppState) -> crate::error::AppResult<()> {
+async fn run_once(
+    state: &AppState,
+    fail_times: &Arc<DashMap<String, Instant>>,
+) -> crate::error::AppResult<()> {
+    let backoff = Duration::from_secs(AUTH_BACKOFF_SECS);
+    // Expire old failure entries (older than AUTH_BACKOFF_SECS).
+    fail_times.retain(|_, v| v.elapsed() < backoff);
+
     let due = state.db.bucket_index_due_list().await?;
     let now = Utc::now().timestamp();
     for (account_id, bucket, next_due) in due {
         if next_due > now {
             continue;
+        }
+        // Skip accounts that recently failed auth.
+        if let Some(entry) = fail_times.get(&account_id) {
+            if entry.elapsed() < backoff {
+                debug!(account_id, "scheduler: skipping account due to recent auth failure");
+                continue;
+            }
         }
         // Skip buckets that already have an in-flight scan.
         if state.scan_in_flight(&account_id, &bucket) {
@@ -63,6 +82,7 @@ async fn run_once(state: &AppState) -> crate::error::AppResult<()> {
             Ok(s) => s,
             Err(e) => {
                 warn!("scheduler store_for failed for {account_id}: {e}");
+                fail_times.insert(account_id.clone(), Instant::now());
                 continue;
             }
         };

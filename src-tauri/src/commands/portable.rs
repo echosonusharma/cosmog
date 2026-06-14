@@ -59,7 +59,7 @@ pub async fn backup_database(
     dest_path: String,
 ) -> AppResult<()> {
     let dest = std::path::PathBuf::from(dest_path);
-    state.db.backup_to(state.db_path.clone(), dest).await
+    state.db.backup_to(dest).await
 }
 
 /// Stage a backup file to be applied on the next app launch.

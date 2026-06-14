@@ -83,7 +83,11 @@ pub async fn update_settings(
     if let Some(v) = patch.custom_ca_path {
         cur.custom_ca_path = v;
     }
-    state.db.settings_save(cur).await
+    let saved = state.db.settings_save(cur).await?;
+    if patch.transfer_concurrency.is_some() {
+        state.set_transfer_concurrency(saved.transfer_concurrency as usize);
+    }
+    Ok(saved)
 }
 
 #[tracing::instrument(skip_all, err)]

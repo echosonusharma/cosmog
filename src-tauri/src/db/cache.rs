@@ -197,6 +197,96 @@ impl Db {
         Ok(())
     }
 
+    /// Upsert a batch of cached object rows in a single transaction. More
+    /// efficient than calling [`cache_upsert_object`] in a loop for large pages.
+    /// Returns the number of rows upserted.
+    pub async fn cache_upsert_objects_batch(
+        &self,
+        account_id: &str,
+        bucket: &str,
+        objects: &[crate::store::ObjectMeta],
+    ) -> AppResult<usize> {
+        let now = Utc::now().timestamp();
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        // Pre-compute all parts outside the call closure.
+        struct Row {
+            key: String,
+            size: i64,
+            etag: Option<String>,
+            last_modified: Option<i64>,
+            storage_class: Option<String>,
+            content_type: Option<String>,
+            version_id: Option<String>,
+            extension: Option<String>,
+            basename: String,
+            parent_prefix: String,
+        }
+        let rows: Vec<Row> = objects
+            .iter()
+            .map(|meta| {
+                let parts = KeyParts::from_key(&meta.key);
+                Row {
+                    key: meta.key.clone(),
+                    size: meta.size,
+                    etag: meta.etag.clone(),
+                    last_modified: meta.last_modified,
+                    storage_class: meta.storage_class.clone(),
+                    content_type: meta.content_type.clone(),
+                    version_id: meta.version_id.clone(),
+                    extension: parts.extension,
+                    basename: parts.basename,
+                    parent_prefix: parts.parent_prefix,
+                }
+            })
+            .collect();
+
+        let count = self
+            .conn
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                {
+                    let mut stmt = tx.prepare_cached(
+                        "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, parent_prefix, version_id, seen, synced_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
+                         ON CONFLICT(account_id, bucket, key) DO UPDATE SET
+                            size = excluded.size,
+                            etag = excluded.etag,
+                            last_modified = excluded.last_modified,
+                            storage_class = excluded.storage_class,
+                            content_type = COALESCE(excluded.content_type, cached_objects.content_type),
+                            extension = excluded.extension,
+                            basename = excluded.basename,
+                            parent_prefix = excluded.parent_prefix,
+                            version_id = excluded.version_id,
+                            seen = 1,
+                            synced_at = excluded.synced_at",
+                    )?;
+                    for row in &rows {
+                        stmt.execute(params![
+                            account_id,
+                            bucket,
+                            row.key,
+                            row.size,
+                            row.etag,
+                            row.last_modified,
+                            row.storage_class,
+                            row.content_type,
+                            row.extension,
+                            row.basename,
+                            row.parent_prefix,
+                            row.version_id,
+                            now,
+                        ])?;
+                    }
+                }
+                tx.commit()?;
+                Ok::<_, tokio_rusqlite::Error>(rows.len())
+            })
+            .await?;
+        Ok(count)
+    }
+
     /// Remove a single cached row (write-through after `delete_object`).
     pub async fn cache_remove_object(
         &self,
@@ -230,7 +320,7 @@ impl Db {
         let bucket = bucket.to_string();
         let key = key.to_string();
         let sql = format!(
-            "SELECT {SELECT_COLS} FROM cached_objects WHERE account_id = ?1 AND bucket = ?2 AND key = ?3"
+            "SELECT {SELECT_COLS} FROM cached_objects co WHERE co.account_id = ?1 AND co.bucket = ?2 AND co.key = ?3"
         );
         let row = self
             .conn

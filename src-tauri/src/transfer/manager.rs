@@ -21,6 +21,8 @@ use tokio::sync::{Semaphore, Mutex as AsyncMutex};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use std::time::Duration;
+
 use crate::db::transfers::{Direction, NewTransfer, Transfer, TransferStatus};
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
@@ -28,13 +30,67 @@ use crate::store::{GetOptions, ObjectStore, PutOptions};
 
 use super::{CompletedPart, ProgressSink, ResumeState, TransferCtx, TransferEvent};
 
+/// Returns `true` for transient S3 errors that are safe to retry.
+fn is_retriable(err: &AppError) -> bool {
+    matches!(err, AppError::RateLimited(_) | AppError::S3(_))
+}
+
+/// A semaphore whose permit count can be adjusted at runtime.
+///
+/// Increasing the limit is immediate (new permits are added). Decreasing
+/// reclaims immediately-available permits via `try_acquire`+`forget`; any
+/// permits currently held by in-flight transfers are returned to a now-
+/// reduced pool (they converge to the new limit over time as transfers
+/// complete).
+struct ResizableSemaphore {
+    sem: Arc<Semaphore>,
+    current: Arc<Mutex<usize>>,
+}
+
+impl ResizableSemaphore {
+    fn new(n: usize) -> Self {
+        let n = n.max(1);
+        Self {
+            sem: Arc::new(Semaphore::new(n)),
+            current: Arc::new(Mutex::new(n)),
+        }
+    }
+
+    async fn acquire(&self) -> Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> {
+        self.sem.acquire().await
+    }
+
+    fn resize(&self, new_size: usize) {
+        let new_size = new_size.max(1);
+        let mut current = self.current.lock().unwrap();
+        let old = *current;
+        if new_size > old {
+            self.sem.add_permits(new_size - old);
+        } else if new_size < old {
+            // Attempt to reclaim immediately-available permits.
+            let to_remove = old - new_size;
+            let mut removed = 0;
+            while removed < to_remove {
+                match self.sem.try_acquire() {
+                    Ok(permit) => {
+                        permit.forget();
+                        removed += 1;
+                    }
+                    Err(_) => break, // remaining permits are in-flight; they shrink naturally
+                }
+            }
+        }
+        *current = new_size;
+    }
+}
+
 /// Persistent transfer queue + worker scheduler. Cheap to clone (all interior
 /// state is `Arc`-shared).
 #[derive(Clone)]
 pub struct TransferManager {
     db: Db,
     cancels: Arc<DashMap<String, CancellationToken>>,
-    sem: Arc<Semaphore>,
+    sem: Arc<ResizableSemaphore>,
 }
 
 /// What direction-specific work a worker should perform.
@@ -67,8 +123,14 @@ impl TransferManager {
         Self {
             db,
             cancels: Arc::new(DashMap::new()),
-            sem: Arc::new(Semaphore::new(concurrency.max(1))),
+            sem: Arc::new(ResizableSemaphore::new(concurrency)),
         }
+    }
+
+    /// Adjust the maximum number of concurrent transfers. Takes effect for the
+    /// next acquisition; in-flight transfers are not interrupted.
+    pub fn set_concurrency(&self, n: usize) {
+        self.sem.resize(n);
     }
 
     /// Enqueue a new upload. Inserts the transfer row, returns its id, and
@@ -218,15 +280,23 @@ impl TransferManager {
                 }
             }
             Direction::Download => {
-                let opts = row
+                let mut opts = row
                     .options_json
                     .as_deref()
                     .and_then(|raw| serde_json::from_str::<GetOptions>(raw).ok())
                     .unwrap_or_default();
+                // Resume from where the partial file left off.
+                let local_path = PathBuf::from(&row.local_path);
+                if let Ok(meta) = std::fs::metadata(&local_path) {
+                    let existing = meta.len();
+                    if existing > 0 {
+                        opts.range_start = Some(existing);
+                    }
+                }
                 WorkerJob::Download {
                     bucket: row.bucket.clone(),
                     key: row.key.clone(),
-                    local_path: PathBuf::from(&row.local_path),
+                    local_path,
                     opts,
                 }
             }
@@ -318,25 +388,80 @@ impl TransferManager {
                 .update_transfer_status(&id_for_task, TransferStatus::Active, None)
                 .await;
 
+            const MAX_ATTEMPTS: u32 = 3;
             let result = match job {
                 WorkerJob::Upload {
                     bucket,
                     key,
                     local_path,
                     opts,
-                } => store_for_task
-                    .put_object(&bucket, &key, local_path, opts, ctx)
-                    .await
-                    .map(|_| ()),
+                } => {
+                    let mut last_err: Option<AppError> = None;
+                    let mut outcome: Option<()> = None;
+                    for attempt in 0..MAX_ATTEMPTS {
+                        if ctx.cancel.is_cancelled() {
+                            last_err = Some(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
+                            break;
+                        }
+                        if attempt > 0 {
+                            tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
+                        }
+                        match store_for_task
+                            .put_object(&bucket, &key, local_path.clone(), opts.clone(), ctx.clone())
+                            .await
+                        {
+                            Ok(_) => { outcome = Some(()); break; }
+                            Err(e) => {
+                                if is_retriable(&e) && attempt + 1 < MAX_ATTEMPTS {
+                                    last_err = Some(e);
+                                } else {
+                                    last_err = Some(e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    match outcome {
+                        Some(v) => Ok(v),
+                        None => Err(last_err.unwrap()),
+                    }
+                }
                 WorkerJob::Download {
                     bucket,
                     key,
                     local_path,
                     opts,
-                } => store_for_task
-                    .get_object(&bucket, &key, local_path, opts, ctx)
-                    .await
-                    .map(|_| ()),
+                } => {
+                    let mut last_err: Option<AppError> = None;
+                    let mut outcome: Option<()> = None;
+                    for attempt in 0..MAX_ATTEMPTS {
+                        if ctx.cancel.is_cancelled() {
+                            last_err = Some(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
+                            break;
+                        }
+                        if attempt > 0 {
+                            tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
+                        }
+                        match store_for_task
+                            .get_object(&bucket, &key, local_path.clone(), opts.clone(), ctx.clone())
+                            .await
+                        {
+                            Ok(_) => { outcome = Some(()); break; }
+                            Err(e) => {
+                                if is_retriable(&e) && attempt + 1 < MAX_ATTEMPTS {
+                                    last_err = Some(e);
+                                } else {
+                                    last_err = Some(e);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    match outcome {
+                        Some(v) => Ok(v),
+                        None => Err(last_err.unwrap()),
+                    }
+                }
             };
 
             // Cache write-through on successful upload: HEAD the freshly-written

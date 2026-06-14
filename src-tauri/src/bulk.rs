@@ -185,6 +185,7 @@ pub async fn upload_directory(
     prefix: &str,
     local_root: &Path,
     external_sink_factory: impl Fn(&str) -> ProgressSink,
+    cancel: CancellationToken,
 ) -> AppResult<BulkTransferResult> {
     if !local_root.is_dir() {
         return Err(AppError::InvalidInput(format!(
@@ -199,6 +200,9 @@ pub async fn upload_directory(
     let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
 
     while let Some(dir) = stack.pop() {
+        if cancel.is_cancelled() {
+            return Err(AppError::Canceled("upload_directory canceled".into()));
+        }
         let mut entries = tokio::fs::read_dir(&dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
@@ -215,6 +219,9 @@ pub async fn upload_directory(
                 .strip_prefix(local_root)
                 .map_err(|e| AppError::Internal(e.to_string()))?;
             let key = join_key(prefix, rel);
+            if cancel.is_cancelled() {
+                return Err(AppError::Canceled("upload_directory canceled".into()));
+            }
             let sink = external_sink_factory(&path.to_string_lossy());
             let id = transfers
                 .enqueue_upload(

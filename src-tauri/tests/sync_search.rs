@@ -1,7 +1,7 @@
 mod common;
 
 use cosmog_lib::db::cache::{SearchQuery, SearchScope, SortBy, SortDir, SearchFilters};
-use cosmog_lib::store::PutOptions;
+use cosmog_lib::store::{ObjectMeta, PutOptions};
 use cosmog_lib::sync::{full_bucket_scan, sync_prefix_direct, sync_prefix_recursive};
 use cosmog_lib::transfer::{ProgressSink, TransferCtx};
 use tokio_util::sync::CancellationToken;
@@ -143,4 +143,77 @@ async fn prefix_direct_lists_only_direct_children() {
         .all(|o| o.key.starts_with("lvl/") && !o.key.contains("/sub/")));
 
     common::cleanup_bucket(&store, &bucket).await;
+}
+
+#[tokio::test]
+async fn cache_upsert_batch_inserts_all_rows() {
+    let (db, _td, acct_id) = common::tmp_db_with_account().await;
+
+    let objects: Vec<ObjectMeta> = (0..50)
+        .map(|i| ObjectMeta {
+            key: format!("prefix/item-{i:04}.txt"),
+            size: 100 + i as i64,
+            etag: Some(format!("etag-{i}")),
+            last_modified: Some(1_000_000 + i as i64),
+            storage_class: Some("STANDARD".into()),
+            content_type: Some("text/plain".into()),
+            version_id: None,
+        })
+        .collect();
+
+    let count = db
+        .cache_upsert_objects_batch(&acct_id, "b", &objects)
+        .await
+        .unwrap();
+    assert_eq!(count, 50);
+
+    let row = db
+        .cache_get_object(&acct_id, "b", "prefix/item-0025.txt")
+        .await
+        .unwrap()
+        .expect("row must exist");
+    assert_eq!(row.size, 125);
+    assert_eq!(row.etag.as_deref(), Some("etag-25"));
+}
+
+#[tokio::test]
+async fn cache_upsert_batch_overwrites_on_conflict() {
+    let (db, _td, acct_id) = common::tmp_db_with_account().await;
+
+    let key = "prefix/dup.txt";
+    db.cache_upsert_objects_batch(
+        &acct_id,
+        "b",
+        &[ObjectMeta {
+            key: key.into(),
+            size: 10,
+            etag: Some("v1".into()),
+            last_modified: None,
+            storage_class: None,
+            content_type: None,
+            version_id: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    db.cache_upsert_objects_batch(
+        &acct_id,
+        "b",
+        &[ObjectMeta {
+            key: key.into(),
+            size: 20,
+            etag: Some("v2".into()),
+            last_modified: None,
+            storage_class: None,
+            content_type: None,
+            version_id: None,
+        }],
+    )
+    .await
+    .unwrap();
+
+    let row = db.cache_get_object(&acct_id, "b", key).await.unwrap().unwrap();
+    assert_eq!(row.size, 20);
+    assert_eq!(row.etag.as_deref(), Some("v2"));
 }

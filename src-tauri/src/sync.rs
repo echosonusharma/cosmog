@@ -93,10 +93,8 @@ async fn sync_prefix_impl(
             )
             .await?;
 
-        for obj in &page.objects {
-            db.cache_upsert_object(account_id, bucket, obj).await?;
-            stats.upserted += 1;
-        }
+        let upserted = db.cache_upsert_objects_batch(account_id, bucket, &page.objects).await?;
+        stats.upserted += upserted as u64;
         stats.pages += 1;
 
         if page.is_truncated {
@@ -175,11 +173,9 @@ pub async fn full_bucket_scan(
                 ) => p?,
             };
 
-            for obj in &page.objects {
-                db.cache_upsert_object(account_id, bucket, obj).await?;
-                stats.upserted += 1;
-                seen_total += 1;
-            }
+            let batch_count = db.cache_upsert_objects_batch(account_id, bucket, &page.objects).await?;
+            stats.upserted += batch_count as u64;
+            seen_total += batch_count as u64;
             stats.pages += 1;
 
             sink.emit(TransferEvent::Progress {

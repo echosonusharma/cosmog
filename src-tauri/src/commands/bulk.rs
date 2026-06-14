@@ -94,7 +94,9 @@ pub async fn upload_directory_cmd(
             let _ = channel.send(event);
         })
     };
-    upload_directory(
+    let transfer_id = Uuid::new_v4().to_string();
+    let cancel = state.register_bulk(&transfer_id);
+    let result = upload_directory(
         &state.transfers,
         store,
         &account_id,
@@ -102,8 +104,11 @@ pub async fn upload_directory_cmd(
         &prefix,
         &local_root,
         factory,
+        cancel,
     )
-    .await
+    .await;
+    state.unregister_bulk(&transfer_id);
+    result
 }
 
 #[tracing::instrument(skip_all, err)]

@@ -1,6 +1,7 @@
 mod common;
 
 use cosmog_lib::bulk::{delete_folder, download_directory, upload_directory};
+use cosmog_lib::db::accounts::NewAccount;
 use cosmog_lib::db::transfers::TransferStatus;
 use cosmog_lib::transfer::{ProgressSink, TransferManager};
 use tokio_util::sync::CancellationToken;
@@ -70,6 +71,53 @@ async fn delete_folder_removes_all_under_prefix() {
 
 #[tokio::test]
 #[serial_test::serial]
+async fn upload_directory_cancel_stops_early() {
+    require_minio!();
+    let store = common::make_store().await;
+    let (db, _td) = common::tmp_db().await;
+    let acct = db
+        .insert_account(NewAccount {
+            name: "test".into(),
+            protocol: "s3".into(),
+            endpoint: Some(common::minio_endpoint()),
+            region: common::MINIO_REGION.into(),
+            access_key_id: common::MINIO_ACCESS_KEY.into(),
+            addressing_style: Some("path".into()),
+        })
+        .await
+        .unwrap();
+    let bucket = common::create_test_bucket(&store, "cosmog-ulcancel").await;
+    let transfers = TransferManager::new(db, 4);
+
+    let src = tempfile::tempdir().unwrap();
+    for i in 0..10 {
+        tokio::fs::write(src.path().join(format!("f{i}.txt")), b"x")
+            .await
+            .unwrap();
+    }
+
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+
+    let err = upload_directory(
+        &transfers,
+        store.clone(),
+        &acct.id,
+        &bucket,
+        "prefix",
+        src.path(),
+        |_| ProgressSink::noop(),
+        cancel,
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.code(), "canceled");
+    common::cleanup_bucket(&store, &bucket).await;
+}
+
+#[tokio::test]
+#[serial_test::serial]
 async fn upload_and_download_directory_roundtrip() {
     require_minio!();
     let store = common::make_store().await;
@@ -105,6 +153,7 @@ async fn upload_and_download_directory_roundtrip() {
         "remote",
         src_dir.path(),
         |_| ProgressSink::noop(),
+        CancellationToken::new(),
     )
     .await
     .unwrap();

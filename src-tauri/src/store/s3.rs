@@ -28,7 +28,7 @@ use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use aws_smithy_types::byte_stream::{ByteStream, Length};
 use futures::stream::StreamExt;
 use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AppError, AppResult};
 use crate::transfer::{
     CompletedPart as SavedPart, DownloadResult, TransferCtx, TransferEvent, UploadResult,
@@ -735,6 +735,28 @@ impl ObjectStore for S3Store {
         opts: GetOptions,
         ctx: TransferCtx,
     ) -> AppResult<DownloadResult> {
+        // Honour a pre-cancelled token before issuing any network request.
+        if ctx.cancel.is_cancelled() {
+            ctx.progress.emit(TransferEvent::Canceled {
+                transfer_id: ctx.transfer_id.clone(),
+            });
+            return Err(canceled(&ctx.transfer_id));
+        }
+        // For full-object downloads, attempt a HEAD to get size and decide
+        // whether to use parallel chunked GETs.
+        if opts.range_start.is_none() && opts.range_end.is_none() {
+            if let Ok(head) = self.client.head_object().bucket(bucket).key(key).send().await {
+                if let Some(total) = head.content_length().map(|n| n as u64) {
+                    if total > ctx.multipart_threshold {
+                        return self
+                            .get_object_parallel(bucket, key, &dest, total, &opts, &ctx)
+                            .await;
+                    }
+                }
+            }
+            // HEAD failed or size <= threshold — fall through to single-stream GET.
+        }
+
         let mut req = self.client.get_object().bucket(bucket).key(key);
         if let Some(v) = opts.version_id {
             req = req.version_id(v);
@@ -760,10 +782,22 @@ impl ObjectStore for S3Store {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let mut file = File::create(&dest).await?;
+        let resume_offset = opts.range_start.unwrap_or(0);
+        // Only append when resuming a previous partial file (file must already
+        // exist with content). A plain range-GET against a non-existent dest
+        // must create the file instead of failing with ENOENT.
+        let mut file = if resume_offset > 0 && dest.exists() {
+            tokio::fs::OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(&dest)
+                .await?
+        } else {
+            File::create(&dest).await?
+        };
 
         let throttle = ProgressThrottle::new(200);
-        let mut bytes_done: u64 = 0;
+        let mut bytes_done: u64 = resume_offset;
         let mut stream = resp.body;
 
         loop {
@@ -809,6 +843,133 @@ impl ObjectStore for S3Store {
 }
 
 impl S3Store {
+    /// Download a large object by issuing parallel range GETs and writing each
+    /// chunk into the correct offset of a pre-allocated file.
+    async fn get_object_parallel(
+        &self,
+        bucket: &str,
+        key: &str,
+        dest: &PathBuf,
+        total: u64,
+        opts: &GetOptions,
+        ctx: &TransferCtx,
+    ) -> AppResult<DownloadResult> {
+        // Pre-create and pre-allocate the file.
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        {
+            let file = File::create(dest).await?;
+            file.set_len(total).await?;
+        }
+
+        let part_size = ctx.part_size.max(5 * 1024 * 1024);
+        let num_parts = (total + part_size - 1) / part_size;
+
+        let client = self.client.clone();
+        let bucket_s = bucket.to_string();
+        let key_s = key.to_string();
+        let version_id = opts.version_id.clone();
+        let dest_s = dest.clone();
+        let progress = ctx.progress.clone();
+        let cancel = ctx.cancel.clone();
+        let transfer_id = ctx.transfer_id.clone();
+        let throttle = Arc::new(ProgressThrottle::new(200));
+        let bytes_done_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        ctx.progress.emit(TransferEvent::Started {
+            transfer_id: transfer_id.clone(),
+            bytes_total: Some(total),
+        });
+
+        let futures_iter = (0..num_parts).map(|part_no| {
+            let client = client.clone();
+            let bucket = bucket_s.clone();
+            let key = key_s.clone();
+            let version_id = version_id.clone();
+            let dest = dest_s.clone();
+            let progress = progress.clone();
+            let cancel = cancel.clone();
+            let transfer_id = transfer_id.clone();
+            let throttle = throttle.clone();
+            let bytes_done_counter = bytes_done_counter.clone();
+
+            async move {
+                if cancel.is_cancelled() {
+                    return Err(AppError::Canceled(format!("transfer {transfer_id} canceled")));
+                }
+                let offset = part_no * part_size;
+                let length = (total - offset).min(part_size);
+                let range = format!("bytes={}-{}", offset, offset + length - 1);
+
+                let mut req = client.get_object().bucket(&bucket).key(&key).range(range);
+                if let Some(vid) = &version_id {
+                    req = req.version_id(vid);
+                }
+
+                let resp = tokio::select! {
+                    _ = cancel.cancelled() => return Err(AppError::Canceled(format!("transfer {transfer_id} canceled"))),
+                    r = req.send() => r.map_err(|e| classify_aws("get_object_parallel", e))?,
+                };
+
+                let body = tokio::select! {
+                    _ = cancel.cancelled() => return Err(AppError::Canceled(format!("transfer {transfer_id} canceled"))),
+                    b = resp.body.collect() => b.map_err(|e| s3_err("get_object_parallel body", e))?,
+                };
+                let data = body.to_vec();
+
+                // Write chunk at the correct offset.
+                let mut f = tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&dest)
+                    .await?;
+                f.seek(std::io::SeekFrom::Start(offset)).await?;
+                f.write_all(&data).await?;
+                f.flush().await?;
+
+                let done = bytes_done_counter.fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed) + data.len() as u64;
+                if throttle.allow() {
+                    progress.emit(TransferEvent::Progress {
+                        transfer_id: transfer_id.clone(),
+                        bytes_done: done,
+                        bytes_total: Some(total),
+                    });
+                }
+
+                Ok::<_, AppError>(())
+            }
+        });
+
+        let mut stream = Box::pin(
+            futures::stream::iter(futures_iter).buffer_unordered(ctx.parallelism.max(1))
+        );
+        while let Some(res) = stream.next().await {
+            if let Err(e) = res {
+                drop(stream);
+                let _ = tokio::fs::remove_file(dest).await;
+                let event = if matches!(&e, AppError::Canceled(_)) {
+                    TransferEvent::Canceled { transfer_id: ctx.transfer_id.clone() }
+                } else {
+                    TransferEvent::Failed { transfer_id: ctx.transfer_id.clone(), error: e.to_string() }
+                };
+                ctx.progress.emit(event);
+                return Err(e);
+            }
+        }
+
+        ctx.progress.emit(TransferEvent::Progress {
+            transfer_id: ctx.transfer_id.clone(),
+            bytes_done: total,
+            bytes_total: Some(total),
+        });
+        ctx.progress.emit(TransferEvent::Done {
+            transfer_id: ctx.transfer_id.clone(),
+            etag: None,
+        });
+
+        Ok(DownloadResult { bytes: total })
+    }
+
     async fn put_single(
         &self,
         bucket: &str,

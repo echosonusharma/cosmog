@@ -123,6 +123,11 @@ impl AppState {
             .contains_key(&(account_id.to_string(), bucket.to_string()))
     }
 
+    /// Adjust the maximum number of concurrent transfers at runtime.
+    pub fn set_transfer_concurrency(&self, n: usize) {
+        self.transfers.set_concurrency(n);
+    }
+
     /// Cancel every active bucket scan for `account_id`. Used during account
     /// deletion to stop dangling workers.
     pub fn cancel_all_scans_for_account(&self, account_id: &str) {

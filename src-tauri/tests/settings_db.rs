@@ -74,6 +74,17 @@ async fn accounts_crud_without_keyring() {
 }
 
 #[tokio::test]
+async fn backup_to_produces_valid_sqlite_file() {
+    let (db, _td) = common::tmp_db().await;
+    let dest_dir = tempfile::tempdir().unwrap();
+    let dest = dest_dir.path().join("backup.sqlite");
+    db.backup_to(dest.clone()).await.unwrap();
+    assert!(dest.exists());
+    let header = tokio::fs::read(&dest).await.unwrap();
+    assert_eq!(&header[..16], b"SQLite format 3\0");
+}
+
+#[tokio::test]
 async fn migrations_idempotent() {
     let (db, _td) = common::tmp_db().await;
     // Calling settings_save twice should not blow up — schema is in place.
