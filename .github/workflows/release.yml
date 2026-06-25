@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     permissions:
@@ -101,7 +104,8 @@ jobs:
             npm \
             curl \
             wget \
-            file
+            file \
+            xdg-utils
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
