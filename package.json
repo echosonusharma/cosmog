@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "NO_STRIP=1 tauri"
+    "tauri": "cross-env NO_STRIP=1 tauri"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -39,6 +39,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
     "@tauri-apps/cli": "^2",
+    "cross-env": "^7.0.3",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vite-plugin-solid": "^2.11.12"
