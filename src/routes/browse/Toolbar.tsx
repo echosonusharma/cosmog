@@ -19,7 +19,7 @@ export function Toolbar(props: {
   onSearchInput: (v: string) => void;
   onClearSearch: () => void;
   showSyncing: boolean;
-  stale: boolean;
+  mode: "indexed" | "live";
   viewMode: "list" | "columns";
   onViewMode: (m: "list" | "columns") => void;
   onRefresh: () => void;
@@ -77,8 +77,8 @@ export function Toolbar(props: {
         <Show when={props.showSyncing}>
           <span class="sync-badge"><span class="spinner" /> syncing</span>
         </Show>
-        <Show when={props.stale && !props.showSyncing}>
-          <span class="stale-badge">stale</span>
+        <Show when={!props.showSyncing && props.mode === "live"}>
+          <span class="mode-badge live" title="Live mode — pages fetched on demand. Enable indexing for search.">live</span>
         </Show>
         <div class="view-mode-toggle">
           <button class={`view-mode-btn ${props.viewMode === "columns" ? "active" : ""}`} onClick={() => props.onViewMode("columns")} title="Columns"><IconColumns size={14} /></button>

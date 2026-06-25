@@ -753,6 +753,37 @@ impl Db {
         Ok(stats)
     }
 
+    /// Purge every persisted row tied to a bucket. Used when the bucket itself
+    /// is deleted from the remote — leaves no orphan index/capability/cache
+    /// rows behind. Distinct from `cache_clear_bucket`, which keeps the
+    /// bucket_index row (just disabled) because the bucket still exists.
+    pub async fn bucket_purge_all(&self, account_id: &str, bucket: &str) -> AppResult<()> {
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2",
+                    params![account_id, bucket],
+                )?;
+                conn.execute(
+                    "DELETE FROM prefix_sync WHERE account_id = ?1 AND bucket = ?2",
+                    params![account_id, bucket],
+                )?;
+                conn.execute(
+                    "DELETE FROM bucket_index WHERE account_id = ?1 AND bucket = ?2",
+                    params![account_id, bucket],
+                )?;
+                conn.execute(
+                    "DELETE FROM bucket_capabilities WHERE account_id = ?1 AND bucket = ?2",
+                    params![account_id, bucket],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await?;
+        Ok(())
+    }
+
     /// Drop all cached rows for a bucket. Used when the user disables the
     /// bucket index.
     pub async fn cache_clear_bucket(&self, account_id: &str, bucket: &str) -> AppResult<()> {

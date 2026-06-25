@@ -6,13 +6,14 @@ import Logs from "./Logs";
 import {
   currentView,
   setAccounts, accounts, browseState, selectAccount,
-  setSidebarBuckets,
+  setSidebarBuckets, bucketsRefreshTick,
 } from "../state/app";
 import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
 import { listTransfers } from "../api/transfers";
 import { getSettings } from "../api/settings";
 import { setTheme } from "../state/theme";
+import { notify } from "../utils/notify";
 import { Sidebar } from "./mainapp/Sidebar";
 
 // ── main app ──────────────────────────────────────────────────────────────────
@@ -40,20 +41,40 @@ export default function MainApp() {
     if (s) setTheme((s.theme as any) ?? "system");
   });
 
-  // load buckets for active account
+  // load buckets for active account; refetch on global bucket refresh tick
   createEffect(() => {
     const id = browseState.accountId;
+    bucketsRefreshTick();
     if (!id) { setSidebarBuckets([]); return; }
     listBuckets(id)
       .then((b) => setSidebarBuckets(b))
       .catch(() => setSidebarBuckets([]));
   });
 
-  // poll active transfer count for badge
+  // poll active transfer count for badge + fire sys notifications when
+  // downloads finish. `notifiedDone` tracks the transfer IDs we already
+  // announced so a long-lived "done" row doesn't re-notify every poll.
+  const notifiedDone = new Set<string>();
+  let firstLoad = true;
   async function refreshCount() {
     try {
       const list = await listTransfers();
       setActiveCount(list.filter((t) => t.status === "active" || t.status === "pending").length);
+      // On the very first load (e.g. app restart after old finished downloads
+      // are still in the DB), seed the set so we don't toast historic ones.
+      if (firstLoad) {
+        for (const t of list) if (t.status === "done") notifiedDone.add(t.id);
+        firstLoad = false;
+        return;
+      }
+      for (const t of list) {
+        if (t.direction !== "download") continue;
+        if (t.status !== "done") continue;
+        if (notifiedDone.has(t.id)) continue;
+        notifiedDone.add(t.id);
+        const name = t.key.split("/").pop() || t.key;
+        notify("Download complete", name);
+      }
     } catch { /* ignore */ }
   }
   refreshCount();
@@ -68,6 +89,7 @@ export default function MainApp() {
       <Sidebar
         collapsed={collapsed()}
         onCollapse={() => setCollapsed(true)}
+        onExpand={() => setCollapsed(false)}
         activeAccount={activeAccount()}
         activeCount={activeCount()}
       />

@@ -50,6 +50,10 @@ pub struct AppState {
     /// concurrent syncs for the same prefix — FE polling can otherwise spawn
     /// multiple overlapping mark/sweep cycles that corrupt the cache.
     prefix_syncs: Arc<DashSet<(String, String, String)>>,
+    /// (account_id, bucket, prefix) -> (unix_ts, error_message). Used to
+    /// throttle re-spawning background sync after a failure so transient or
+    /// permanent S3 errors don't get hammered every 1.5s poll cycle.
+    prefix_sync_errors: Arc<DashMap<(String, String, String), (i64, String)>>,
     /// In-memory cache for AppSettings. Avoids a SQLite read on every
     /// browse_prefix call (which is polled every 1.5s during refresh).
     /// Invalidated by settings_patch and restore_backup commands.
@@ -68,6 +72,7 @@ impl AppState {
             scan_cancels: Arc::new(DashMap::new()),
             bulk_cancels: Arc::new(DashMap::new()),
             prefix_syncs: Arc::new(DashSet::new()),
+            prefix_sync_errors: Arc::new(DashMap::new()),
             settings_cache: Arc::new(RwLock::new(None)),
         }
     }
@@ -195,6 +200,40 @@ impl AppState {
             bucket.to_string(),
             prefix.to_string(),
         ));
+    }
+
+    pub fn record_prefix_sync_error(&self, account_id: &str, bucket: &str, prefix: &str, err: &str) {
+        let ts = chrono::Utc::now().timestamp();
+        self.prefix_sync_errors.insert(
+            (account_id.to_string(), bucket.to_string(), prefix.to_string()),
+            (ts, err.to_string()),
+        );
+    }
+
+    pub fn clear_prefix_sync_error(&self, account_id: &str, bucket: &str, prefix: &str) {
+        self.prefix_sync_errors.remove(&(
+            account_id.to_string(),
+            bucket.to_string(),
+            prefix.to_string(),
+        ));
+    }
+
+    /// Returns the recorded error message if one occurred within `cooldown_secs`.
+    pub fn recent_prefix_sync_error(
+        &self,
+        account_id: &str,
+        bucket: &str,
+        prefix: &str,
+        cooldown_secs: i64,
+    ) -> Option<String> {
+        let key = (account_id.to_string(), bucket.to_string(), prefix.to_string());
+        let entry = self.prefix_sync_errors.get(&key)?;
+        let now = chrono::Utc::now().timestamp();
+        if now - entry.0 < cooldown_secs {
+            Some(entry.1.clone())
+        } else {
+            None
+        }
     }
 
     /// Cancel every active bucket scan for `account_id`. Used during account

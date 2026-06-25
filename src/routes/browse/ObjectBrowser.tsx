@@ -1,5 +1,5 @@
 import { createSignal, createResource, For, Show, createEffect, onMount, onCleanup, ErrorBoundary } from "solid-js";
-import { browsePrefix } from "../../api/browse";
+import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import {
   searchObjects, bucketIndexStatus,
   enableBucketIndex, disableBucketIndex, reindexBucket,
@@ -36,7 +36,6 @@ export function ObjectBrowser(props: {
   defaultDownloadDir: string;
 }) {
   const [refresh, setRefresh] = createSignal(0);
-  const [forceRefresh, setForceRefresh] = createSignal(false);
 
   // ── search ────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = createSignal("");
@@ -98,12 +97,12 @@ export function ObjectBrowser(props: {
     } catch (e) { toast.err(e); }
     finally { setIndexBusy(false); }
   }
-  const [browseData] = createResource(
-    () => ({ a: props.accountId, b: props.bucket, p: props.prefix, r: refresh(), f: forceRefresh() }),
-    ({ a, b, p, f }) => browsePrefix(a, b, p, f),
-  );
-  // Reset forceRefresh after the resource has queued a fetch, not inside the fetcher.
-  createEffect(() => { if (forceRefresh() && browseData.loading) setForceRefresh(false); });
+  const { state: browseData, loadMore: browseLoadMore } = createPagedBrowse(() => ({
+    accountId: props.accountId,
+    bucket: props.bucket,
+    prefix: props.prefix,
+    refresh: refresh(),
+  }));
 
   const VALID_VIEW_MODES = ["list", "columns"] as const;
   const storedView = localStorage.getItem("cosmog:viewMode");
@@ -147,23 +146,8 @@ export function ObjectBrowser(props: {
     setPendingPreview(null);
   });
 
-  // Poll while BE is doing a background sync — `refreshing` is a snapshot
-  // in the response, not a live flag, so re-fetch periodically until BE
-  // reports refreshing=false. Capped at 10 retries (~15s) so a stuck BE
-  // flag never spins the UI forever.
-  const [pollCount, setPollCount] = createSignal(0);
-  createEffect(() => { props.prefix; props.bucket; setPollCount(0); });
   createEffect(() => { props.bucket; setPreviewTarget(null); });
-  createEffect(() => {
-    if (!browseData()?.refreshing) return;
-    if (pollCount() >= 10) return;
-    const t = setTimeout(() => {
-      setPollCount((n) => n + 1);
-      setRefresh((n) => n + 1);
-    }, 1500);
-    onCleanup(() => clearTimeout(t));
-  });
-  const showSyncing = () => !!browseData()?.refreshing && pollCount() < 10;
+  const showSyncing = () => browseData.loading && !browseData.initialLoaded;
 
   function toggleSel(key: string) {
     const s = new Set<string>(selected());
@@ -308,10 +292,10 @@ export function ObjectBrowser(props: {
         onSearchInput={setSearchQuery}
         onClearSearch={() => setSearchQuery("")}
         showSyncing={showSyncing()}
-        stale={!!browseData()?.stale}
+        mode={browseData.mode}
         viewMode={viewMode()}
         onViewMode={saveViewMode}
-        onRefresh={() => { setForceRefresh(true); setRefresh((n) => n + 1); }}
+        onRefresh={() => { setRefresh((n) => n + 1); }}
         onNewFolder={() => setShowNewFolder(props.prefix)}
         onUpload={() => setShowUpload(props.prefix)}
       />
@@ -368,6 +352,7 @@ export function ObjectBrowser(props: {
                     bucket={props.bucket}
                     prefix={pfx}
                     selectedKey={selKey()}
+                    active={i() === colPrefixes().length - 1}
                     onSelectFolder={(sub) => navigateToPrefix(sub)}
                     onSelectFile={(obj) => { setPreviewTarget(obj); }}
                     onCtxFolder={openCtxFolder}
@@ -386,6 +371,7 @@ export function ObjectBrowser(props: {
         <ListView
           prefix={props.prefix}
           browseData={browseData}
+          onLoadMore={browseLoadMore}
           hasSel={hasSel()}
           selected={selected()}
           visible={viewMode() === "list"}

@@ -750,6 +750,8 @@ input[type="checkbox"] {
 }
 
 .sidebar-group { display: flex; flex-direction: column; margin-top: 18px; }
+.sidebar-group-flex { flex: 1 1 0; min-height: 120px; }
+.sidebar-group-list { overflow-y: auto; min-height: 0; }
 
 .sidebar-group-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -819,6 +821,30 @@ input[type="checkbox"] {
 }
 
 /* bucket sidebar item */
+.sidebar-bucket-search {
+  display: flex; align-items: center;
+  gap: 6px;
+  margin: 0 6px 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.sidebar-bucket-search-icon { color: var(--faint); flex-shrink: 0; }
+.sidebar-bucket-search-input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  color: var(--text);
+  font: inherit; font-size: 11.5px;
+}
+.sidebar-bucket-search-input::placeholder { color: var(--faint); }
+.sidebar-bucket-search-clear {
+  background: none; border: none;
+  color: var(--muted); cursor: pointer;
+  padding: 0; display: inline-flex; align-items: center;
+}
+.sidebar-bucket-search-clear:hover { color: var(--text); }
+
 .sidebar-bucket-item {
   display: flex; align-items: center;
   gap: 9px;
@@ -1946,7 +1972,47 @@ input[type="checkbox"] {
 .log-level.debug { color: var(--text-faint); background: var(--bg-active); }
 .log-level.warn  { color: var(--warn);  background: rgba(245,158,11,0.12); }
 .log-level.error { color: var(--err);   background: rgba(248,113,113,0.12); }
-.log-msg { color: var(--text-soft); word-break: break-word; flex: 1; min-width: 0; }
+.log-msg { color: var(--text-soft); word-break: break-word; }
+
+.log-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.log-headline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.log-span {
+  font-size: 10.5px; font-weight: 600;
+  color: var(--accent);
+  padding: 1px 6px; border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.log-fields { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.log-kv {
+  font-size: 11px;
+  display: inline-flex; align-items: baseline;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.log-k { padding: 1px 5px; color: var(--text-faint); background: var(--bg-active); }
+.log-v { padding: 1px 5px; color: var(--text); }
+.log-json-toggle {
+  font-size: 10.5px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 5px;
+}
+.log-json-toggle:hover { color: var(--text); }
+.log-json {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ── transfers footer bar ───────────────────────────────────────────────── */
 
@@ -2009,6 +2075,11 @@ input[type="checkbox"] {
   overflow-y: auto;
   padding: 4px 4px;
   contain: layout paint;
+  position: relative;
+}
+
+.col-pane-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .col-pane-item {
@@ -2115,6 +2186,16 @@ input[type="checkbox"] {
   font-size: 11px;
   color: var(--warn);
 }
+.mode-badge {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.mode-badge.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {

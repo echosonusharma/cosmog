@@ -8,6 +8,7 @@ import {
   IconBack, IconDownload, IconLink, IconTrash, IconBucket,
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
+import type { PagedBrowseState } from "../../utils/usePagedBrowse";
 
 export type ListItem =
   | { kind: "folder"; sub: string }
@@ -17,7 +18,8 @@ const LIST_ROW_H = 30;
 
 export function ListView(props: {
   prefix: string;
-  browseData: any; // createResource accessor
+  browseData: PagedBrowseState;
+  onLoadMore: () => void;
   hasSel: boolean;
   selected: Set<string>;
   visible: boolean;
@@ -30,8 +32,8 @@ export function ListView(props: {
   onCtxFolder: (e: MouseEvent, sub: string) => void;
 }) {
   const listItems = createMemo<ListItem[]>(() => {
-    const d = props.browseData.latest;
-    if (!d) return [];
+    const d = props.browseData;
+    if (!d.initialLoaded) return [];
     return [
       ...d.subprefixes.map((sub: string) => ({ kind: "folder" as const, sub })),
       ...d.objects.map((obj: CachedObjectMeta) => ({ kind: "file" as const, obj })),
@@ -68,31 +70,25 @@ export function ListView(props: {
         <div
           ref={listScrollEl}
           class={`object-list ${props.hasSel ? "has-selection" : ""}`}
-          style={{ flex: "1", "overflow-y": "auto", position: "relative", opacity: props.browseData.loading ? "0.45" : "1", transition: "opacity 0.12s" }}
+          style={{ flex: "1", "overflow-y": "auto", position: "relative", opacity: props.browseData.loading && !props.browseData.initialLoaded ? "0.45" : "1", transition: "opacity 0.12s" }}
         >
           <Show when={props.browseData.error}>
             <div class="status-msg err" style="margin:12px 16px">{errMsg(props.browseData.error)}</div>
           </Show>
 
-          <Show when={props.browseData.loading && !props.browseData.latest}>
+          <Show when={props.browseData.loading && !props.browseData.initialLoaded}>
             <div class="loading-row"><span class="spinner" /> Loading…</div>
           </Show>
 
-          <Show when={props.browseData.latest && listItems().length === 0}>
+          <Show when={props.browseData.initialLoaded && listItems().length === 0}>
             <div class="empty-state">
               <span class="empty-icon"><IconBucket size={36} /></span>
               Empty prefix
             </div>
           </Show>
 
-          <Show when={props.browseData.latest?.truncated}>
-            <div class="status-msg warn" style="margin:6px 16px;font-size:11px">
-              Showing first 5,000 files. Use search to find objects beyond this limit.
-            </div>
-          </Show>
-
           {/* ".." back row — outside virtual list so it's always at top */}
-          <Show when={props.prefix !== "" && props.browseData.latest}>
+          <Show when={props.prefix !== "" && props.browseData.initialLoaded}>
             <button class="obj-row folder-row" onClick={goUpPrefix} style={`height:${LIST_ROW_H}px`}>
               <div class="obj-name-cell">
                 <span class="obj-checkbox-spacer" />
@@ -103,6 +99,17 @@ export function ListView(props: {
               <div class="obj-size" />
               <div class="obj-date" />
               <div />
+            </button>
+          </Show>
+
+          <Show when={props.browseData.continuation}>
+            <button
+              class="loadmore-row"
+              style="display:block;width:calc(100% - 32px);margin:8px 16px;padding:8px;border:1px dashed var(--border);border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font-size:12px"
+              disabled={props.browseData.loading}
+              onClick={props.onLoadMore}
+            >
+              {props.browseData.loading ? "Loading more…" : `Load more (${props.browseData.objects.length} loaded)`}
             </button>
           </Show>
 

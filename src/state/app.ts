@@ -21,6 +21,10 @@ export const [browseState, setBrowseState] = createStore<BrowseState>({
 export const [accounts, setAccounts] = createSignal<Account[]>([]);
 export const [sidebarBuckets, setSidebarBuckets] = createSignal<Bucket[]>([]);
 
+const [bucketsRefreshTick, setBucketsRefreshTick] = createSignal(0);
+export { bucketsRefreshTick };
+export function bumpBucketsRefresh() { setBucketsRefreshTick((n) => n + 1); }
+
 export const [pendingPreview, setPendingPreview] = createSignal<CachedObjectMeta | null>(null);
 
 export const [openAddAccount, setOpenAddAccount] = createSignal(false);

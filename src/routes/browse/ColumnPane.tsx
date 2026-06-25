@@ -1,6 +1,6 @@
-import { createSignal, createResource, createMemo, Show, createEffect, onCleanup, Index } from "solid-js";
+import { createMemo, Show, Index } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { browsePrefix } from "../../api/browse";
+import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import { errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
 import { FileIcon, IconChevronR } from "../../utils/icons";
@@ -10,12 +10,19 @@ import type { CachedObjectMeta } from "../../types";
 
 export const COL_ITEM_H = 30; // px — must match .col-pane-item height in CSS
 
+type Row =
+  | { kind: "folder"; key: string }
+  | { kind: "file"; obj: CachedObjectMeta }
+  | { kind: "loadmore" };
+
 function ColumnPaneVirtual(props: {
-  items: Array<{ kind: "folder"; key: string } | { kind: "file"; obj: CachedObjectMeta }>;
+  items: Row[];
   loading: boolean;
   selectedKey: string | null;
+  active?: boolean;
   onSelectFolder: (sub: string) => void;
   onSelectFile: (obj: CachedObjectMeta) => void;
+  onLoadMore: () => void;
   onCtxFolder?: (e: MouseEvent, sub: string) => void;
   onCtxFile?: (e: MouseEvent, obj: CachedObjectMeta) => void;
   onCtxPane?: (e: MouseEvent) => void;
@@ -32,7 +39,7 @@ function ColumnPaneVirtual(props: {
   return (
     <div
       ref={scrollEl}
-      class="col-pane"
+      class={`col-pane ${props.active ? "col-pane-active" : ""}`}
       style={{ "overflow-y": "auto", opacity: props.loading ? "0.45" : "1", transition: "opacity 0.12s" }}
       onContextMenu={(e) => {
         if (e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); props.onCtxPane?.(e); }
@@ -75,6 +82,16 @@ function ColumnPaneVirtual(props: {
                       <span class="col-pane-name">{(item() as { kind: "file"; obj: CachedObjectMeta }).obj.basename}</span>
                     </button>
                   </Show>
+                  <Show when={item().kind === "loadmore"}>
+                    <button
+                      class="col-pane-item col-pane-loadmore"
+                      style="height:100%;width:100%;justify-content:center;color:var(--muted)"
+                      onClick={props.onLoadMore}
+                      disabled={props.loading}
+                    >
+                      {props.loading ? "Loading…" : "Load more"}
+                    </button>
+                  </Show>
                 </div>
               </Show>
             );
@@ -90,6 +107,7 @@ export function ColumnPane(props: {
   bucket: string;
   prefix: string;
   selectedKey: string | null;
+  active?: boolean;
   onSelectFolder: (sub: string) => void;
   onSelectFile: (obj: CachedObjectMeta) => void;
   onCtxFolder?: (e: MouseEvent, sub: string) => void;
@@ -97,56 +115,47 @@ export function ColumnPane(props: {
   onCtxPane?: (e: MouseEvent, prefix: string) => void;
   refresh: number;
 }) {
-  const [pollCount, setPollCount] = createSignal(0);
-  const [data] = createResource(
-    () => [props.accountId, props.bucket, props.prefix, props.refresh, pollCount()] as const,
-    ([a, b, p]) => browsePrefix(a, b, p),
-  );
+  const { state, loadMore } = createPagedBrowse(() => ({
+    accountId: props.accountId,
+    bucket: props.bucket,
+    prefix: props.prefix,
+    refresh: props.refresh,
+  }));
 
-  createEffect(() => {
-    if (!data()?.refreshing) { setPollCount(0); return; }
-    if (pollCount() >= 10) return;
-    const t = setTimeout(() => setPollCount((n) => n + 1), 1500);
-    onCleanup(() => clearTimeout(t));
+  const items = createMemo<Row[]>(() => {
+    const folders: Row[] = state.subprefixes.map((key) => ({ kind: "folder", key }));
+    const files: Row[] = state.objects.map((obj) => ({ kind: "file", obj }));
+    const rows: Row[] = [...folders, ...files];
+    if (state.continuation) rows.push({ kind: "loadmore" });
+    return rows;
   });
 
-  const items = createMemo(() => {
-    const d = data.latest;
-    if (!d) return [];
-    const folders = d.subprefixes.map((key) => ({ kind: "folder" as const, key }));
-    const files = d.objects.map((obj) => ({ kind: "file" as const, obj }));
-    return [...folders, ...files];
-  });
-
-  const hasData = () => !!data.latest;
-  const isRefreshing = () => !!data.latest?.refreshing;
+  const hasData = () => state.initialLoaded;
 
   return (
     <Show when={hasData()} fallback={
-      <div class="col-pane" style="overflow-y:auto">
-        <Show when={data.loading}>
+      <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto">
+        <Show when={state.loading}>
           <div style="padding:12px;display:flex;justify-content:center"><span class="spinner" /></div>
         </Show>
-        <Show when={data.error}>
-          <div style="padding:8px;font-size:11px;color:var(--red)">{errMsg(data.error)}</div>
+        <Show when={state.error}>
+          <div style="padding:8px;font-size:11px;color:var(--red)">{errMsg(state.error)}</div>
         </Show>
       </div>
     }>
       <Show when={items().length > 0} fallback={
-        <div class="col-pane" style="overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding-top:12px">
-          <Show when={isRefreshing()} fallback={
-            <span style="color:var(--faint);font-size:12px">Empty folder</span>
-          }>
-            <span class="spinner" />
-          </Show>
+        <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding-top:12px">
+          <span style="color:var(--faint);font-size:12px">Empty folder</span>
         </div>
       }>
         <ColumnPaneVirtual
           items={items()}
-          loading={data.loading}
+          loading={state.loading}
           selectedKey={props.selectedKey}
+          active={props.active}
           onSelectFolder={props.onSelectFolder}
           onSelectFile={props.onSelectFile}
+          onLoadMore={loadMore}
           onCtxFolder={props.onCtxFolder}
           onCtxFile={props.onCtxFile}
           onCtxPane={(e) => props.onCtxPane?.(e, props.prefix)}

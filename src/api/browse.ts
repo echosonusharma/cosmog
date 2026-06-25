@@ -5,5 +5,5 @@ export const browsePrefix = (
   accountId: string,
   bucket: string,
   prefix: string,
-  force = false,
-): Promise<BrowseResult> => invoke("browse_prefix", { accountId, bucket, prefix, force });
+  continuation?: string,
+): Promise<BrowseResult> => invoke("browse_prefix", { accountId, bucket, prefix, continuation });

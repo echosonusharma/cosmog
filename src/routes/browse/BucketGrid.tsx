@@ -1,13 +1,13 @@
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, createResource, createMemo, For, Show } from "solid-js";
 import { listBuckets, deleteBucket } from "../../api/buckets";
 import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
 import { notify } from "../../utils/notify";
-import { setBrowseState } from "../../state/app";
+import { setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
 import {
-  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket,
+  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX,
 } from "../../utils/icons";
 import type { Bucket } from "../../types";
 import { ErrorPopup } from "../../utils/ErrorPopup";
@@ -23,6 +23,13 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     ({ a }) => { setErrDismissed(false); return listBuckets(a); },
   );
   const [showNew, setShowNew] = createSignal(false);
+  const [filter, setFilter] = createSignal("");
+  const filtered = createMemo(() => {
+    const q = filter().trim().toLowerCase();
+    const all = buckets() ?? [];
+    if (!q) return all;
+    return all.filter((b) => b.name.toLowerCase().includes(q));
+  });
 
   async function handleDelete(name: string) {
     const ok = await confirmDialog({
@@ -35,6 +42,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     try {
       await deleteBucket(props.accountId, name);
       setRefresh((n) => n + 1);
+      bumpBucketsRefresh();
       notify("Bucket deleted", name);
     } catch (e) {
       // S3 refuses DeleteBucket on non-empty buckets — guide the user.
@@ -49,6 +57,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
         try {
           await emptyAndDeleteBucket(props.accountId, name);
           setRefresh((n) => n + 1);
+          bumpBucketsRefresh();
           notify("Bucket deleted", `${name} emptied and deleted`);
         } catch (e2) {
           toast.err(e2);
@@ -80,7 +89,18 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
             <span class="breadcrumb-current">{props.accountName}</span>
           </div>
         </div>
-        <div style="flex:1" />
+        <div class="toolbar-search bucket-grid-search">
+          <IconSearch size={13} class="toolbar-search-icon" />
+          <input
+            class="toolbar-search-input"
+            placeholder="Filter buckets…"
+            value={filter()}
+            onInput={(e) => setFilter(e.currentTarget.value)}
+          />
+          <Show when={filter()}>
+            <button class="toolbar-search-clear" onClick={() => setFilter("")}><IconX size={11} /></button>
+          </Show>
+        </div>
         <div class="toolbar-actions">
           <button class="btn-secondary toolbar-btn" onClick={() => setShowNew(true)}>
             <IconPlus size={14} /> New bucket
@@ -103,8 +123,14 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                     No buckets yet
                   </div>
                 }>
+            <Show when={filtered().length === 0 && filter()}>
+              <div class="empty-state">
+                <span class="empty-icon"><IconBucket size={40} /></span>
+                No buckets match "{filter()}"
+              </div>
+            </Show>
             <div class="bucket-grid">
-              <For each={buckets()}>
+              <For each={filtered()}>
                 {(b) => (
                   <div class="bucket-card">
                     <button class="bucket-name"
@@ -124,7 +150,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
 
       <Show when={showNew()}>
         <NewBucketModal accountId={props.accountId} onClose={() => setShowNew(false)}
-                        onDone={() => setRefresh((n) => n + 1)} />
+                        onDone={() => { setRefresh((n) => n + 1); bumpBucketsRefresh(); }} />
       </Show>
     </div>
   );

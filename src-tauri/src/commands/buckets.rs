@@ -25,14 +25,38 @@ pub async fn create_bucket(
         .await
 }
 
-#[tracing::instrument(skip_all, err)]
+#[tracing::instrument(skip_all)]
 #[tauri::command]
 pub async fn delete_bucket(
     state: State<'_, AppState>,
     account_id: String,
     name: String,
 ) -> AppResult<()> {
-    state.store_for(&account_id).await?.delete_bucket(&name).await
+    // Stop any work targeting the bucket before remote delete: scans would
+    // start failing with 404s and active transfers would write to soon-purged
+    // cache rows.
+    state.cancel_scan(&account_id, &name);
+    if let Err(e) = state.transfers.cancel_for_bucket(&account_id, &name).await {
+        tracing::warn!(account_id = %account_id, bucket = %name, "cancel_for_bucket failed: {e}");
+    }
+    let store = state.store_for(&account_id).await?;
+    if let Err(e) = store.delete_bucket(&name).await {
+        // BucketNotEmpty surfaces as Conflict — that's a routine signal to the
+        // frontend (it prompts "Empty + delete"), not a server error. Keep it
+        // at debug so logs stay quiet during normal usage.
+        if e.code() == "conflict" {
+            tracing::debug!(account_id = %account_id, bucket = %name, "delete_bucket: not empty");
+        } else {
+            tracing::error!(account_id = %account_id, bucket = %name, "delete_bucket failed: {e}");
+        }
+        return Err(e);
+    }
+    // Purge SQL cache after remote delete succeeds. If the remote delete
+    // failed we keep the cache intact so the user can retry.
+    if let Err(e) = state.db.bucket_purge_all(&account_id, &name).await {
+        tracing::warn!(account_id = %account_id, bucket = %name, "bucket_purge_all failed: {e}");
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip_all, err)]

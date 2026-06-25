@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createSignal, createMemo } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import {
   currentView, setCurrentView,
@@ -9,7 +9,7 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX,
 } from "../../utils/icons";
 import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
@@ -28,9 +28,17 @@ const NAV: { view: View; label: string; icon: () => JSX.Element }[] = [
 export function Sidebar(props: {
   collapsed: boolean;
   onCollapse: () => void;
+  onExpand: () => void;
   activeAccount: Account | null;
   activeCount: number;
 }) {
+  const [bucketFilter, setBucketFilter] = createSignal("");
+  const filteredBuckets = createMemo(() => {
+    const q = bucketFilter().trim().toLowerCase();
+    const all = sidebarBuckets();
+    if (!q) return all;
+    return all.filter((b) => b.name.toLowerCase().includes(q));
+  });
   return (
     <aside class={`sidebar ${props.collapsed ? "collapsed" : ""}`}>
 
@@ -60,14 +68,19 @@ export function Sidebar(props: {
           </div>
         </Show>
         <Show when={props.collapsed}>
-          <div class="sidebar-account-pill" style="justify-content:center">
+          <button
+            class="sidebar-account-pill collapsed-expand"
+            style="justify-content:center;border:none;background:transparent;cursor:pointer;width:100%"
+            onClick={props.onExpand}
+            title="Expand sidebar"
+          >
             <Show when={props.activeAccount}
                   fallback={
                     <img src="/app-icon.svg" width="28" height="28" class="app-icon-img" alt="Cosmog" />
                   }>
               <ProviderTile account={props.activeAccount!} />
             </Show>
-          </div>
+          </button>
         </Show>
       </div>
 
@@ -93,28 +106,44 @@ export function Sidebar(props: {
 
         {/* buckets */}
         <Show when={!props.collapsed && sidebarBuckets().length > 0}>
-          <div class="sidebar-group">
+          <div class="sidebar-group sidebar-group-flex">
             <div class="sidebar-group-header">
               Buckets
-              <span class="sidebar-group-count">{sidebarBuckets().length}</span>
+              <span class="sidebar-group-count">{filteredBuckets().length}{bucketFilter() ? `/${sidebarBuckets().length}` : ""}</span>
             </div>
-            <For each={sidebarBuckets()}>
-              {(b) => (
-                <button
-                  class={`sidebar-bucket-item ${browseState.bucket === b.name && browseState.accountId === (props.activeAccount?.id ?? "") ? "active" : ""}`}
-                  onClick={() => {
-                    const id = browseState.accountId;
-                    if (id) navigateToBucket(id, b.name);
-                  }}
-                  title={b.name}
-                >
-                  <span class="sidebar-bucket-icon">
-                    <IconBucket size={13} />
-                  </span>
-                  <span class="sidebar-bucket-name">{b.name}</span>
-                </button>
-              )}
-            </For>
+            <Show when={sidebarBuckets().length > 8}>
+              <div class="sidebar-bucket-search">
+                <IconSearch size={11} class="sidebar-bucket-search-icon" />
+                <input
+                  class="sidebar-bucket-search-input"
+                  placeholder="Filter buckets…"
+                  value={bucketFilter()}
+                  onInput={(e) => setBucketFilter(e.currentTarget.value)}
+                />
+                <Show when={bucketFilter()}>
+                  <button class="sidebar-bucket-search-clear" onClick={() => setBucketFilter("")}><IconX size={10} /></button>
+                </Show>
+              </div>
+            </Show>
+            <div class="sidebar-group-list">
+              <For each={filteredBuckets()}>
+                {(b) => (
+                  <button
+                    class={`sidebar-bucket-item ${browseState.bucket === b.name && browseState.accountId === (props.activeAccount?.id ?? "") ? "active" : ""}`}
+                    onClick={() => {
+                      const id = browseState.accountId;
+                      if (id) navigateToBucket(id, b.name);
+                    }}
+                    title={b.name}
+                  >
+                    <span class="sidebar-bucket-icon">
+                      <IconBucket size={13} />
+                    </span>
+                    <span class="sidebar-bucket-name">{b.name}</span>
+                  </button>
+                )}
+              </For>
+            </div>
           </div>
         </Show>
 

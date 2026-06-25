@@ -3,7 +3,7 @@ import { listAccounts, deleteAccount } from "../../api/accounts";
 import { setAccounts, openAddAccount, setOpenAddAccount } from "../../state/app";
 import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
-import { ProviderIcon, providerLabel, IconX } from "../../utils/icons";
+import { ProviderIcon, providerLabel, IconX, IconEdit } from "../../utils/icons";
 import type { Account } from "../../types";
 import { AddAccountForm } from "./AddAccountForm";
 
@@ -12,6 +12,7 @@ import { AddAccountForm } from "./AddAccountForm";
 export function AccountsList() {
   const [accts, setAccts] = createSignal<Account[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
+  const [editing, setEditing] = createSignal<Account | null>(null);
 
   // Sidebar "Add account" button sets this signal → auto-open the form
   createEffect(() => {
@@ -46,15 +47,16 @@ export function AccountsList() {
     <div class="settings-section">
       <div class="settings-section-title">
         <span>Accounts</span>
-        <button class="btn-ghost" onClick={() => setShowAdd((v) => !v)}>
-          {showAdd() ? "Cancel" : "+ Add account"}
+        <button class="btn-ghost" onClick={() => { setEditing(null); setShowAdd((v) => !v); }}>
+          {showAdd() && !editing() ? "Cancel" : "+ Add account"}
         </button>
       </div>
 
       <Show when={showAdd()}>
         <AddAccountForm
-          onDone={() => { setShowAdd(false); load(); }}
-          onCancel={() => setShowAdd(false)}
+          editing={editing() ?? undefined}
+          onDone={() => { setShowAdd(false); setEditing(null); load(); }}
+          onCancel={() => { setShowAdd(false); setEditing(null); }}
         />
       </Show>
 
@@ -72,6 +74,8 @@ export function AccountsList() {
                     {a.endpoint ? ` · ${a.endpoint}` : ""}
                   </span>
                 </div>
+                <button class="icon-btn" title="Edit"
+                        onClick={() => { setEditing(a); setShowAdd(true); }}><IconEdit size={15} /></button>
                 <button class="icon-btn danger" title="Remove"
                         onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
               </div>

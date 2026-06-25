@@ -1,120 +1,141 @@
 //! Cache-aware browse command.
 //!
-//! Most file-explorer-style navigation in the FE wants the **direct children**
-//! of a prefix, not a flat global search. [`browse_prefix`] returns whatever
-//! the cache has *right now* (instant) and decides whether to kick a
-//! background refresh:
+//! Two modes, selected per bucket:
 //!
-//! - Cache has rows for this prefix AND `prefix_sync.synced_at` is within the
-//!   user's TTL → return cache, no network.
-//! - Cache empty OR stale beyond TTL → return cache (possibly empty) AND
-//!   spawn a `sync_prefix_direct` task. The FE listens for the new data on a
-//!   subsequent poll or via a `prefix-synced` event (FE-driven).
+//! - **Indexed mode** — bucket has full-bucket indexing enabled and a
+//!   completed scan. Returns the direct children of the prefix from the
+//!   local cache. The scheduler refreshes the index in the background.
+//!   Cheap, sorted, supports search.
 //!
-//! This pattern keeps the UI responsive and bounds API cost — typical
-//! navigation hits the cache.
+//! - **Live mode** — bucket is not indexed. Each call hits S3 once with
+//!   `delimiter='/'` and a 1000-key page. The FE drives pagination via
+//!   the `continuation` field. We upsert the page into `cached_objects`
+//!   as a warm best-effort cache but never sweep — orphan rows here are
+//!   harmless and only fully reconciled by a full bucket scan.
+//!
+//! Live mode replaces the previous "background sync_prefix_direct" flow.
+//! That flow walked every page of the prefix on each TTL expiry, which is
+//! unworkable for prefixes with millions of children.
 
-use std::sync::Arc;
-
-use chrono::Utc;
 use serde::Serialize;
 use tauri::State;
 
-use crate::db::cache::CachedObjectMeta;
+use crate::db::cache::{CachedObjectMeta, KeyParts};
 use crate::error::AppResult;
 use crate::state::AppState;
-use crate::sync::sync_prefix_direct;
+use crate::store::ListOptions;
 use crate::validate;
+
+const LIVE_PAGE_SIZE: i32 = 1000;
 
 #[derive(Debug, Serialize)]
 pub struct BrowseResult {
     pub objects: Vec<CachedObjectMeta>,
     pub subprefixes: Vec<String>,
-    pub last_synced_at: Option<i64>,
-    pub stale: bool,
-    pub refreshing: bool,
+    /// `"indexed"` when the bucket has a completed full scan; `"live"`
+    /// otherwise. FE uses this to decide whether to paginate via
+    /// `continuation` or treat the response as a complete listing.
+    pub mode: &'static str,
+    /// S3 continuation token for fetching the next page in live mode.
+    /// Always `None` in indexed mode.
+    pub continuation: Option<String>,
+    /// `true` in live mode when more pages exist; in indexed mode mirrors
+    /// the cache's truncation flag.
     pub truncated: bool,
+    /// When the bucket index last completed a full scan. Only meaningful
+    /// in indexed mode.
+    pub last_synced_at: Option<i64>,
 }
 
-#[tracing::instrument(skip_all, err)]
+#[tracing::instrument(skip_all, fields(bucket = %bucket, prefix = %prefix))]
 #[tauri::command]
 pub async fn browse_prefix(
     state: State<'_, AppState>,
     account_id: String,
     bucket: String,
     prefix: String,
-    force: Option<bool>,
+    continuation: Option<String>,
 ) -> AppResult<BrowseResult> {
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
-    let force = force.unwrap_or(false);
 
-    // Derive direct children from the cache using LIKE + instr — no
-    // parent_prefix column needed; the tree is parsed from slashes at query time.
-    let (objects, subprefixes, truncated) = state
-        .db
-        .browse_children(&account_id, &bucket, &prefix)
-        .await?;
+    let index_status = state.db.bucket_index_get(&account_id, &bucket).await?;
+    let indexed = index_status.enabled && index_status.last_full_sync_at.is_some();
 
-    let last = state
-        .db
-        .prefix_sync_get(&account_id, &bucket, &prefix)
-        .await?;
-    let ttl = state.load_settings().await?.prefix_sync_ttl_secs as i64;
-    let now = Utc::now().timestamp();
-    let stale = force || match last {
-        Some(t) => now - t > ttl,
-        None => true,
+    if indexed {
+        let (objects, subprefixes, truncated) = state
+            .db
+            .browse_children(&account_id, &bucket, &prefix)
+            .await?;
+        return Ok(BrowseResult {
+            objects,
+            subprefixes,
+            mode: "indexed",
+            continuation: None,
+            truncated,
+            last_synced_at: index_status.last_full_sync_at,
+        });
+    }
+
+    // Live mode: single LIST page, upsert into cache, return immediately.
+    let store = state.store_for(&account_id).await?;
+    let page = match store
+        .list_objects(
+            &bucket,
+            ListOptions {
+                prefix: if prefix.is_empty() { None } else { Some(prefix.clone()) },
+                delimiter: Some("/".to_string()),
+                continuation: continuation.clone(),
+                max_keys: Some(LIVE_PAGE_SIZE),
+            },
+        )
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            // Log at warn instead of error: cross-region buckets, denied
+            // ListBucket perms, and non-existent buckets are all expected
+            // failure modes when the account has heterogeneous access.
+            tracing::warn!(code = %e.code(), "browse_prefix live LIST failed: {e}");
+            return Err(e);
+        }
     };
 
-    let mut refreshing = false;
-    if stale {
-        // `claim_prefix_sync` is an atomic DashSet insert: returns true only
-        // for the one caller that wins the slot. All others see in-flight=true
-        // and skip spawning, preventing concurrent mark/sweep corruptions.
-        if state.claim_prefix_sync(&account_id, &bucket, &prefix) {
-            let db = state.db.clone();
-            let store = Arc::clone(&state.store_for(&account_id).await?);
-            let state_for_task = state.inner().clone();
-            let account = account_id.clone();
-            let buck = bucket.clone();
-            let pref = prefix.clone();
-            tokio::spawn(async move {
-                // Drop-guard ensures the slot is released even if sync_prefix_direct
-                // panics, so subsequent claim_prefix_sync calls can re-spawn.
-                struct SyncGuard {
-                    state: crate::state::AppState,
-                    account: String,
-                    bucket: String,
-                    prefix: String,
-                }
-                impl Drop for SyncGuard {
-                    fn drop(&mut self) {
-                        self.state.unregister_prefix_sync(&self.account, &self.bucket, &self.prefix);
-                    }
-                }
-                let _guard = SyncGuard {
-                    state: state_for_task,
-                    account: account.clone(),
-                    bucket: buck.clone(),
-                    prefix: pref.clone(),
-                };
-                if let Err(e) = sync_prefix_direct(&db, store, &account, &buck, &pref).await {
-                    tracing::warn!(account = %account, bucket = %buck, prefix = %pref, "background sync_prefix_direct failed: {e}");
-                }
-            });
-        }
-        // Whether we just spawned or one was already in flight, tell the FE
-        // to keep polling until this prefix's sync completes.
-        refreshing = true;
-    }
+    // Best-effort warm cache. Never sweep — we only saw one page.
+    let _ = state
+        .db
+        .cache_upsert_objects_batch(&account_id, &bucket, &page.objects)
+        .await;
+
+    let now = chrono::Utc::now().timestamp();
+    let objects: Vec<CachedObjectMeta> = page
+        .objects
+        .into_iter()
+        .map(|meta| {
+            let parts = KeyParts::from_key(&meta.key);
+            CachedObjectMeta {
+                account_id: account_id.clone(),
+                bucket: bucket.clone(),
+                key: meta.key,
+                size: meta.size,
+                etag: meta.etag,
+                last_modified: meta.last_modified,
+                storage_class: meta.storage_class,
+                content_type: meta.content_type,
+                extension: parts.extension,
+                basename: parts.basename,
+                version_id: meta.version_id,
+                synced_at: now,
+            }
+        })
+        .collect();
 
     Ok(BrowseResult {
         objects,
-        subprefixes,
-        last_synced_at: last,
-        stale,
-        refreshing,
-        truncated,
+        subprefixes: page.prefixes,
+        mode: "live",
+        continuation: page.continuation,
+        truncated: page.is_truncated,
+        last_synced_at: None,
     })
 }

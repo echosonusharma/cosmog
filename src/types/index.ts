@@ -33,10 +33,10 @@ export interface CachedObjectMeta {
 export interface BrowseResult {
   objects: CachedObjectMeta[];
   subprefixes: string[];
-  last_synced_at: number | null;
-  stale: boolean;
-  refreshing: boolean;
+  mode: "indexed" | "live";
+  continuation: string | null;
   truncated: boolean;
+  last_synced_at: number | null;
 }
 
 export type TransferStatus = "pending" | "active" | "paused" | "done" | "failed" | "canceled";

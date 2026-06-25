@@ -253,6 +253,28 @@ impl Db {
         Ok(ids)
     }
 
+    pub async fn list_cancellable_ids_for_bucket(
+        &self,
+        account_id: &str,
+        bucket: &str,
+    ) -> AppResult<Vec<String>> {
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        let ids = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM transfers WHERE account_id = ?1 AND bucket = ?2 AND status IN ('active', 'pending')",
+                )?;
+                let out: Vec<String> = stmt
+                    .query_map(params![account_id, bucket], |row| row.get(0))?
+                    .collect::<Result<_, _>>()?;
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await?;
+        Ok(ids)
+    }
+
     pub async fn update_transfer_status(
         &self,
         id: &str,

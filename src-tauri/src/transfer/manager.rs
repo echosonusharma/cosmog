@@ -210,6 +210,24 @@ impl TransferManager {
         Ok(signaled)
     }
 
+    /// Cancel every active transfer for a specific bucket. Used when the
+    /// bucket is being deleted so workers stop before its cache rows are
+    /// purged and S3 starts returning 404.
+    pub async fn cancel_for_bucket(&self, account_id: &str, bucket: &str) -> AppResult<usize> {
+        let ids = self
+            .db
+            .list_cancellable_ids_for_bucket(account_id, bucket)
+            .await?;
+        let mut signaled = 0usize;
+        for id in &ids {
+            if let Some(token) = self.cancels.get(id) {
+                token.cancel();
+                signaled += 1;
+            }
+        }
+        Ok(signaled)
+    }
+
     pub async fn list(&self, status: Option<TransferStatus>) -> AppResult<Vec<Transfer>> {
         self.db.list_transfers(status).await
     }

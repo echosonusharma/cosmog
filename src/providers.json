@@ -3,8 +3,8 @@
     {
       "id": "aws",
       "label": "Amazon S3",
-      "color": "#ffffff",
-      "iconUrl": "/icons/aws.png",
+      "color": "#232F3E",
+      "iconUrl": "/icons/aws.svg",
       "endpoint": "",
       "region": "us-east-1",
       "addressing_style": "auto",

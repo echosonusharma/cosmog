@@ -1,24 +1,44 @@
 import { createSignal, For, Show } from "solid-js";
 import {
-  addAccount, deleteAccount, testAccount,
-  type AddAccountInput,
+  addAccount, deleteAccount, testAccount, updateAccount,
+  type AddAccountInput, type Account,
 } from "../../api/accounts";
 import { toast } from "../../state/toast";
-import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef } from "../../providers";
+import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 
-// ── add account ───────────────────────────────────────────────────────────────
+// ── add / edit account ────────────────────────────────────────────────────────
 
-export function AddAccountForm(props: { onDone: () => void; onCancel: () => void }) {
+export function AddAccountForm(props: { onDone: () => void; onCancel: () => void; editing?: Account }) {
+  const isEdit = !!props.editing;
   // All providers including the generic "s3" catch-all at the end
   const providers = [...PICKABLE_PROVIDERS, PROVIDERS.find((p) => p.id === "s3")!];
 
-  const [provider, setProvider] = createSignal<ProviderDef>(providers[0]);
-  const [form, setForm] = createSignal<AddAccountInput>({
-    name: "", protocol: "s3", region: providers[0].region,
-    access_key_id: "", secret_access_key: "",
-    endpoint: providers[0].endpoint || undefined,
-    addressing_style: providers[0].addressing_style as any || undefined,
-  });
+  const initialProvider = (): ProviderDef => {
+    if (props.editing) {
+      const detected = detectProvider({ endpoint: props.editing.endpoint });
+      return providers.find((p) => p.id === detected.id) ?? providers[0];
+    }
+    return providers[0];
+  };
+  const [provider, setProvider] = createSignal<ProviderDef>(initialProvider());
+  const [form, setForm] = createSignal<AddAccountInput>(
+    props.editing
+      ? {
+          name: props.editing.name,
+          protocol: props.editing.protocol,
+          region: props.editing.region,
+          access_key_id: props.editing.access_key_id,
+          secret_access_key: "",
+          endpoint: props.editing.endpoint ?? undefined,
+          addressing_style: props.editing.addressing_style as any,
+        }
+      : {
+          name: "", protocol: "s3", region: providers[0].region,
+          access_key_id: "", secret_access_key: "",
+          endpoint: providers[0].endpoint || undefined,
+          addressing_style: providers[0].addressing_style as any || undefined,
+        }
+  );
   const [busy, setBusy] = createSignal(false);
 
   function applyProvider(p: ProviderDef) {
@@ -37,11 +57,31 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
 
   const valid = () =>
     form().name.trim() && form().region.trim() &&
-    form().access_key_id.trim() && form().secret_access_key.trim();
+    form().access_key_id.trim() &&
+    (isEdit || form().secret_access_key.trim());
 
   async function save() {
     if (!valid()) return;
     setBusy(true);
+    if (isEdit) {
+      try {
+        const f = form();
+        await updateAccount(props.editing!.id, {
+          name: f.name,
+          region: f.region,
+          access_key_id: f.access_key_id,
+          endpoint: f.endpoint ?? null,
+          addressing_style: f.addressing_style,
+          secret_access_key: f.secret_access_key ? f.secret_access_key : undefined,
+        });
+        await testAccount(props.editing!.id);
+        toast.ok(`Account "${f.name}" updated`);
+        props.onDone();
+      } catch (e) {
+        toast.err(e);
+      } finally { setBusy(false); }
+      return;
+    }
     let id: string | null = null;
     try {
       const acct = await addAccount(form());
@@ -57,7 +97,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
 
   return (
     <div class="add-account-form">
-      <div class="settings-section-title" style="border-bottom:none;padding:0">Add account</div>
+      <div class="settings-section-title" style="border-bottom:none;padding:0">{isEdit ? "Edit account" : "Add account"}</div>
 
       {/* provider picker */}
       <div class="provider-picker">
@@ -94,13 +134,15 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         </Show>
         <input class="field" placeholder="Access Key ID" value={form().access_key_id}
                onInput={(e) => set("access_key_id", e.currentTarget.value)} disabled={busy()} />
-        <input class="field" type="password" placeholder="Secret Access Key" value={form().secret_access_key}
+        <input class="field" type="password"
+               placeholder={isEdit ? "Secret Access Key (leave blank to keep)" : "Secret Access Key"}
+               value={form().secret_access_key}
                onInput={(e) => set("secret_access_key", e.currentTarget.value)} disabled={busy()} />
       </div>
       <div class="btn-row mt-2" style="justify-content:flex-end">
         <button class="btn-secondary" style="min-width:90px" onClick={props.onCancel}>Cancel</button>
         <button class="btn-primary" style="min-width:90px" disabled={!valid() || busy()} onClick={save}>
-          {busy() ? "Testing…" : "Save"}
+          {busy() ? "Testing…" : (isEdit ? "Update" : "Save")}
         </button>
       </div>
     </div>

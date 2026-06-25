@@ -109,9 +109,15 @@ where
     E: ProvideErrorMetadata + std::fmt::Display + std::fmt::Debug,
     R: std::fmt::Debug,
 {
-    let display = format!("{ctx}: {err}");
+    let mut display = format!("{ctx}: {err}");
     if let Some(service_err) = err.as_service_error() {
         let code = service_err.code().unwrap_or_default();
+        let msg = service_err.message().unwrap_or_default();
+        // The SDK's outer Display often collapses to "service error" — surface
+        // the code + message so logs and UI errors are actionable.
+        if !code.is_empty() || !msg.is_empty() {
+            display = format!("{ctx}: {code} {msg}").trim().to_string();
+        }
         match code {
             "NoSuchBucket" | "NoSuchKey" | "NoSuchUpload" | "NoSuchVersion"
             | "NotFound" | "404" => {
