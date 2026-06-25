@@ -17,9 +17,11 @@ jobs:
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
             rust-target: 'aarch64-apple-darwin'
+            macos-target: '11'
           - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
             rust-target: 'x86_64-apple-darwin'
+            macos-target: '10.13'
           - platform: 'ubuntu-24.04'
             args: ''
             rust-target: ''
@@ -35,15 +37,15 @@ jobs:
         if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
+          sudo apt-get remove -y libappindicator3-1 || true
           sudo apt-get install -y \
+            build-essential \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
             libxdo-dev \
-            libssl-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev
+            libssl-dev
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -67,6 +69,7 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos-target }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Cosmog ${{ github.ref_name }}'
@@ -74,3 +77,49 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  build-arch:
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            base-devel \
+            webkit2gtk-4.1 \
+            libayatana-appindicator \
+            librsvg \
+            patchelf \
+            xdotool \
+            openssl \
+            nodejs \
+            npm \
+            curl \
+            wget \
+            file
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Cosmog ${{ github.ref_name }}'
+          releaseBody: 'See assets below to download and install.'
+          releaseDraft: true
+          prerelease: false

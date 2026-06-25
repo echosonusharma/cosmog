@@ -2,8 +2,15 @@ import { createResource, Show } from "solid-js";
 import { resolvedTheme, setTheme } from "../state/theme";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-const win = isTauri ? (await import("@tauri-apps/api/window")).getCurrentWindow() : null;
-const getVersion = isTauri ? (await import("@tauri-apps/api/app")).getVersion : () => Promise.resolve("");
+
+let win: { minimize(): void; toggleMaximize(): void; close(): void } | null = null;
+if (isTauri) {
+  import("@tauri-apps/api/window").then((m) => { win = m.getCurrentWindow(); });
+}
+
+const getVersion = isTauri
+  ? () => import("@tauri-apps/api/app").then((m) => m.getVersion())
+  : () => Promise.resolve("");
 
 function toggleTheme() {
   setTheme(resolvedTheme() === "dark" ? "light" : "dark");

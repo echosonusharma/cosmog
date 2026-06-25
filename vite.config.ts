@@ -42,6 +42,10 @@ export default defineConfig(async () => ({
       "@codemirror/legacy-modes/mode/properties",
     ],
   },
+  build: {
+    target: ["es2022", "chrome105", "safari15"],
+  },
+
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
