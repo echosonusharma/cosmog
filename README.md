@@ -1,3 +1,35 @@
-# cosmog
+<div align="center">
+  <img src="src-tauri/icons/cosmog-icon.svg" width="96" height="96" alt="Cosmog" />
 
-Tauri in vanilla HTML, CSS and Typescript.
+  # Cosmog
+
+  Native desktop app for managing S3-compatible object storage.  
+  Browse, upload, download, and organize files across any S3 provider.
+</div>
+
+## Features
+
+- **Browse** buckets and objects with folder navigation, column layout, and search
+- **Upload & download** files with background transfer queue, progress tracking, and retry
+- **Preview** images, text, JSON, XML, and spreadsheets inline
+- **Edit** text files directly in the app
+- **Bulk operations** — multi-select delete, copy presigned links
+- **Create & delete** buckets, folders, and objects
+- **Copy / move** objects within and across buckets
+- **Presigned URLs** — generate shareable links with custom expiry
+- **Versioning** — view and toggle bucket versioning
+- **Full-text search** with local index per bucket
+- **Multiple accounts** — manage many credentials side by side
+- **Transfer manager** — real-time speed, filter by active/done/failed
+
+## Supported Providers
+
+| Provider | Notes |
+|---|---|
+| Amazon S3 | Native AWS |
+| Cloudflare R2 | Custom endpoint required |
+| Backblaze B2 | Custom endpoint required |
+| DigitalOcean Spaces | Custom endpoint required |
+| Wasabi | Custom endpoint required |
+| MinIO | Self-hosted |
+| S3-compatible | Any S3-compatible API |
