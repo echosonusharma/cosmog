@@ -33,3 +33,13 @@
 | Wasabi | Custom endpoint required |
 | MinIO | Self-hosted |
 | S3-compatible | Any S3-compatible API |
+
+## Download
+
+| Platform | |
+|---|---|
+| macOS (Apple Silicon) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| macOS (Intel) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Linux (deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
