@@ -22,7 +22,8 @@ export function formatRelative(ts: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export function basename(key: string): string {
-  const trimmed = key.endsWith("/") ? key.slice(0, -1) : key;
-  return trimmed.slice(trimmed.lastIndexOf("/") + 1);
+export function basename(path: string): string {
+  const trimmed = path.endsWith("/") || path.endsWith("\\") ? path.slice(0, -1) : path;
+  const lastSep = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return trimmed.slice(lastSep + 1);
 }
