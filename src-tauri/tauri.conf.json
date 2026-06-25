@@ -10,16 +10,19 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "cosmog",
-        "width": 800,
-        "height": 600
+        "width": 1200,
+        "height": 740,
+        "minWidth": 820,
+        "minHeight": 560,
+        "decorations": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:"
     }
   },
   "bundle": {

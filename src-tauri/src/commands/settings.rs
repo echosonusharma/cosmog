@@ -5,12 +5,23 @@
 //! merge-and-save semantics — fields not supplied in the patch keep their
 //! previous values.
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use tauri::State;
 
 use crate::db::settings::AppSettings;
 use crate::error::AppResult;
 use crate::state::AppState;
+
+// serde double-option: distinguishes "field absent" (None) from
+// "field present and null" (Some(None)) — required so the FE can clear
+// nullable settings by sending JSON null.
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Deserialize::deserialize(de).map(Some)
+}
 
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
@@ -26,6 +37,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> AppResult<AppSettings> 
 /// (`Some(Some(p))`), or explicitly cleared (`Some(None)`).
 #[derive(Debug, Default, Deserialize)]
 pub struct SettingsPatch {
+    #[serde(default, deserialize_with = "double_option")]
     pub default_download_dir: Option<Option<String>>,
     pub transfer_concurrency: Option<u32>,
     pub multipart_parallelism: Option<u32>,
@@ -36,7 +48,9 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub show_hidden: Option<bool>,
     pub confirm_destructive: Option<bool>,
+    #[serde(default, deserialize_with = "double_option")]
     pub http_proxy: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
     pub custom_ca_path: Option<Option<String>>,
 }
 
@@ -46,7 +60,7 @@ pub async fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> AppResult<AppSettings> {
-    let mut cur = state.db.settings_load().await?;
+    let mut cur = state.load_settings().await?;
     if let Some(v) = patch.default_download_dir {
         cur.default_download_dir = v;
     }
@@ -84,6 +98,7 @@ pub async fn update_settings(
         cur.custom_ca_path = v;
     }
     let saved = state.db.settings_save(cur).await?;
+    state.invalidate_settings().await;
     if patch.transfer_concurrency.is_some() {
         state.set_transfer_concurrency(saved.transfer_concurrency as usize);
     }

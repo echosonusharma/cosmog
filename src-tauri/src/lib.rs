@@ -44,41 +44,52 @@ use tauri::Manager;
 use crate::db::Db;
 use crate::state::AppState;
 
+#[cfg(debug_assertions)]
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Console logger only at this point; the file appender is attached inside
-    // `setup` once we know where the app data directory is.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .try_init();
-
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            use tracing_subscriber::layer::SubscriberExt;
+            use tracing_subscriber::util::SubscriberInitExt;
+            use tracing_subscriber::Layer;
+
             let app_dir = app.path().app_data_dir().expect("resolve app data dir");
             let db_path = app_dir.join("cosmog.sqlite");
             let log_dir = app_dir.join("logs");
 
-            // Daily-rolling log file. Keep a non-blocking handle alive for the
-            // lifetime of the process; otherwise the appender drops queued
-            // writes on shutdown.
             std::fs::create_dir_all(&log_dir).ok();
-            let file_appender =
-                tracing_appender::rolling::daily(&log_dir, "cosmog.log");
+            let file_appender = tracing_appender::rolling::daily(&log_dir, "cosmog.log");
             let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
-            // Leak the guard so it lives for the whole app run.
-            Box::leak(Box::new(guard));
-            let _ = tracing_subscriber::fmt()
+            // Keep guard alive for the lifetime of the process so the
+            // non-blocking writer flushes its queue on clean shutdown.
+            static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
+                std::sync::OnceLock::new();
+            let _ = LOG_GUARD.set(guard);
+
+            let env_filter = || {
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+            };
+
+            // Both layers registered in one registry so neither silently loses.
+            let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter());
+            let file_layer = tracing_subscriber::fmt::layer()
                 .with_writer(file_writer)
                 .with_ansi(false)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .try_init();
+                .with_filter(env_filter());
+
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(file_layer)
+                .init();
 
             let handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
@@ -113,7 +124,9 @@ pub fn run() {
                 let db = Db::open(&db_path).await.expect("open db");
                 // Reap any transfers left as Active/Pending by a previous
                 // crash so the UI doesn't show ghost-running rows.
-                let _ = db.reap_orphan_transfers().await;
+                if let Err(e) = db.reap_orphan_transfers().await {
+                    tracing::warn!("reap_orphan_transfers failed: {e}");
+                }
                 // Honour user-configured concurrency at startup. Note: changes
                 // made via update_settings only take effect on next launch
                 // because the Semaphore is not resizable in place.
@@ -178,6 +191,7 @@ pub fn run() {
             // -------- objects: single-object ops (metadata-only paths) --------
             commands::objects::list_objects,                // raw S3 listing pass-through (paged, prefix/delimiter)
             commands::objects::head_object,                 // fetch metadata + refresh local cache row
+            commands::objects::create_folder,               // put zero-byte object with trailing slash
             commands::objects::delete_object,               // delete one key + remove cache row
             commands::objects::delete_objects,              // batch delete up to 1000 keys per call
             commands::objects::delete_object_version,       // delete a specific version (versioned buckets)
@@ -190,6 +204,9 @@ pub fn run() {
             commands::objects::delete_object_tagging,       // clear all tags on object (AWS only)
             commands::objects::presign_get,                 // generate time-limited presigned GET URL
             commands::objects::preview_object,              // in-memory read of first N bytes for FE previews
+            commands::objects::put_object_text,             // save edited text content directly without temp file
+            commands::objects::put_object_bytes_cmd,        // save binary content (e.g. xlsx) directly
+            commands::objects::list_keys_under_prefix,      // live S3 listing of all keys under prefix (no cache)
 
             // -------- transfers: persistent upload/download queue --------
             commands::transfers::enqueue_upload,            // queue an upload (returns transfer_id; events via Channel)
@@ -199,6 +216,7 @@ pub fn run() {
             commands::transfers::cancel_transfer,           // signal cancel; idempotent if already terminal
             commands::transfers::retry_transfer,            // re-enqueue with original options + multipart resume
             commands::transfers::clear_completed_transfers, // delete done/failed/canceled rows from history
+            commands::transfers::clear_transfer,            // delete one transfer row by id
 
             // -------- search: cached-object FTS + faceted browse --------
             commands::search::search_objects,               // FTS5 query + facets over the local cache
@@ -206,6 +224,7 @@ pub fn run() {
             commands::search::bucket_index_status,          // is full-bucket index enabled? when last synced?
             commands::search::enable_bucket_index,          // turn on indexing + run/resume initial full scan
             commands::search::cancel_bucket_scan,           // stop an in-flight full scan (resumable later)
+            commands::search::reindex_bucket,               // fresh full scan, discarding any resume token
             commands::search::disable_bucket_index,         // drop cache + turn off indexing for a bucket
             commands::search::bucket_stats,                 // aggregate object count + total bytes + storage-class breakdown
             commands::search::set_bucket_auto_reindex,      // configure scheduler to re-scan every N seconds
@@ -239,6 +258,10 @@ pub fn run() {
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale
+
+            // -------- dev: debug helpers --------
+            #[cfg(debug_assertions)]
+            open_devtools,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

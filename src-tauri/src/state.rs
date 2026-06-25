@@ -16,9 +16,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::db::settings::AppSettings;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::providers::build_store;
@@ -44,6 +46,14 @@ pub struct AppState {
     /// Kept separate from `scan_cancels` so a `delete_folder` cancel can't
     /// kill a real bucket-scan and vice versa.
     bulk_cancels: Arc<DashMap<String, CancellationToken>>,
+    /// In-flight prefix syncs: (account_id, bucket, prefix). Guards against
+    /// concurrent syncs for the same prefix — FE polling can otherwise spawn
+    /// multiple overlapping mark/sweep cycles that corrupt the cache.
+    prefix_syncs: Arc<DashSet<(String, String, String)>>,
+    /// In-memory cache for AppSettings. Avoids a SQLite read on every
+    /// browse_prefix call (which is polled every 1.5s during refresh).
+    /// Invalidated by settings_patch and restore_backup commands.
+    settings_cache: Arc<RwLock<Option<AppSettings>>>,
 }
 
 impl AppState {
@@ -57,7 +67,27 @@ impl AppState {
             clients: Arc::new(DashMap::new()),
             scan_cancels: Arc::new(DashMap::new()),
             bulk_cancels: Arc::new(DashMap::new()),
+            prefix_syncs: Arc::new(DashSet::new()),
+            settings_cache: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Load settings, using the in-memory cache when warm.
+    pub async fn load_settings(&self) -> AppResult<AppSettings> {
+        {
+            let r = self.settings_cache.read().await;
+            if let Some(s) = r.as_ref() {
+                return Ok(s.clone());
+            }
+        }
+        let s = self.db.settings_load().await?;
+        *self.settings_cache.write().await = Some(s.clone());
+        Ok(s)
+    }
+
+    /// Invalidate the settings cache. Call after any write to settings.
+    pub async fn invalidate_settings(&self) {
+        *self.settings_cache.write().await = None;
     }
 
     pub fn register_bulk(&self, op_id: &str) -> CancellationToken {
@@ -77,13 +107,18 @@ impl AppState {
     }
 
     pub async fn store_for(&self, account_id: &str) -> AppResult<Arc<dyn ObjectStore>> {
+        // Fast path: already cached.
         if let Some(existing) = self.clients.get(account_id) {
             return Ok(existing.clone());
         }
+        // Slow path: build client, then insert only if another caller hasn't
+        // beaten us (or_insert is a no-op when the entry already exists).
         let account = self.db.get_account(account_id).await?;
         let store = build_store(&account).await?;
-        self.clients.insert(account_id.to_string(), store.clone());
-        Ok(store)
+        Ok(self.clients
+            .entry(account_id.to_string())
+            .or_insert(store)
+            .clone())
     }
 
     pub fn invalidate(&self, account_id: &str) {
@@ -126,6 +161,40 @@ impl AppState {
     /// Adjust the maximum number of concurrent transfers at runtime.
     pub fn set_transfer_concurrency(&self, n: usize) {
         self.transfers.set_concurrency(n);
+    }
+
+    /// Atomically claim a prefix sync slot. Returns `true` if this caller won
+    /// the slot (should spawn the task), `false` if already in flight.
+    /// Using `DashSet::insert` as the atomic check-and-set avoids the TOCTOU
+    /// race between a separate `contains` + `insert`.
+    pub fn claim_prefix_sync(&self, account_id: &str, bucket: &str, prefix: &str) -> bool {
+        self.prefix_syncs.insert((
+            account_id.to_string(),
+            bucket.to_string(),
+            prefix.to_string(),
+        ))
+    }
+
+    /// Returns true if a background prefix sync is currently in flight.
+    pub fn prefix_sync_in_flight(&self, account_id: &str, bucket: &str, prefix: &str) -> bool {
+        self.prefix_syncs
+            .contains(&(account_id.to_string(), bucket.to_string(), prefix.to_string()))
+    }
+
+    /// Returns true if any prefix sync is in flight for this (account, bucket).
+    pub fn prefix_sync_in_flight_for_bucket(&self, account_id: &str, bucket: &str) -> bool {
+        self.prefix_syncs
+            .iter()
+            .any(|entry| entry.0 == account_id && entry.1 == bucket)
+    }
+
+    /// Clear the in-flight marker. Call after the sync task finishes (success or error).
+    pub fn unregister_prefix_sync(&self, account_id: &str, bucket: &str, prefix: &str) {
+        self.prefix_syncs.remove(&(
+            account_id.to_string(),
+            bucket.to_string(),
+            prefix.to_string(),
+        ));
     }
 
     /// Cancel every active bucket scan for `account_id`. Used during account

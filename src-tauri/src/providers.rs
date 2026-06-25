@@ -40,7 +40,13 @@ pub async fn build_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
     let protocol = Protocol::parse(&account.protocol)?;
     match protocol {
         Protocol::S3 => {
-            let secret = secrets::get_secret(&account.id)?;
+            // keyring::Entry::get_password is synchronous and may block on
+            // D-Bus (Linux) or Keychain (macOS). Run it off the Tokio executor
+            // to avoid stalling other in-flight commands.
+            let account_id = account.id.clone();
+            let secret = tokio::task::spawn_blocking(move || secrets::get_secret(&account_id))
+                .await
+                .map_err(|e| AppError::Internal(format!("keyring task panicked: {e}")))??;
             let store = S3Store::new(S3Config {
                 region: account.region.clone(),
                 endpoint: account.endpoint.clone(),

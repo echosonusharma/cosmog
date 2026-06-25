@@ -234,6 +234,25 @@ impl Db {
         Ok(rows)
     }
 
+    /// Return transfer IDs that are active or pending for a given account.
+    /// Used by `TransferManager::cancel_for_account` to avoid two full-list queries.
+    pub async fn list_cancellable_ids_for_account(&self, account_id: &str) -> AppResult<Vec<String>> {
+        let account_id = account_id.to_string();
+        let ids = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM transfers WHERE account_id = ?1 AND status IN ('active', 'pending')",
+                )?;
+                let out: Vec<String> = stmt
+                    .query_map(params![account_id], |row| row.get(0))?
+                    .collect::<Result<_, _>>()?;
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await?;
+        Ok(ids)
+    }
+
     pub async fn update_transfer_status(
         &self,
         id: &str,

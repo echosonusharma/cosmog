@@ -53,7 +53,12 @@ pub async fn add_account(
             addressing_style: input.addressing_style,
         })
         .await?;
-    secrets::set_secret(&acct.id, &input.secret_access_key)?;
+    // Write secret AFTER DB insert (we need the generated id).
+    // On keyring failure roll back the DB row so no orphan is left.
+    if let Err(e) = secrets::set_secret(&acct.id, &input.secret_access_key) {
+        let _ = state.db.delete_account(&acct.id).await;
+        return Err(e);
+    }
     Ok(acct)
 }
 
@@ -126,7 +131,9 @@ pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult
     // Signal every active transfer for this account so the workers stop
     // before the DB rows get cascade-deleted. The ON DELETE CASCADE will
     // then sweep up transfers/cached_objects/bucket_index/prefix_sync rows.
-    let _ = state.transfers.cancel_for_account(&id).await;
+    if let Err(e) = state.transfers.cancel_for_account(&id).await {
+        tracing::warn!(account_id = %id, "cancel_for_account failed: {e}");
+    }
     state.cancel_all_scans_for_account(&id);
     state.db.delete_account(&id).await?;
     if let Err(e) = secrets::delete_secret(&id) {
@@ -140,6 +147,9 @@ pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn test_account(state: State<'_, AppState>, id: String) -> AppResult<usize> {
+    // Invalidate cached client so every test probe builds a fresh connection.
+    // This doubles as a reconnect when the server was restarted.
+    state.invalidate(&id);
     let store = state.store_for(&id).await?;
     let buckets = store.list_buckets().await?;
     Ok(buckets.len())

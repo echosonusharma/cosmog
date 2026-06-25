@@ -77,6 +77,12 @@ async fn run_once(
         if state.scan_in_flight(&account_id, &bucket) {
             continue;
         }
+        // Skip buckets that have any in-flight prefix syncs — a concurrent
+        // prefix sync and full scan both call cache_mark_unseen/sweep and will
+        // corrupt each other's seen=0 markers.
+        if state.prefix_sync_in_flight_for_bucket(&account_id, &bucket) {
+            continue;
+        }
         info!(account_id, bucket, "scheduler: triggering auto re-index");
         let store = match state.store_for(&account_id).await {
             Ok(s) => s,

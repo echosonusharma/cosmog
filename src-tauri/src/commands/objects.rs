@@ -5,16 +5,36 @@
 //! refresh is best-effort — a cache write failure does not roll back the
 //! remote operation, only logs a warning.
 
+use chrono::Utc;
 use tauri::State;
 use tracing::warn;
 
 use crate::db::capabilities::{CapState, WriteOp};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
+use crate::validate;
 use crate::store::{
     CannedAcl, DeleteObjectsResult, ListOptions, ListPage, ObjectMeta, ObjectPreview, ObjectTag,
     ObjectVersion,
 };
+
+/// Expire the prefix TTL on cache write failure so the next browse_prefix call
+/// triggers a background re-sync and auto-corrects the stale entry.
+fn expire_prefix_on_cache_err(state: &AppState, account_id: &str, bucket: &str, key: &str, err: &crate::error::AppError) {
+    warn!("cache write failed for {key}: {err} — expiring prefix TTL to trigger re-sync");
+    let db = state.db.clone();
+    let account_id = account_id.to_string();
+    let bucket = bucket.to_string();
+    // Derive the *parent* listing prefix. Strip a trailing slash first so
+    // folder-marker keys like "foo/bar/" resolve to "foo/" instead of themselves.
+    let prefix = {
+        let stripped = key.trim_end_matches('/');
+        stripped.rfind('/').map(|i| &stripped[..=i]).unwrap_or("").to_string()
+    };
+    tokio::spawn(async move {
+        let _ = db.prefix_sync_expire(&account_id, &bucket, &prefix).await;
+    });
+}
 
 /// Record a write-op outcome against the capability cache. Treats Allowed +
 /// Denied; ignores other error classes (network blip ≠ proof of denial).
@@ -76,9 +96,42 @@ pub async fn head_object(
         .await?;
     // Refresh the cache entry while we have authoritative metadata.
     if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
-        warn!("cache upsert after head_object failed: {e}");
+        expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
     }
     Ok(meta)
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn create_folder(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    prefix: String,
+) -> AppResult<()> {
+    let account_id = validate::require_non_empty("account_id", &account_id)?;
+    let bucket = validate::require_non_empty("bucket", &bucket)?;
+    let prefix = validate::require_non_empty("prefix", &prefix)?;
+    let store = state.store_for(&account_id).await?;
+    let key = format!("{}/", prefix.trim_end_matches('/'));
+    let res = store.create_folder(&bucket, &prefix).await;
+    record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
+    res?;
+    // Upsert the new directory marker into the local cache so browse_prefix
+    // reflects it immediately without waiting for the next background sync.
+    let meta = ObjectMeta {
+        key: key.clone(),
+        size: 0,
+        etag: None,
+        last_modified: Some(Utc::now().timestamp()),
+        storage_class: None,
+        content_type: Some("application/x-directory".into()),
+        version_id: None,
+    };
+    if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
+        expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -94,7 +147,7 @@ pub async fn delete_object(
     record_write(&state, &account_id, &bucket, WriteOp::Delete, &res).await;
     res?;
     if let Err(e) = state.db.cache_remove_object(&account_id, &bucket, &key).await {
-        warn!("cache remove after delete_object failed: {e}");
+        expire_prefix_on_cache_err(&state, &account_id, &bucket, &key, &e);
     }
     Ok(())
 }
@@ -129,7 +182,7 @@ pub async fn delete_objects(
     // Only remove cache rows for keys the server confirmed deleted.
     for key in &result.deleted {
         if let Err(e) = state.db.cache_remove_object(&account_id, &bucket, key).await {
-            warn!("cache remove after delete_objects failed: {e}");
+            expire_prefix_on_cache_err(&state, &account_id, &bucket, key, &e);
         }
     }
     Ok(result)
@@ -204,7 +257,7 @@ pub async fn copy_object(
                 .cache_upsert_object(&account_id, &dst_bucket, &meta)
                 .await
             {
-                warn!("cache upsert after copy_object failed: {e}");
+                expire_prefix_on_cache_err(&state, &account_id, &dst_bucket, &meta.key, &e);
             }
         }
         Err(e) => warn!("head after copy_object failed: {e}"),
@@ -238,18 +291,31 @@ pub async fn move_object(
     // Best-effort cache mirror at destination before deleting source so the
     // FE never sees a moment when neither key is in the index.
     if let Ok(meta) = store.head_object(&dst_bucket, &dst_key).await {
-        let _ = state
+        if let Err(e) = state
             .db
             .cache_upsert_object(&account_id, &dst_bucket, &meta)
-            .await;
+            .await
+        {
+            expire_prefix_on_cache_err(&state, &account_id, &dst_bucket, &dst_key, &e);
+        }
     }
     let del_res = store.delete_object(&src_bucket, &src_key).await;
     record_write(&state, &account_id, &src_bucket, WriteOp::Delete, &del_res).await;
-    del_res?;
-    let _ = state
+    if let Err(e) = del_res {
+        // Copy succeeded but source delete failed. Both src and dst now exist in
+        // S3. Surface the dst key so the user can decide which to delete.
+        return Err(AppError::Internal(format!(
+            "copied to \"{dst_key}\" but could not delete source \"{src_key}\": {e}. \
+             Both keys exist — delete the unwanted one manually."
+        )));
+    }
+    if let Err(e) = state
         .db
         .cache_remove_object(&account_id, &src_bucket, &src_key)
-        .await;
+        .await
+    {
+        expire_prefix_on_cache_err(&state, &account_id, &src_bucket, &src_key, &e);
+    }
     Ok(())
 }
 
@@ -350,4 +416,96 @@ pub async fn presign_get(
         .await?
         .presign_get(&bucket, &key, expires)
         .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn put_object_text(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    key: String,
+    content: String,
+    content_type: String,
+) -> AppResult<()> {
+    let store = state.store_for(&account_id).await?;
+    let data = content.into_bytes();
+    let res = store.put_object_bytes(&bucket, &key, &content_type, data).await;
+    record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
+    res?;
+    // Refresh cache entry with updated size/metadata.
+    match store.head_object(&bucket, &key).await {
+        Ok(meta) => {
+            if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
+                expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
+            }
+        }
+        Err(e) => warn!("head after put_object_text failed: {e}"),
+    }
+    Ok(())
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn put_object_bytes_cmd(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    key: String,
+    bytes: Vec<u8>,
+    content_type: String,
+) -> AppResult<()> {
+    let store = state.store_for(&account_id).await?;
+    let res = store.put_object_bytes(&bucket, &key, &content_type, bytes).await;
+    record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
+    res?;
+    match store.head_object(&bucket, &key).await {
+        Ok(meta) => {
+            if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
+                expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
+            }
+        }
+        Err(e) => warn!("head after put_object_bytes failed: {e}"),
+    }
+    Ok(())
+}
+
+/// List every object key under `prefix` by paging S3 directly (no cache).
+/// Used by delete-folder and empty-bucket operations so stale cache doesn't
+/// cause silent misses.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn list_keys_under_prefix(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    prefix: String,
+) -> AppResult<Vec<String>> {
+    let account_id = validate::require_non_empty("account_id", &account_id)?;
+    let bucket = validate::require_non_empty("bucket", &bucket)?;
+    let store = state.store_for(&account_id).await?;
+    let mut keys = Vec::new();
+    let mut continuation: Option<String> = None;
+    loop {
+        let page = store
+            .list_objects(
+                &bucket,
+                ListOptions {
+                    prefix: if prefix.is_empty() { None } else { Some(prefix.clone()) },
+                    delimiter: None,
+                    continuation: continuation.clone(),
+                    max_keys: Some(1000),
+                },
+            )
+            .await?;
+        for obj in &page.objects {
+            keys.push(obj.key.clone());
+        }
+        if page.is_truncated {
+            continuation = page.continuation;
+        } else {
+            break;
+        }
+    }
+    Ok(keys)
 }

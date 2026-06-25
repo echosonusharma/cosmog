@@ -34,7 +34,7 @@ const EXPORT_SCHEMA: u32 = 1;
 #[tauri::command]
 pub async fn export_config(state: State<'_, AppState>) -> AppResult<ConfigExport> {
     let accounts = state.db.list_accounts().await?;
-    let settings = state.db.settings_load().await?;
+    let settings = state.load_settings().await?;
     Ok(ConfigExport {
         schema_version: EXPORT_SCHEMA,
         exported_at: Utc::now().timestamp(),
@@ -167,6 +167,7 @@ pub async fn import_config(
         state.invalidate(&acct.id);
     }
     state.db.settings_save(bundle.settings).await?;
+    state.invalidate_settings().await;
     Ok(ImportSummary {
         accounts_inserted: inserted,
         accounts_updated: updated,

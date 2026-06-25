@@ -136,3 +136,9 @@ pub async fn retry_transfer(
 pub async fn clear_completed_transfers(state: State<'_, AppState>) -> AppResult<usize> {
     state.transfers.clear_completed().await
 }
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn clear_transfer(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.transfers.delete_one(&id).await
+}

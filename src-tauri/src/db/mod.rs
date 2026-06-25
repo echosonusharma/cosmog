@@ -310,4 +310,11 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE transfers ADD COLUMN options_json TEXT;
         "#,
     },
+    Migration {
+        version: 9,
+        sql: r#"
+            DROP INDEX IF EXISTS idx_co_prefix;
+            ALTER TABLE cached_objects DROP COLUMN parent_prefix;
+        "#,
+    },
 ];

@@ -18,8 +18,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -46,6 +47,8 @@ rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
+urlencoding = "2"
+tauri-plugin-notification = "2.3.3"
 
 [dev-dependencies]
 tempfile = "3"

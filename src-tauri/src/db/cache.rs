@@ -27,7 +27,6 @@ pub struct CachedObjectMeta {
     pub content_type: Option<String>,
     pub extension: Option<String>,
     pub basename: String,
-    pub parent_prefix: String,
     pub version_id: Option<String>,
     pub synced_at: i64,
 }
@@ -66,15 +65,14 @@ pub struct BucketIndexStatus {
 #[derive(Debug, Clone)]
 pub struct KeyParts {
     pub basename: String,
-    pub parent_prefix: String,
     pub extension: Option<String>,
 }
 
 impl KeyParts {
     pub fn from_key(key: &str) -> Self {
-        let (parent, base) = match key.rfind('/') {
-            Some(idx) => (key[..=idx].to_string(), key[idx + 1..].to_string()),
-            None => (String::new(), key.to_string()),
+        let base = match key.rfind('/') {
+            Some(idx) => key[idx + 1..].to_string(),
+            None => key.to_string(),
         };
         let extension = base
             .rfind('.')
@@ -90,10 +88,27 @@ impl KeyParts {
             });
         KeyParts {
             basename: base,
-            parent_prefix: parent,
             extension,
         }
     }
+}
+
+/// Escape a prefix for use in a SQLite `LIKE` pattern and append `%`.
+/// Escapes `%`, `_`, and `\` so that literal characters in the prefix aren't
+/// treated as wildcards.
+fn like_prefix(prefix: &str) -> String {
+    let mut out = String::with_capacity(prefix.len() + 1);
+    for c in prefix.chars() {
+        match c {
+            '%' | '_' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out.push('%');
+    out
 }
 
 /// Sanitize a user-supplied FTS5 MATCH query. Wraps each whitespace-separated
@@ -129,13 +144,12 @@ fn row_to_cached(row: &rusqlite::Row) -> rusqlite::Result<CachedObjectMeta> {
         content_type: row.get(7)?,
         extension: row.get(8)?,
         basename: row.get(9)?,
-        parent_prefix: row.get(10)?,
-        version_id: row.get(11)?,
-        synced_at: row.get(12)?,
+        version_id: row.get(10)?,
+        synced_at: row.get(11)?,
     })
 }
 
-const SELECT_COLS: &str = "co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.parent_prefix, co.version_id, co.synced_at";
+const SELECT_COLS: &str = "co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at";
 
 impl Db {
     /// Upsert a cached object row from a freshly-listed [`ObjectMeta`]. The row
@@ -161,8 +175,8 @@ impl Db {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, parent_prefix, version_id, seen, synced_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
+                    "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, version_id, seen, synced_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12)
                      ON CONFLICT(account_id, bucket, key) DO UPDATE SET
                         size = excluded.size,
                         etag = excluded.etag,
@@ -171,7 +185,6 @@ impl Db {
                         content_type = COALESCE(excluded.content_type, cached_objects.content_type),
                         extension = excluded.extension,
                         basename = excluded.basename,
-                        parent_prefix = excluded.parent_prefix,
                         version_id = excluded.version_id,
                         seen = 1,
                         synced_at = excluded.synced_at",
@@ -186,7 +199,6 @@ impl Db {
                         content_type,
                         parts.extension,
                         parts.basename,
-                        parts.parent_prefix,
                         version_id,
                         now,
                     ],
@@ -220,7 +232,6 @@ impl Db {
             version_id: Option<String>,
             extension: Option<String>,
             basename: String,
-            parent_prefix: String,
         }
         let rows: Vec<Row> = objects
             .iter()
@@ -236,7 +247,6 @@ impl Db {
                     version_id: meta.version_id.clone(),
                     extension: parts.extension,
                     basename: parts.basename,
-                    parent_prefix: parts.parent_prefix,
                 }
             })
             .collect();
@@ -247,8 +257,8 @@ impl Db {
                 let tx = conn.transaction()?;
                 {
                     let mut stmt = tx.prepare_cached(
-                        "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, parent_prefix, version_id, seen, synced_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
+                        "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, version_id, seen, synced_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12)
                          ON CONFLICT(account_id, bucket, key) DO UPDATE SET
                             size = excluded.size,
                             etag = excluded.etag,
@@ -257,7 +267,6 @@ impl Db {
                             content_type = COALESCE(excluded.content_type, cached_objects.content_type),
                             extension = excluded.extension,
                             basename = excluded.basename,
-                            parent_prefix = excluded.parent_prefix,
                             version_id = excluded.version_id,
                             seen = 1,
                             synced_at = excluded.synced_at",
@@ -274,7 +283,6 @@ impl Db {
                             row.content_type,
                             row.extension,
                             row.basename,
-                            row.parent_prefix,
                             row.version_id,
                             now,
                         ])?;
@@ -356,16 +364,23 @@ impl Db {
                         )?;
                     }
                     SyncScope::PrefixDirect { prefix } => {
+                        let after = prefix.len() as i64 + 1;
+                        let pat = like_prefix(&prefix);
                         conn.execute(
-                            "UPDATE cached_objects SET seen = 0 WHERE account_id = ?1 AND bucket = ?2 AND parent_prefix = ?3",
-                            params![account_id, bucket, prefix],
+                            "UPDATE cached_objects SET seen = 0
+                             WHERE account_id = ?1 AND bucket = ?2
+                               AND key LIKE ?3 ESCAPE '\\'
+                               AND instr(substr(key, ?4), '/') = 0",
+                            params![account_id, bucket, pat, after],
                         )?;
                     }
                     SyncScope::PrefixRecursive { prefix } => {
-                        let like_pattern = format!("{}%", prefix);
+                        let pat = like_prefix(&prefix);
                         conn.execute(
-                            "UPDATE cached_objects SET seen = 0 WHERE account_id = ?1 AND bucket = ?2 AND parent_prefix LIKE ?3",
-                            params![account_id, bucket, like_pattern],
+                            "UPDATE cached_objects SET seen = 0
+                             WHERE account_id = ?1 AND bucket = ?2
+                               AND key LIKE ?3 ESCAPE '\\'",
+                            params![account_id, bucket, pat],
                         )?;
                     }
                 }
@@ -393,15 +408,26 @@ impl Db {
                         "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2 AND seen = 0",
                         params![account_id, bucket],
                     )?,
-                    SyncScope::PrefixDirect { prefix } => conn.execute(
-                        "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2 AND parent_prefix = ?3 AND seen = 0",
-                        params![account_id, bucket, prefix],
-                    )?,
-                    SyncScope::PrefixRecursive { prefix } => {
-                        let like_pattern = format!("{}%", prefix);
+                    SyncScope::PrefixDirect { prefix } => {
+                        let after = prefix.len() as i64 + 1;
+                        let pat = like_prefix(&prefix);
                         conn.execute(
-                            "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2 AND parent_prefix LIKE ?3 AND seen = 0",
-                            params![account_id, bucket, like_pattern],
+                            "DELETE FROM cached_objects
+                             WHERE account_id = ?1 AND bucket = ?2
+                               AND key LIKE ?3 ESCAPE '\\'
+                               AND instr(substr(key, ?4), '/') = 0
+                               AND seen = 0",
+                            params![account_id, bucket, pat, after],
+                        )?
+                    }
+                    SyncScope::PrefixRecursive { prefix } => {
+                        let pat = like_prefix(&prefix);
+                        conn.execute(
+                            "DELETE FROM cached_objects
+                             WHERE account_id = ?1 AND bucket = ?2
+                               AND key LIKE ?3 ESCAPE '\\'
+                               AND seen = 0",
+                            params![account_id, bucket, pat],
                         )?
                     }
                 };
@@ -409,6 +435,24 @@ impl Db {
             })
             .await?;
         Ok(n)
+    }
+
+    pub async fn prefix_sync_expire(&self, account_id: &str, bucket: &str, prefix: &str) -> AppResult<()> {
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        let prefix = prefix.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO prefix_sync (account_id, bucket, prefix, synced_at)
+                     VALUES (?1, ?2, ?3, 0)
+                     ON CONFLICT(account_id, bucket, prefix) DO UPDATE SET synced_at = 0",
+                    params![account_id, bucket, prefix],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await?;
+        Ok(())
     }
 
     pub async fn prefix_sync_set(&self, account_id: &str, bucket: &str, prefix: &str) -> AppResult<()> {
@@ -734,6 +778,98 @@ impl Db {
             .await?;
         Ok(())
     }
+
+    /// Returns (files, subprefixes) for direct children of `prefix`.
+    /// Derives the tree from keys at query time using LIKE + instr — no
+    /// parent_prefix column needed.
+    pub async fn browse_children(
+        &self,
+        account_id: &str,
+        bucket: &str,
+        prefix: &str,
+    ) -> AppResult<(Vec<CachedObjectMeta>, Vec<String>, bool)> {
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        let prefix = prefix.to_string();
+
+        const FILE_LIMIT: usize = 5_000;
+
+        self.conn
+            .call(move |conn| {
+                let after = prefix.len() as i64 + 1; // 1-indexed offset past prefix
+                // Fetch one extra row to detect truncation without a separate COUNT query.
+                let fetch_limit = (FILE_LIMIT + 1) as i64;
+
+                let (mut files, subprefixes) = if prefix.is_empty() {
+                    let files: Vec<CachedObjectMeta> = {
+                        let mut stmt = conn.prepare(
+                            "SELECT co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at
+                             FROM cached_objects co
+                             WHERE co.account_id = ?1 AND co.bucket = ?2
+                               AND instr(co.key, '/') = 0
+                             ORDER BY co.key LIMIT ?3",
+                        )?;
+                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, fetch_limit], row_to_cached)?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        v
+                    };
+                    let subprefixes: Vec<String> = {
+                        let mut stmt = conn.prepare(
+                            "SELECT DISTINCT substr(co.key, 1, instr(co.key, '/')) AS folder
+                             FROM cached_objects co
+                             WHERE co.account_id = ?1 AND co.bucket = ?2
+                               AND instr(co.key, '/') > 0
+                             ORDER BY folder",
+                        )?;
+                        let v: Vec<String> = stmt.query_map(params![account_id, bucket], |row| row.get(0))?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        v
+                    };
+                    (files, subprefixes)
+                } else {
+                    let like_pat = like_prefix(&prefix);
+                    let files: Vec<CachedObjectMeta> = {
+                        let mut stmt = conn.prepare(
+                            "SELECT co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at
+                             FROM cached_objects co
+                             WHERE co.account_id = ?1 AND co.bucket = ?2
+                               AND co.key LIKE ?3 ESCAPE '\\'
+                               AND co.key != ?4
+                               AND instr(substr(co.key, ?5), '/') = 0
+                             ORDER BY co.key LIMIT ?6",
+                        )?;
+                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit], row_to_cached)?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        v
+                    };
+                    let subprefixes: Vec<String> = {
+                        let mut stmt = conn.prepare(
+                            "SELECT DISTINCT substr(co.key, 1, (?5 - 1) + instr(substr(co.key, ?5), '/')) AS folder
+                             FROM cached_objects co
+                             WHERE co.account_id = ?1 AND co.bucket = ?2
+                               AND co.key LIKE ?3 ESCAPE '\\'
+                               AND instr(substr(co.key, ?5), '/') > 0
+                             ORDER BY folder",
+                        )?;
+                        let v: Vec<String> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after], |row| row.get(0))?
+                            .filter_map(|r| r.ok())
+                            .collect();
+                        v
+                    };
+                    (files, subprefixes)
+                };
+
+                let truncated = files.len() > FILE_LIMIT;
+                if truncated { files.truncate(FILE_LIMIT); }
+
+                Ok::<_, tokio_rusqlite::Error>((files, subprefixes, truncated))
+            })
+            .await
+            .map_err(Into::into)
+    }
 }
 
 /// Scope for sync sweeps. Used by both the mark-unseen and sweep-unseen helpers
@@ -853,14 +989,11 @@ fn build_filter(
     ];
 
     match scope {
-        SearchScope::Prefix { prefix, recursive } => {
-            if *recursive {
-                clauses.push("co.parent_prefix LIKE ?".into());
-                p.push(Value::Text(format!("{}%", prefix)));
-            } else {
-                clauses.push("co.parent_prefix = ?".into());
-                p.push(Value::Text(prefix.clone()));
-            }
+        SearchScope::Prefix { prefix, .. } => {
+            // Both recursive and non-recursive use LIKE — the recursive flag
+            // now only matters for browse (which uses browse_children directly).
+            clauses.push("co.key LIKE ? ESCAPE '\\'".into());
+            p.push(Value::Text(like_prefix(prefix)));
         }
         SearchScope::Bucket => {}
     }
@@ -984,16 +1117,25 @@ impl Db {
                     SortDir::Asc => "ASC",
                     SortDir::Desc => "DESC",
                 };
+                // Cursor direction must match sort direction to page correctly.
+                // For ASC: advance forward (rowid > last). For DESC: advance backward (rowid < last).
                 let cursor_clause = if cursor.is_some() {
-                    // Tie-break on rowid to avoid duplicates on equal sort keys.
-                    " AND co.rowid > ? "
+                    match sort_dir {
+                        SortDir::Asc  => " AND co.rowid > ? ",
+                        SortDir::Desc => " AND co.rowid < ? ",
+                    }
                 } else {
                     ""
+                };
+                // Tie-break rowid direction must also match sort direction.
+                let rowid_order = match sort_dir {
+                    SortDir::Asc  => "ASC",
+                    SortDir::Desc => "DESC",
                 };
 
                 let select_sql = format!(
                     "SELECT {SELECT_COLS}, co.rowid FROM cached_objects co {join_sql} {filter_sql} {fts_clause} {cursor_clause}
-                     ORDER BY {order_col} {order_dir}, co.rowid ASC
+                     ORDER BY {order_col} {order_dir}, co.rowid {rowid_order}
                      LIMIT ?"
                 );
                 let mut stmt = conn.prepare(&select_sql)?;

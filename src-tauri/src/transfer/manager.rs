@@ -199,21 +199,12 @@ impl TransferManager {
     /// account is deleted so dangling workers don't keep writing to soon-
     /// cascade-deleted DB rows. Returns the number of transfers signalled.
     pub async fn cancel_for_account(&self, account_id: &str) -> AppResult<usize> {
-        let active = self
-            .db
-            .list_transfers(Some(TransferStatus::Active))
-            .await?;
-        let pending = self
-            .db
-            .list_transfers(Some(TransferStatus::Pending))
-            .await?;
+        let ids = self.db.list_cancellable_ids_for_account(account_id).await?;
         let mut signaled = 0usize;
-        for t in active.iter().chain(pending.iter()) {
-            if t.account_id == account_id {
-                if let Some(token) = self.cancels.get(&t.id) {
-                    token.cancel();
-                    signaled += 1;
-                }
+        for id in &ids {
+            if let Some(token) = self.cancels.get(id) {
+                token.cancel();
+                signaled += 1;
             }
         }
         Ok(signaled)
@@ -229,6 +220,10 @@ impl TransferManager {
 
     pub async fn clear_completed(&self) -> AppResult<usize> {
         self.db.clear_completed_transfers().await
+    }
+
+    pub async fn delete_one(&self, id: &str) -> AppResult<()> {
+        self.db.delete_transfer(id).await
     }
 
     /// Re-enqueue a failed/canceled/paused transfer as a *new* row. Carries
@@ -252,7 +247,11 @@ impl TransferManager {
 
         let resume = match (row.upload_id.as_ref(), row.parts_json.as_ref()) {
             (Some(upload_id), Some(parts_json)) => {
-                let parts: Vec<CompletedPart> = serde_json::from_str(parts_json).unwrap_or_default();
+                let parts: Vec<CompletedPart> = serde_json::from_str(parts_json)
+                    .unwrap_or_else(|e| {
+                        tracing::warn!(transfer_id = %row.id, "corrupt parts_json, starting fresh: {e}");
+                        vec![]
+                    });
                 Some(ResumeState {
                     upload_id: upload_id.clone(),
                     completed_parts: parts,
@@ -285,8 +284,11 @@ impl TransferManager {
                     .as_deref()
                     .and_then(|raw| serde_json::from_str::<GetOptions>(raw).ok())
                     .unwrap_or_default();
+                // Re-validate the stored path on retry; defense-in-depth against
+                // tampered DB rows between the original enqueue and this call.
+                let local_path = crate::validate::validate_download_dest(&row.local_path)
+                    .map_err(|e| AppError::InvalidInput(format!("retry: invalid local_path: {e}")))?;
                 // Resume from where the partial file left off.
-                let local_path = PathBuf::from(&row.local_path);
                 if let Ok(meta) = std::fs::metadata(&local_path) {
                     let existing = meta.len();
                     if existing > 0 {
@@ -423,7 +425,7 @@ impl TransferManager {
                     }
                     match outcome {
                         Some(v) => Ok(v),
-                        None => Err(last_err.unwrap()),
+                        None => Err(last_err.expect("loop always sets last_err before None outcome")),
                     }
                 }
                 WorkerJob::Download {
@@ -459,7 +461,7 @@ impl TransferManager {
                     }
                     match outcome {
                         Some(v) => Ok(v),
-                        None => Err(last_err.unwrap()),
+                        None => Err(last_err.expect("loop always sets last_err before None outcome")),
                     }
                 }
             };
@@ -560,19 +562,17 @@ impl TransferManager {
                 TransferEvent::PartCompleted {
                     part_number, etag, ..
                 } => {
+                    // Persist every completed part so resume after a crash never
+                    // re-uploads finished parts. parts_db_lock serializes writes.
                     {
                         let mut guard = parts.lock().unwrap();
                         guard.push(CompletedPart { part_number, etag });
                     }
-                    let parts_for_write = parts.clone();
+                    let parts_ref = parts.clone();
                     let lock = parts_db_lock.clone();
                     tokio::spawn(async move {
-                        // Take the async mutex so only one DB write for this
-                        // transfer is in flight at a time; the snapshot read
-                        // happens *inside* the critical section so the write
-                        // always reflects the latest state.
                         let _guard = lock.lock().await;
-                        let snapshot = parts_for_write.lock().unwrap().clone();
+                        let snapshot = parts_ref.lock().unwrap().clone();
                         let _ = db.update_transfer_multipart(&tid, None, &snapshot).await;
                     });
                 }

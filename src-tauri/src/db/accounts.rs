@@ -113,6 +113,7 @@ impl Db {
 
     pub async fn get_account(&self, id: &str) -> AppResult<Account> {
         let id = id.to_string();
+        let id2 = id.clone();
         let row = self
             .conn
             .call(move |conn| {
@@ -123,7 +124,7 @@ impl Db {
                 Ok::<_, tokio_rusqlite::Error>(row)
             })
             .await?;
-        row.ok_or_else(|| AppError::NotFound(format!("account")))
+        row.ok_or_else(|| AppError::NotFound(format!("account {id2}")))
     }
 
     pub async fn update_account(&self, id: &str, patch: UpdateAccount) -> AppResult<Account> {

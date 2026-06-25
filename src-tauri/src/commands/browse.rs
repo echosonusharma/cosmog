@@ -20,7 +20,7 @@ use chrono::Utc;
 use serde::Serialize;
 use tauri::State;
 
-use crate::db::cache::{CachedObjectMeta, SearchQuery, SearchResult, SearchScope};
+use crate::db::cache::CachedObjectMeta;
 use crate::error::AppResult;
 use crate::state::AppState;
 use crate::sync::sync_prefix_direct;
@@ -33,6 +33,7 @@ pub struct BrowseResult {
     pub last_synced_at: Option<i64>,
     pub stale: bool,
     pub refreshing: bool,
+    pub truncated: bool,
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -42,83 +43,78 @@ pub async fn browse_prefix(
     account_id: String,
     bucket: String,
     prefix: String,
+    force: Option<bool>,
 ) -> AppResult<BrowseResult> {
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
+    let force = force.unwrap_or(false);
 
-    // Read cached children. SearchScope::Prefix non-recursive matches direct
-    // children only; that's what a file-list UI wants.
-    let cached: SearchResult = state
+    // Derive direct children from the cache using LIKE + instr — no
+    // parent_prefix column needed; the tree is parsed from slashes at query time.
+    let (objects, subprefixes, truncated) = state
         .db
-        .search_objects(SearchQuery {
-            account_id: account_id.clone(),
-            bucket: bucket.clone(),
-            scope: SearchScope::Prefix {
-                prefix: prefix.clone(),
-                recursive: false,
-            },
-            query: None,
-            filters: Default::default(),
-            sort: Default::default(),
-            sort_dir: Default::default(),
-            page_size: Some(1000),
-            cursor: None,
-        })
+        .browse_children(&account_id, &bucket, &prefix)
         .await?;
-
-    // Derive distinct sub-prefixes (one level deeper) from cached rows.
-    let subprefixes = derive_subprefixes(&cached.objects, &prefix);
 
     let last = state
         .db
         .prefix_sync_get(&account_id, &bucket, &prefix)
         .await?;
-    let ttl = state.db.settings_load().await?.prefix_sync_ttl_secs as i64;
+    let ttl = state.load_settings().await?.prefix_sync_ttl_secs as i64;
     let now = Utc::now().timestamp();
-    let stale = match last {
+    let stale = force || match last {
         Some(t) => now - t > ttl,
         None => true,
     };
 
     let mut refreshing = false;
     if stale {
-        // Fire-and-forget sync. Cloned handles so the spawned task owns them.
-        let db = state.db.clone();
-        let store = Arc::clone(&state.store_for(&account_id).await?);
-        let account = account_id.clone();
-        let buck = bucket.clone();
-        let pref = prefix.clone();
-        tokio::spawn(async move {
-            let _ = sync_prefix_direct(&db, store, &account, &buck, &pref).await;
-        });
+        // `claim_prefix_sync` is an atomic DashSet insert: returns true only
+        // for the one caller that wins the slot. All others see in-flight=true
+        // and skip spawning, preventing concurrent mark/sweep corruptions.
+        if state.claim_prefix_sync(&account_id, &bucket, &prefix) {
+            let db = state.db.clone();
+            let store = Arc::clone(&state.store_for(&account_id).await?);
+            let state_for_task = state.inner().clone();
+            let account = account_id.clone();
+            let buck = bucket.clone();
+            let pref = prefix.clone();
+            tokio::spawn(async move {
+                // Drop-guard ensures the slot is released even if sync_prefix_direct
+                // panics, so subsequent claim_prefix_sync calls can re-spawn.
+                struct SyncGuard {
+                    state: crate::state::AppState,
+                    account: String,
+                    bucket: String,
+                    prefix: String,
+                }
+                impl Drop for SyncGuard {
+                    fn drop(&mut self) {
+                        self.state.unregister_prefix_sync(&self.account, &self.bucket, &self.prefix);
+                    }
+                }
+                let _guard = SyncGuard {
+                    state: state_for_task,
+                    account: account.clone(),
+                    bucket: buck.clone(),
+                    prefix: pref.clone(),
+                };
+                if let Err(e) = sync_prefix_direct(&db, store, &account, &buck, &pref).await {
+                    tracing::warn!(account = %account, bucket = %buck, prefix = %pref, "background sync_prefix_direct failed: {e}");
+                }
+            });
+        }
+        // Whether we just spawned or one was already in flight, tell the FE
+        // to keep polling until this prefix's sync completes.
         refreshing = true;
     }
 
     Ok(BrowseResult {
-        objects: cached.objects,
+        objects,
         subprefixes,
         last_synced_at: last,
         stale,
         refreshing,
+        truncated,
     })
-}
-
-/// Pull the next path segment from each cached child key (relative to
-/// `prefix`) and return the de-duplicated set in original order.
-fn derive_subprefixes(rows: &[CachedObjectMeta], prefix: &str) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for row in rows {
-        let rest = match row.key.strip_prefix(prefix) {
-            Some(r) => r,
-            None => continue,
-        };
-        if let Some(slash) = rest.find('/') {
-            let sub = format!("{prefix}{}", &rest[..=slash]);
-            if seen.insert(sub.clone()) {
-                out.push(sub);
-            }
-        }
-    }
-    out
 }

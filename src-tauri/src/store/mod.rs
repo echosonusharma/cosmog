@@ -193,6 +193,8 @@ pub trait ObjectStore: Send + Sync {
     // Object metadata ops
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage>;
     async fn head_object(&self, bucket: &str, key: &str) -> AppResult<ObjectMeta>;
+    /// Create a virtual folder by putting a zero-byte object with key `prefix/`.
+    async fn create_folder(&self, bucket: &str, prefix: &str) -> AppResult<()>;
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()>;
     /// Delete up to 1000 objects in a single request. Returns the list of
     /// keys that the server reported as failed (does *not* error if any
@@ -261,6 +263,15 @@ pub trait ObjectStore: Send + Sync {
         opts: PutOptions,
         ctx: TransferCtx,
     ) -> AppResult<UploadResult>;
+
+    /// Upload raw bytes directly without a local file (used for in-app text editing).
+    async fn put_object_bytes(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: &str,
+        data: Vec<u8>,
+    ) -> AppResult<()>;
 
     async fn get_object(
         &self,

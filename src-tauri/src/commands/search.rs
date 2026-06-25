@@ -107,6 +107,40 @@ pub async fn cancel_bucket_scan(
     Ok(())
 }
 
+/// Force a fresh full-bucket scan, discarding any in-progress continuation
+/// token so it starts from page 1 rather than resuming where it left off.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn reindex_bucket(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    on_event: Channel<TransferEvent>,
+) -> AppResult<SyncStats> {
+    let account_id = validate::require_non_empty("account_id", &account_id)?;
+    let bucket = validate::require_non_empty("bucket", &bucket)?;
+
+    // Cancel any in-flight scan, then wipe the continuation token so
+    // full_bucket_scan starts fresh instead of resuming mid-walk.
+    state.cancel_scan(&account_id, &bucket);
+    state.db.bucket_scan_clear(&account_id, &bucket).await?;
+
+    state
+        .db
+        .bucket_index_set_enabled(&account_id, &bucket, true)
+        .await?;
+
+    let store = state.store_for(&account_id).await?;
+    let sink = ProgressSink::from_fn(move |event| {
+        let _ = on_event.send(event);
+    });
+    let scan_id = uuid::Uuid::new_v4().to_string();
+    let cancel = state.register_scan(&account_id, &bucket);
+    let result = full_bucket_scan(&state.db, store, &account_id, &bucket, sink, scan_id, cancel).await;
+    state.unregister_scan(&account_id, &bucket);
+    result
+}
+
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn disable_bucket_index(

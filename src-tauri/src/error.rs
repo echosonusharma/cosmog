@@ -115,7 +115,7 @@ impl From<rusqlite::Error> for AppError {
 impl From<keyring::Error> for AppError {
     fn from(value: keyring::Error) -> Self {
         match value {
-            keyring::Error::NoEntry => AppError::NotFound("secret".into()),
+            keyring::Error::NoEntry => AppError::NotFound("credentials not found in system keychain — please re-add this account in Settings".into()),
             other => AppError::Keyring(other.to_string()),
         }
     }
@@ -155,7 +155,14 @@ impl serde::Serialize for AppError {
     where
         S: serde::Serializer,
     {
-        WireError::from(self).serialize(serializer)
+        // Serialize as a JSON string rather than an object so the payload
+        // survives Linux/WebKitGTK IPC, which silently drops JSON error objects
+        // and replaces them with the literal "Unknown error" string.
+        // The frontend errMsg() already handles JSON-string → object parsing.
+        let wire = WireError::from(self);
+        let s = serde_json::to_string(&wire)
+            .unwrap_or_else(|_| self.to_string());
+        serializer.serialize_str(&s)
     }
 }
 
