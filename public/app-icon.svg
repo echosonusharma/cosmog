@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="bgH" cx="50%" cy="40%" r="80%">
+      <stop offset="0%" stop-color="#3F1D7A"/>
+      <stop offset="60%" stop-color="#170B40"/>
+      <stop offset="100%" stop-color="#06031A"/>
+    </radialGradient>
+    <radialGradient id="planetH" cx="38%" cy="32%" r="75%">
+      <stop offset="0%" stop-color="#F2C8FF"/>
+      <stop offset="30%" stop-color="#C44DFF"/>
+      <stop offset="75%" stop-color="#5B2A86"/>
+      <stop offset="100%" stop-color="#1A0A3E"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#E9B6FF" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#E9B6FF" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="80%" stop-color="#E9B6FF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#E9B6FF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="starH" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFF6CC"/>
+      <stop offset="50%" stop-color="#FFD166" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#FFD166" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="squircleH">
+      <path d="M512,32 C 832,32 992,192 992,512 C 992,832 832,992 512,992
+               C 192,992 32,832 32,512 C 32,192 192,32 512,32 Z"/>
+    </clipPath>
+    <clipPath id="planetClip"><circle cx="512" cy="520" r="240"/></clipPath>
+    <filter id="blurH"><feGaussianBlur stdDeviation="22"/></filter>
+  </defs>
+
+  <g clip-path="url(#squircleH)">
+    <rect width="1024" height="1024" fill="url(#bgH)"/>
+
+    <g fill="#FFFFFF">
+      <circle cx="140" cy="180" r="3" opacity="0.85"/>
+      <circle cx="900" cy="200" r="2.5" opacity="0.75"/>
+      <circle cx="120" cy="800" r="2.5" opacity="0.8"/>
+      <circle cx="900" cy="820" r="3" opacity="0.85"/>
+      <circle cx="120" cy="500" r="2" opacity="0.6"/>
+      <circle cx="940" cy="510" r="2" opacity="0.7"/>
+      <circle cx="800" cy="140" r="2" opacity="0.7"/>
+      <circle cx="240" cy="130" r="2" opacity="0.65"/>
+      <circle cx="180" cy="900" r="1.5" opacity="0.55"/>
+      <circle cx="860" cy="900" r="2" opacity="0.65"/>
+    </g>
+
+    <!-- Glow halo -->
+    <ellipse cx="512" cy="520" rx="380" ry="200" fill="#C44DFF" opacity="0.3" filter="url(#blurH)"/>
+
+    <!-- Back half of ring (behind planet) -->
+    <g transform="translate(512,520) rotate(-18)">
+      <path d="M -400,0 A 400,90 0 0,1 400,0"
+            fill="none"
+            stroke="url(#ringGrad)"
+            stroke-width="14"
+            opacity="0.85"/>
+      <path d="M -360,0 A 360,72 0 0,1 360,0"
+            fill="none"
+            stroke="#FFFFFF"
+            stroke-width="3"
+            opacity="0.5"/>
+    </g>
+
+    <!-- Planet -->
+    <circle cx="512" cy="520" r="240" fill="url(#planetH)"/>
+
+    <!-- Planet surface bands (subtle) -->
+    <g clip-path="url(#planetClip)">
+      <ellipse cx="512" cy="460" rx="240" ry="14" fill="#FF6FD8" opacity="0.25"/>
+      <ellipse cx="512" cy="540" rx="240" ry="18" fill="#7A3FB8" opacity="0.35"/>
+      <ellipse cx="512" cy="620" rx="240" ry="12" fill="#FF6FD8" opacity="0.2"/>
+      <!-- Specular -->
+      <ellipse cx="420" cy="400" rx="80" ry="40" fill="#FFFFFF" opacity="0.25" filter="url(#blurH)"/>
+    </g>
+
+    <!-- Front half of ring (over planet) -->
+    <g transform="translate(512,520) rotate(-18)">
+      <path d="M -400,0 A 400,90 0 0,0 400,0"
+            fill="none"
+            stroke="url(#ringGrad)"
+            stroke-width="14"
+            opacity="0.95"/>
+      <path d="M -360,0 A 360,72 0 0,0 360,0"
+            fill="none"
+            stroke="#FFFFFF"
+            stroke-width="3"
+            opacity="0.55"/>
+    </g>
+
+    <!-- Orbiting objects (stars on ring) -->
+    <g transform="translate(512,520) rotate(-18)">
+      <g transform="translate(-380,18)">
+        <circle r="22" fill="url(#starH)"/>
+        <circle r="8" fill="#FFFFFF"/>
+      </g>
+      <g transform="translate(380,18)">
+        <circle r="22" fill="url(#starH)"/>
+        <circle r="8" fill="#FFFFFF"/>
+      </g>
+      <g transform="translate(-200,-72)">
+        <circle r="16" fill="url(#starH)" opacity="0.85"/>
+        <circle r="5" fill="#FFFFFF"/>
+      </g>
+      <g transform="translate(220,72)">
+        <circle r="18" fill="url(#starH)" opacity="0.9"/>
+        <circle r="6" fill="#FFFFFF"/>
+      </g>
+    </g>
+
+    <!-- Top-right focal sparkle -->
+    <g transform="translate(800,240)">
+      <circle r="60" fill="url(#starH)" opacity="0.9"/>
+      <path d="M 0,-44 Q 6,-6 44,0 Q 6,6 0,44 Q -6,6 -44,0 Q -6,-6 0,-44 Z"
+            fill="#FFF6CC"/>
+    </g>
+  </g>
+</svg>

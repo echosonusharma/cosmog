@@ -1,0 +1,84 @@
+import { createSignal, createEffect, onMount, For, Show } from "solid-js";
+import { listAccounts, deleteAccount } from "../../api/accounts";
+import { setAccounts, openAddAccount, setOpenAddAccount } from "../../state/app";
+import { toast } from "../../state/toast";
+import { confirmDialog } from "../../state/confirm";
+import { ProviderIcon, providerLabel, IconX } from "../../utils/icons";
+import type { Account } from "../../types";
+import { AddAccountForm } from "./AddAccountForm";
+
+// ── accounts list ─────────────────────────────────────────────────────────────
+
+export function AccountsList() {
+  const [accts, setAccts] = createSignal<Account[]>([]);
+  const [showAdd, setShowAdd] = createSignal(false);
+
+  // Sidebar "Add account" button sets this signal → auto-open the form
+  createEffect(() => {
+    if (openAddAccount()) {
+      setShowAdd(true);
+      setOpenAddAccount(false);
+    }
+  });
+
+  async function load() {
+    try {
+      const list = await listAccounts();
+      setAccts(list);
+      setAccounts(list);
+    } catch (e) { toast.err(e); }
+  }
+  onMount(load);
+
+  async function handleDelete(id: string, name: string) {
+    const ok = await confirmDialog({
+      title: "Remove account?",
+      body: `"${name}" — cached objects, transfers, and credentials will be removed. This action is irreversible.`,
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+    try { await deleteAccount(id); await load(); toast.ok("Account removed"); }
+    catch (e) { toast.err(e); }
+  }
+
+  return (
+    <div class="settings-section">
+      <div class="settings-section-title">
+        <span>Accounts</span>
+        <button class="btn-ghost" onClick={() => setShowAdd((v) => !v)}>
+          {showAdd() ? "Cancel" : "+ Add account"}
+        </button>
+      </div>
+
+      <Show when={showAdd()}>
+        <AddAccountForm
+          onDone={() => { setShowAdd(false); load(); }}
+          onCancel={() => setShowAdd(false)}
+        />
+      </Show>
+
+      <Show when={accts().length > 0}
+            fallback={<div class="empty-state" style="padding:24px">No accounts</div>}>
+        <div class="account-rows">
+          <For each={accts()}>
+            {(a) => (
+              <div class="account-row-item">
+                <ProviderIcon account={a} size={32} />
+                <div class="account-row-info">
+                  <span class="account-name">{a.name}</span>
+                  <span class="account-meta">
+                    {providerLabel(a)} · {a.region}
+                    {a.endpoint ? ` · ${a.endpoint}` : ""}
+                  </span>
+                </div>
+                <button class="icon-btn danger" title="Remove"
+                        onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}

@@ -167,25 +167,39 @@ fn build_range_header(start: Option<u64>, end: Option<u64>) -> Option<String> {
 }
 
 /// Emit progress, but throttle so we don't flood the channel.
+///
+/// Uses an AtomicU64 storing nanoseconds from an arbitrary epoch so that
+/// `allow()` is lock-free and can be called from every chunk callback without
+/// contention.
 struct ProgressThrottle {
-    last: std::sync::Mutex<Instant>,
-    interval: Duration,
+    /// Nanoseconds since the process started at which we last emitted.
+    last_ns: std::sync::atomic::AtomicU64,
+    interval_ns: u64,
+    /// Anchor point so we can compute nanoseconds cheaply.
+    epoch: Instant,
 }
 
 impl ProgressThrottle {
     fn new(interval_ms: u64) -> Self {
+        let interval_ns = interval_ms * 1_000_000;
         Self {
-            last: std::sync::Mutex::new(Instant::now() - Duration::from_secs(3600)),
-            interval: Duration::from_millis(interval_ms),
+            // Pretend the last emit happened in the past so the first allow() fires.
+            // Use 0 as a sentinel meaning "never fired"; allow() treats it specially.
+            last_ns: std::sync::atomic::AtomicU64::new(0),
+            interval_ns,
+            epoch: Instant::now(),
         }
     }
 
     fn allow(&self) -> bool {
-        let mut last = self.last.lock().unwrap();
-        let now = Instant::now();
-        if now.duration_since(*last) >= self.interval {
-            *last = now;
-            true
+        use std::sync::atomic::Ordering;
+        // Ensure now_ns is never 0 — we use 0 as "never fired" sentinel.
+        let now_ns = (self.epoch.elapsed().as_nanos() as u64).max(1);
+        let last = self.last_ns.load(Ordering::Relaxed);
+        // First call (last==0) always fires; subsequent calls obey the interval.
+        if last == 0 || now_ns.saturating_sub(last) >= self.interval_ns {
+            // CAS: only one concurrent caller wins; others skip this tick.
+            self.last_ns.compare_exchange(last, now_ns, Ordering::Relaxed, Ordering::Relaxed).is_ok()
         } else {
             false
         }
@@ -369,6 +383,42 @@ impl ObjectStore for S3Store {
         })
     }
 
+    async fn put_object_bytes(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: &str,
+        data: Vec<u8>,
+    ) -> AppResult<()> {
+        let len = data.len() as i64;
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .content_type(content_type)
+            .content_length(len)
+            .body(ByteStream::from(data))
+            .send()
+            .await
+            .map_err(|e| classify_aws("put_object_bytes", e))?;
+        Ok(())
+    }
+
+    async fn create_folder(&self, bucket: &str, prefix: &str) -> AppResult<()> {
+        let key = format!("{}/", prefix.trim_end_matches('/'));
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(&key)
+            .content_type("application/x-directory")
+            .content_length(0)
+            .body(ByteStream::from_static(b""))
+            .send()
+            .await
+            .map_err(|e| classify_aws("create_folder", e))?;
+        Ok(())
+    }
+
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()> {
         self.client
             .delete_object()
@@ -502,7 +552,15 @@ impl ObjectStore for S3Store {
         dst_bucket: &str,
         dst_key: &str,
     ) -> AppResult<()> {
-        let copy_source = format!("{src_bucket}/{src_key}");
+        // CopySource requires each key path segment to be percent-encoded
+        // (keys can contain #, ?, spaces, non-ASCII).  Slashes are path
+        // separators and must not be encoded.
+        let encoded_key: String = src_key
+            .split('/')
+            .map(|seg| urlencoding::encode(seg).into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let copy_source = format!("{src_bucket}/{encoded_key}");
         self.client
             .copy_object()
             .copy_source(copy_source)
@@ -614,19 +672,41 @@ impl ObjectStore for S3Store {
     ) -> AppResult<ObjectPreview> {
         const HARD_CAP: u64 = 8 * 1024 * 1024;
         let cap = max_bytes.min(HARD_CAP);
-        let resp = self
+
+        // Try ranged GET. Fall back to full GET if the provider rejects the range
+        // (e.g. 0-byte objects, providers that don't support Range headers).
+        let range_str = format!("bytes=0-{}", cap.saturating_sub(1));
+        let ranged = self
             .client
             .get_object()
             .bucket(bucket)
             .key(key)
-            .range(format!("bytes=0-{}", cap.saturating_sub(1)))
+            .range(&range_str)
             .send()
-            .await
-            .map_err(|e| classify_aws("get_object", e))?;
+            .await;
+
+        let (resp, used_range) = match ranged {
+            Ok(r) => (r, true),
+            Err(_) => {
+                let r = self
+                    .client
+                    .get_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .send()
+                    .await
+                    .map_err(|e| classify_aws("get_object", e))?;
+                (r, false)
+            }
+        };
+
         // For ranged GET the SDK's content_length reflects the range payload,
-        // not the object. Parse the Content-Range "bytes a-b/total" header for
-        // the actual object size when present.
-        let total_from_range = resp.content_range().and_then(parse_content_range_total);
+        // not the object. Parse Content-Range "bytes a-b/total" for the real size.
+        let total_from_range = if used_range {
+            resp.content_range().and_then(parse_content_range_total)
+        } else {
+            None
+        };
         let payload_len = resp.content_length();
         let content_type = resp.content_type().map(|s| s.to_string());
         let body = resp
@@ -1081,7 +1161,13 @@ impl S3Store {
         let (upload_id, already_done) = self.init_or_resume_upload(bucket, key, &opts, &ctx).await?;
 
         let part_size = ctx.part_size.max(5 * 1024 * 1024); // S3 floor for non-final parts
-        let num_parts = ((total + part_size - 1) / part_size) as i32;
+        let num_parts_u64 = (total + part_size - 1) / part_size;
+        if num_parts_u64 > 10_000 {
+            return Err(crate::error::AppError::InvalidInput(format!(
+                "file too large: would require {num_parts_u64} parts (S3 limit is 10,000); increase part size"
+            )));
+        }
+        let num_parts = num_parts_u64 as i32;
         let bytes_done = Arc::new(AtomicU64::new(
             // Compute the precise number of bytes already uploaded by walking
             // the part numbers in `already_done` and summing each part's

@@ -1,0 +1,95 @@
+{
+  "providers": [
+    {
+      "id": "aws",
+      "label": "Amazon S3",
+      "color": "#ffffff",
+      "iconUrl": "/icons/aws.png",
+      "endpoint": "",
+      "region": "us-east-1",
+      "addressing_style": "auto",
+      "custom_endpoint": false,
+      "endpoint_placeholder": null,
+      "monochrome_icon": false,
+      "detect": ["amazonaws.com"]
+    },
+    {
+      "id": "backblaze",
+      "label": "Backblaze B2",
+      "color": "#CC0000",
+      "iconUrl": "/icons/backblaze.svg",
+      "endpoint": "https://s3.us-west-004.backblazeb2.com",
+      "region": "us-west-004",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "https://s3.<region>.backblazeb2.com",
+      "monochrome_icon": true,
+      "detect": ["backblazeb2.com"]
+    },
+    {
+      "id": "r2",
+      "label": "Cloudflare R2",
+      "color": "#F38020",
+      "iconUrl": "/icons/cloudflare.svg",
+      "endpoint": "",
+      "region": "auto",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "https://<account_id>.r2.cloudflarestorage.com",
+      "monochrome_icon": false,
+      "detect": ["r2.cloudflarestorage.com"]
+    },
+    {
+      "id": "wasabi",
+      "label": "Wasabi",
+      "color": "#27A843",
+      "iconUrl": "/icons/wasabi.svg",
+      "endpoint": "https://s3.wasabisys.com",
+      "region": "us-east-1",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "https://s3.<region>.wasabisys.com",
+      "monochrome_icon": true,
+      "detect": ["wasabisys.com"]
+    },
+    {
+      "id": "digitalocean",
+      "label": "DigitalOcean Spaces",
+      "color": "#0080FF",
+      "iconUrl": "/icons/digitalocean.svg",
+      "endpoint": "https://nyc3.digitaloceanspaces.com",
+      "region": "nyc3",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "https://<region>.digitaloceanspaces.com",
+      "monochrome_icon": true,
+      "detect": ["digitaloceanspaces.com"]
+    },
+    {
+      "id": "minio",
+      "label": "MinIO",
+      "color": "#C7264A",
+      "iconUrl": "/icons/minio.svg",
+      "endpoint": "",
+      "region": "us-east-1",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "http://localhost:9000",
+      "monochrome_icon": true,
+      "detect": ["localhost", "127.0.0.1", "0.0.0.0", ":9000"]
+    },
+    {
+      "id": "s3",
+      "label": "S3-compatible",
+      "color": "#6B6F7A",
+      "iconUrl": "/icons/s3-compatible.svg",
+      "endpoint": "",
+      "region": "us-east-1",
+      "addressing_style": "path",
+      "custom_endpoint": true,
+      "endpoint_placeholder": "https://s3.example.com",
+      "monochrome_icon": true,
+      "detect": []
+    }
+  ]
+}
