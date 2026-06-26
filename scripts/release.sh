@@ -47,7 +47,7 @@ git -C "$ROOT" add \
   src-tauri/Cargo.toml \
   src-tauri/Cargo.lock
 
-git -C "$ROOT" commit -m "bump version to $TAG"
+git -C "$ROOT" commit -m "chore: bump version to $TAG"
 git -C "$ROOT" tag "$TAG"
 git -C "$ROOT" push origin HEAD
 git -C "$ROOT" push origin "$TAG"
