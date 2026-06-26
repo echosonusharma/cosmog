@@ -2,16 +2,16 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <tag> <semver>"
+  echo "Usage: $0 <tag> [semver]"
   echo "  tag     GitHub tag, e.g. v1.1.1"
-  echo "  semver  App version, e.g. 1.1.1"
+  echo "  semver  App version (default: tag without leading v)"
   exit 1
 }
 
-[[ $# -ne 2 ]] && usage
+[[ $# -lt 1 || $# -gt 2 ]] && usage
 
 TAG="$1"
-SEMVER="$2"
+SEMVER="${2:-${TAG#v}}"
 
 # Validate tag format
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
