@@ -26,7 +26,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [filter, setFilter] = createSignal("");
   const filtered = createMemo(() => {
     const q = filter().trim().toLowerCase();
-    const all = buckets() ?? [];
+    const all = buckets.latest ?? [];
     if (!q) return all;
     return all.filter((b) => b.name.toLowerCase().includes(q));
   });

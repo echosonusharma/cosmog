@@ -1,8 +1,9 @@
-import { createEffect, createMemo, Show } from "solid-js";
-import { accounts, browseState, setBrowseState } from "../state/app";
+import { createEffect, createMemo, Show, ErrorBoundary } from "solid-js";
+import { accounts, browseState, setBrowseState, setCurrentView } from "../state/app";
 import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
+import { isCredentialError, parseWireError } from "../utils/errors";
 
 // ── root ──────────────────────────────────────────────────────────────────────
 
@@ -47,17 +48,53 @@ export default function Browse(props: { defaultDownloadDir: string }) {
 
       <Show when={everHadAccount()}>
         <div class="view-slot" style={{ display: !hasBucket() ? "flex" : "none" }}>
-          <BucketGrid accountId={stableAccountId()} accountName={accountName()} />
+          <Show when={stableAccountId()} keyed>
+            {(accountId) => (
+              <ErrorBoundary fallback={(err, reset) => {
+                const { code, message } = parseWireError(err);
+                return (
+                  <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
+                    <div class="err-popup" style="position:static;box-shadow:none">
+                      <div class="err-popup-header"><span class="err-popup-title">{isCredentialError(code) ? "Credentials not found" : "Something went wrong"}</span></div>
+                      <p class="err-popup-msg">{message}</p>
+                      <div class="err-popup-actions">
+                        <button class="btn-secondary" style="font-size:12px" onClick={() => reset()}>Dismiss</button>
+                        <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }}>
+                <BucketGrid accountId={accountId} accountName={accountName()} />
+              </ErrorBoundary>
+            )}
+          </Show>
         </div>
-        <Show when={everHadBucket()}>
-          <div class="view-slot" style={{ display: hasBucket() ? "flex" : "none" }}>
-            <ObjectBrowser
-              accountId={stableAccountId()}
-              accountName={accountName()}
-              bucket={stableBucket()}
-              prefix={browseState.prefix}
-              defaultDownloadDir={props.defaultDownloadDir}
-            />
+        <Show when={hasBucket()}>
+          <div class="view-slot" style="display:flex;flex:1;min-height:0">
+            <ErrorBoundary fallback={(err, reset) => {
+              const { code, message } = parseWireError(err);
+              return (
+                <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
+                  <div class="err-popup" style="position:static;box-shadow:none">
+                    <div class="err-popup-header"><span class="err-popup-title">{isCredentialError(code) ? "Credentials not found" : "Something went wrong"}</span></div>
+                    <p class="err-popup-msg">{message}</p>
+                    <div class="err-popup-actions">
+                      <button class="btn-secondary" style="font-size:12px" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>Back to buckets</button>
+                      <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            }}>
+              <ObjectBrowser
+                accountId={stableAccountId()}
+                accountName={accountName()}
+                bucket={stableBucket()}
+                prefix={browseState.prefix}
+                defaultDownloadDir={props.defaultDownloadDir}
+              />
+            </ErrorBoundary>
           </div>
         </Show>
       </Show>

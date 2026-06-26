@@ -115,7 +115,7 @@ impl From<rusqlite::Error> for AppError {
 impl From<keyring::Error> for AppError {
     fn from(value: keyring::Error) -> Self {
         match value {
-            keyring::Error::NoEntry => AppError::NotFound("credentials not found in system keychain — please re-add this account in Settings".into()),
+            keyring::Error::NoEntry => AppError::NotFound("credentials not found in system keychain. Please re-add this account in Settings.".into()),
             other => AppError::Keyring(other.to_string()),
         }
     }

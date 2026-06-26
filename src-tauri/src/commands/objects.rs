@@ -503,6 +503,10 @@ pub async fn list_keys_under_prefix(
         }
         if page.is_truncated {
             continuation = page.continuation;
+            if continuation.is_none() {
+                // Provider returned truncated=true but no token; avoid infinite loop.
+                break;
+            }
         } else {
             break;
         }

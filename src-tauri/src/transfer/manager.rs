@@ -66,6 +66,7 @@ impl ResizableSemaphore {
         let old = *current;
         if new_size > old {
             self.sem.add_permits(new_size - old);
+            *current = new_size;
         } else if new_size < old {
             // Attempt to reclaim immediately-available permits.
             let to_remove = old - new_size;
@@ -76,11 +77,16 @@ impl ResizableSemaphore {
                         permit.forget();
                         removed += 1;
                     }
-                    Err(_) => break, // remaining permits are in-flight; they shrink naturally
+                    // Remaining permits are in-flight; they will complete at the
+                    // old limit and the semaphore will hold at old - removed.
+                    Err(_) => break,
                 }
             }
+            // Record the actual effective capacity, not the desired one — in-flight
+            // permits that couldn't be reclaimed will return and restore the semaphore
+            // to old - removed, not to new_size.
+            *current = old - removed;
         }
-        *current = new_size;
     }
 }
 
@@ -454,6 +460,7 @@ impl TransferManager {
                 } => {
                     let mut last_err: Option<AppError> = None;
                     let mut outcome: Option<()> = None;
+                    let mut retry_opts = opts.clone();
                     for attempt in 0..MAX_ATTEMPTS {
                         if ctx.cancel.is_cancelled() {
                             last_err = Some(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
@@ -461,9 +468,17 @@ impl TransferManager {
                         }
                         if attempt > 0 {
                             tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
+                            // Resume from the end of any partial file so we don't
+                            // truncate and re-download bytes we already have.
+                            if let Ok(meta) = std::fs::metadata(&local_path) {
+                                let existing = meta.len();
+                                if existing > 0 {
+                                    retry_opts.range_start = Some(existing);
+                                }
+                            }
                         }
                         match store_for_task
-                            .get_object(&bucket, &key, local_path.clone(), opts.clone(), ctx.clone())
+                            .get_object(&bucket, &key, local_path.clone(), retry_opts.clone(), ctx.clone())
                             .await
                         {
                             Ok(_) => { outcome = Some(()); break; }

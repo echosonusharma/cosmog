@@ -1,26 +1,31 @@
-import { createResource, Show, Suspense, ErrorBoundary } from "solid-js";
+import { batch, createResource, Show, Suspense, ErrorBoundary } from "solid-js";
 import { listAccounts } from "./api/accounts";
 import Onboarding from "./routes/Onboarding";
 import MainApp from "./routes/MainApp";
 import Titlebar from "./routes/Titlebar";
 import { ToastStack } from "./state/toast";
 import { ConfirmHost } from "./state/confirm";
-import { setBrowseState, setCurrentView } from "./state/app";
+import { setBrowseState, setCurrentView, type View } from "./state/app";
 import { parseWireError, isCredentialError } from "./utils/errors";
 
 export default function App() {
   const [accounts, { refetch }] = createResource(listAccounts);
 
-  function recoverFromError(reset: () => void) {
+  function recoverFromError(reset: () => void, targetView: View = "browse") {
     const accs = accounts() ?? [];
-    reset();
     if (accs.length === 0) {
-      // No accounts — force back to onboarding by clearing the list
+      reset();
       refetch();
     } else {
-      // Has accounts — clear bucket/prefix selection so user picks again
-      setBrowseState({ bucket: null, prefix: "" });
-      setCurrentView("browse");
+      // batch() ensures all signal writes flush atomically with reset() so that
+      // when SolidJS re-evaluates ErrorBoundary children, browseState.bucket is
+      // already null — preventing Browse from mounting ObjectBrowser with a
+      // stale bucket, which would immediately re-throw the same credential error.
+      batch(() => {
+        setBrowseState({ bucket: null, prefix: "" });
+        setCurrentView(targetView);
+        reset();
+      });
     }
   }
 
@@ -49,11 +54,11 @@ export default function App() {
                           </button>
                         }>
                     <button class="btn-secondary" style="font-size:12px"
-                            onClick={() => { recoverFromError(reset); setCurrentView("settings"); }}>
+                            onClick={() => recoverFromError(reset, "settings")}>
                       Settings
                     </button>
                     <button class="btn-primary" style="font-size:12px"
-                            onClick={() => recoverFromError(reset)}>
+                            onClick={() => recoverFromError(reset, credErr ? "settings" : "browse")}>
                       Back to accounts
                     </button>
                   </Show>
@@ -62,7 +67,7 @@ export default function App() {
             </div>
           );
         }}>
-          <Suspense>
+          <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%"><span class="spinner" style="width:32px;height:32px;border-width:3px" /></div>}>
             <Show when={!accounts.loading}>
               <Show
                 when={(accounts() ?? []).length > 0}

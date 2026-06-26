@@ -23,12 +23,15 @@ export interface WireError { code: string; message: string }
  * Strips the Rust Display prefix (e.g. "not found: ") and capitalises.
  */
 export function parseWireError(raw: unknown): WireError {
-  let obj: unknown = raw;
+  // WebView2 (Windows) wraps Tauri IPC rejections as JS Error objects whose
+  // .message holds the serialized backend error JSON. Unwrap before parsing.
+  let obj: unknown = raw instanceof Error ? raw.message : raw;
   for (let i = 0; i < 2 && typeof obj === "string"; i++) {
     try { obj = JSON.parse(obj); } catch { break; }
   }
   const code    = (obj as any)?.code    ?? "";
-  let   message = (obj as any)?.message ?? (typeof raw === "string" ? raw : String(raw ?? ""));
+  let   message = (obj as any)?.message
+    ?? (raw instanceof Error ? raw.message : typeof raw === "string" ? raw : String(raw ?? ""));
   const pfx = PREFIXES[code];
   if (pfx && message.startsWith(pfx)) message = message.slice(pfx.length);
   if (message) message = message.charAt(0).toUpperCase() + message.slice(1);

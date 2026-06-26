@@ -1020,11 +1020,23 @@ fn build_filter(
     ];
 
     match scope {
-        SearchScope::Prefix { prefix, .. } => {
-            // Both recursive and non-recursive use LIKE — the recursive flag
-            // now only matters for browse (which uses browse_children directly).
+        SearchScope::Prefix { prefix, recursive } => {
             clauses.push("co.key LIKE ? ESCAPE '\\'".into());
             p.push(Value::Text(like_prefix(prefix)));
+            if !recursive {
+                // Exclude keys that have a slash after the prefix — those are
+                // descendants, not direct children.
+                let mut pat = String::with_capacity(prefix.len() + 4);
+                for c in prefix.chars() {
+                    match c {
+                        '%' | '_' | '\\' => { pat.push('\\'); pat.push(c); }
+                        _ => pat.push(c),
+                    }
+                }
+                pat.push_str("%/%");
+                clauses.push("co.key NOT LIKE ? ESCAPE '\\'".into());
+                p.push(Value::Text(pat));
+            }
         }
         SearchScope::Bucket => {}
     }

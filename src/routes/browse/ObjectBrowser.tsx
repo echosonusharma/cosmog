@@ -300,6 +300,13 @@ export function ObjectBrowser(props: {
         onUpload={() => setShowUpload(props.prefix)}
       />
 
+      {/* ── initial load overlay — covers content area while first page fetches ── */}
+      <Show when={!browseData.initialLoaded && !browseData.error}>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg, #0d0d0d);z-index:10;pointer-events:none">
+          <span class="spinner" style="width:32px;height:32px;border-width:3px" />
+        </div>
+      </Show>
+
       {/* ── index status bar (shown when search active) ── */}
       <Show when={searchQuery()}>
         <IndexBar
