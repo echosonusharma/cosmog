@@ -4,7 +4,7 @@ import { IconCheck } from "../../utils/icons";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
-export type Step = "user-info" | "provider" | "account-setup";
+export type Step = "provider" | "account-setup";
 
 // ── provider color tile ───────────────────────────────────────────────────────
 
@@ -40,7 +40,6 @@ export function ProviderIconTile(props: { provider: ProviderDef; size?: number }
 
 export function Stepper(props: { step: Step }) {
   const steps: { id: Step; label: string }[] = [
-    { id: "user-info", label: "Profile" },
     { id: "provider", label: "Provider" },
     { id: "account-setup", label: "Account" },
   ];

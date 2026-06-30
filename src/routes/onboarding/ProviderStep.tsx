@@ -16,7 +16,6 @@ const PROVIDER_DESCS: Record<string, string> = {
 };
 
 export function ProviderStep(props: {
-  onBack: () => void;
   onNext: (p: ProviderDef) => void;
 }) {
   const [selected, setSelected] = createSignal<string>(PROVIDERS[0].id);
@@ -42,12 +41,6 @@ export function ProviderStep(props: {
 
   return (
     <form class="card" onSubmit={submit}>
-      <button class="btn-back" type="button" onClick={props.onBack}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-          <path d="M19 12H5M12 5l-7 7 7 7"/>
-        </svg>
-        Back
-      </button>
       <div>
         <div class="card-title">Choose a provider</div>
         <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">Connect any S3-compatible storage backend.</div>
