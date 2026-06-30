@@ -2,7 +2,8 @@ import { createSignal, Show } from "solid-js";
 import { addAccount, testAccount, deleteAccount } from "../../api/accounts";
 import { errMsg } from "../../state/toast";
 import { type ProviderDef } from "../../providers";
-import { ProviderIconTile, LabeledField, Field } from "./shared";
+import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
+import { ProviderIconTile, LabeledField } from "./shared";
 
 // ── step 3: account setup ─────────────────────────────────────────────────────
 
@@ -12,7 +13,6 @@ export function AccountSetupStep(props: {
   onDone: () => void;
 }) {
   const [name, setName] = createSignal(props.provider.label);
-  const [region, setRegion] = createSignal(props.provider.region);
   const [endpoint, setEndpoint] = createSignal(props.provider.endpoint);
   const [accessKey, setAccessKey] = createSignal("");
   const [secretKey, setSecretKey] = createSignal("");
@@ -27,7 +27,6 @@ export function AccountSetupStep(props: {
   function valid() {
     return (
       name().trim() &&
-      region().trim() &&
       accessKey().trim() &&
       secretKey().trim() &&
       (!props.provider.custom_endpoint || endpoint().trim())
@@ -43,7 +42,7 @@ export function AccountSetupStep(props: {
         name: name().trim(),
         protocol: "s3",
         endpoint: endpoint().trim() || undefined,
-        region: region().trim(),
+        region: regionFromEndpoint(props.provider, endpoint().trim()),
         access_key_id: accessKey().trim(),
         secret_access_key: secretKey().trim(),
         addressing_style: props.provider.addressing_style,
@@ -67,7 +66,7 @@ export function AccountSetupStep(props: {
         name: name().trim(),
         protocol: "s3",
         endpoint: endpoint().trim() || undefined,
-        region: region().trim(),
+        region: regionFromEndpoint(props.provider, endpoint().trim()),
         access_key_id: accessKey().trim(),
         secret_access_key: secretKey().trim(),
         addressing_style: props.provider.addressing_style,
@@ -105,25 +104,14 @@ export function AccountSetupStep(props: {
       </div>
       <div class="fields">
         <LabeledField label="Account label" placeholder={props.provider.label} value={name()} onInput={setName} disabled={busy()} />
-        <Show when={props.provider.custom_endpoint}
-              fallback={
-                <LabeledField label="Region" placeholder="us-east-1" value={region()} onInput={setRegion} disabled={busy()} />
-              }>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div>
-              <div class="field-label">Region</div>
-              <Field placeholder="us-east-1" value={region()} onInput={setRegion} disabled={busy()} />
-            </div>
-            <div>
-              <div class="field-label">Endpoint</div>
-              <Field
-                placeholder={props.provider.endpoint_placeholder ?? "https://…"}
-                value={endpoint()}
-                onInput={setEndpoint}
-                disabled={busy()}
-              />
-            </div>
-          </div>
+        <Show when={props.provider.custom_endpoint}>
+          <LabeledField
+            label="Endpoint"
+            placeholder={props.provider.endpoint_placeholder ?? "https://…"}
+            value={endpoint()}
+            onInput={setEndpoint}
+            disabled={busy()}
+          />
         </Show>
         <LabeledField label="Access Key ID" placeholder="AKIAIOSFODNN7EXAMPLE" value={accessKey()} onInput={setAccessKey} disabled={busy()} />
         <LabeledField label="Secret Access Key" placeholder="••••••••••••••••••••" value={secretKey()} onInput={setSecretKey} type="password" disabled={busy()} />

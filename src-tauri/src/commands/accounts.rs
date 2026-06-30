@@ -12,15 +12,14 @@ pub struct AddAccountInput {
     pub name: String,
     pub protocol: String,
     pub endpoint: Option<String>,
-    pub region: String,
+    /// Optional — defaults to `"us-east-1"`. For AWS S3 accounts the real
+    /// region is auto-detected on first access via PermanentRedirect recovery.
+    pub region: Option<String>,
     pub access_key_id: String,
     pub secret_access_key: String,
     pub addressing_style: Option<String>,
 }
 
-// Custom Debug to keep `secret_access_key` out of log lines if anything ever
-// tries to format the struct. `tracing::instrument(skip_all)` already drops
-// the arg today, but this is belt-and-braces.
 impl std::fmt::Debug for AddAccountInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AddAccountInput")
@@ -48,7 +47,7 @@ pub async fn add_account(
             name: input.name,
             protocol: input.protocol,
             endpoint: input.endpoint,
-            region: input.region,
+            region: input.region.unwrap_or_else(|| "us-east-1".to_string()),
             access_key_id: input.access_key_id,
             addressing_style: input.addressing_style,
         })

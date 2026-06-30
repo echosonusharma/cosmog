@@ -12,6 +12,7 @@ const PREFIXES: Record<string, string> = {
   rate_limited:        "rate limited: ",
   io:                  "io error: ",
   canceled:            "canceled: ",
+  region_redirect:     "region redirect: ",
   internal:            "internal: ",
 };
 

@@ -20,10 +20,11 @@ use dashmap::{DashMap, DashSet};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use crate::db::accounts::UpdateAccount;
 use crate::db::settings::AppSettings;
 use crate::db::Db;
 use crate::error::AppResult;
-use crate::providers::build_store;
+use crate::providers::{build_probe_store, build_store};
 use crate::store::ObjectStore;
 use crate::transfer::TransferManager;
 
@@ -128,6 +129,45 @@ impl AppState {
 
     pub fn invalidate(&self, account_id: &str) {
         self.clients.remove(account_id);
+    }
+
+    /// On `PermanentRedirect`: detect the bucket's real region using a probe
+    /// store pointed at the global S3 endpoint (so `GetBucketLocation` works
+    /// regardless of the account's misconfigured region), persist it, evict the
+    /// cached client, rebuild with the correct region, return the new store.
+    pub async fn fix_region_for_bucket(
+        &self,
+        account_id: &str,
+        bucket: &str,
+    ) -> AppResult<Arc<dyn ObjectStore>> {
+        let account = self.db.get_account(account_id).await?;
+        let probe = build_probe_store(&account).await?;
+        let real_region = probe
+            .get_bucket_location(bucket)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "us-east-1".to_string());
+        tracing::info!(
+            account_id = %account_id,
+            bucket = %bucket,
+            region = %real_region,
+            "PermanentRedirect: auto-correcting stored region"
+        );
+        self.db
+            .update_account(
+                account_id,
+                UpdateAccount {
+                    name: None,
+                    endpoint: None,
+                    region: Some(real_region),
+                    access_key_id: None,
+                    addressing_style: None,
+                },
+            )
+            .await?;
+        self.invalidate(account_id);
+        self.store_for(account_id).await
     }
 
     /// Register an in-flight scan's cancel token. Returns a fresh token if the

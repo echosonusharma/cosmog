@@ -5,6 +5,7 @@ import {
 } from "../../api/accounts";
 import { toast } from "../../state/toast";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
+import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 
 // ── add / edit account ────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
   }
 
   const valid = () =>
-    form().name.trim() && form().region.trim() &&
+    form().name.trim() &&
     form().access_key_id.trim() &&
     (isEdit || form().secret_access_key.trim());
 
@@ -84,7 +85,10 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
     }
     let id: string | null = null;
     try {
-      const acct = await addAccount(form());
+      const acct = await addAccount({
+        ...form(),
+        region: regionFromEndpoint(provider(), form().endpoint ?? ""),
+      });
       id = acct.id;
       await testAccount(id);
       toast.ok(`Account "${acct.name}" added`);
@@ -121,10 +125,6 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       <div class="fields">
         <input class="field" placeholder="Name" value={form().name}
                onInput={(e) => set("name", e.currentTarget.value)} disabled={busy()} />
-        <input class="field"
-               placeholder={provider().region ? `Region (e.g. ${provider().region})` : "Region"}
-               value={form().region}
-               onInput={(e) => set("region", e.currentTarget.value)} disabled={busy()} />
         <Show when={provider().id !== "aws"}>
           <input class="field"
                  placeholder={provider().endpoint_placeholder ?? "Endpoint URL"}

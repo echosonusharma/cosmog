@@ -33,9 +33,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
   // Mount guards: don't create ObjectBrowser/BucketGrid until at least one
   // valid value has been seen — avoids invoke() calls with empty strings.
   let _everHadAccount = !!browseState.accountId;
-  let _everHadBucket  = !!browseState.bucket;
   const everHadAccount = createMemo(() => { if (browseState.accountId) _everHadAccount = true; return _everHadAccount; });
-  const everHadBucket  = createMemo(() => { if (browseState.bucket)    _everHadBucket  = true; return _everHadBucket; });
 
   const hasAccount = () => !!browseState.accountId;
   const hasBucket  = () => !!browseState.bucket;

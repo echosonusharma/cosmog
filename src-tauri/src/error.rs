@@ -74,6 +74,12 @@ pub enum AppError {
     #[error("canceled: {0}")]
     Canceled(String),
 
+    /// S3 returned `PermanentRedirect` — bucket lives in a different region
+    /// than the account is configured for. The backend auto-corrects the stored
+    /// region and retries; this variant is only surfaced if the retry also fails.
+    #[error("region redirect: {0}")]
+    RegionRedirect(String),
+
     /// Catch-all for unexpected internal failures.
     #[error("internal: {0}")]
     Internal(String),
@@ -95,6 +101,7 @@ impl AppError {
             AppError::RateLimited(_) => "rate_limited",
             AppError::Io(_) => "io",
             AppError::Canceled(_) => "canceled",
+            AppError::RegionRedirect(_) => "region_redirect",
             AppError::Internal(_) => "internal",
         }
     }

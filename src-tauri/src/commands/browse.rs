@@ -21,7 +21,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::db::cache::{CachedObjectMeta, KeyParts};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::store::ListOptions;
 use crate::validate;
@@ -79,23 +79,32 @@ pub async fn browse_prefix(
 
     // Live mode: single LIST page, upsert into cache, return immediately.
     let store = state.store_for(&account_id).await?;
-    let page = match store
-        .list_objects(
-            &bucket,
-            ListOptions {
-                prefix: if prefix.is_empty() { None } else { Some(prefix.clone()) },
-                delimiter: Some("/".to_string()),
-                continuation: continuation.clone(),
-                max_keys: Some(LIVE_PAGE_SIZE),
-            },
-        )
-        .await
-    {
+    let list_opts = ListOptions {
+        prefix: if prefix.is_empty() { None } else { Some(prefix.clone()) },
+        delimiter: Some("/".to_string()),
+        continuation: continuation.clone(),
+        max_keys: Some(LIVE_PAGE_SIZE),
+    };
+    let page = match store.list_objects(&bucket, list_opts.clone()).await {
         Ok(p) => p,
+        Err(AppError::RegionRedirect(_)) => {
+            // Auto-correct: detect real region, rebuild client, retry once.
+            // Transparent to the FE — no banner required.
+            match state.fix_region_for_bucket(&account_id, &bucket).await {
+                Ok(fixed_store) => match fixed_store.list_objects(&bucket, list_opts).await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!(code = %e.code(), "browse_prefix retry after region fix failed: {e}");
+                        return Err(e);
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("browse_prefix region fix failed: {e}");
+                    return Err(e);
+                }
+            }
+        }
         Err(e) => {
-            // Log at warn instead of error: cross-region buckets, denied
-            // ListBucket perms, and non-existent buckets are all expected
-            // failure modes when the account has heterogeneous access.
             tracing::warn!(code = %e.code(), "browse_prefix live LIST failed: {e}");
             return Err(e);
         }

@@ -35,6 +35,26 @@ impl Protocol {
     }
 }
 
+/// Build a minimal S3 store pointed at the global endpoint (us-east-1, no
+/// custom endpoint override) for probing operations like `GetBucketLocation`
+/// that work cross-region. Used by region auto-correction logic to avoid
+/// calling `GetBucketLocation` on a misconfigured-region client.
+pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
+    let account_id = account.id.clone();
+    let secret = tokio::task::spawn_blocking(move || secrets::get_secret(&account_id))
+        .await
+        .map_err(|e| AppError::Internal(format!("keyring task panicked: {e}")))??;
+    let store = S3Store::new(S3Config {
+        region: "us-east-1".to_string(),
+        endpoint: None,
+        access_key_id: account.access_key_id.clone(),
+        secret_access_key: secret,
+        addressing_style: account.addressing_style.clone(),
+    })
+    .await?;
+    Ok(Arc::new(store))
+}
+
 /// Build an ObjectStore for the given account, pulling its secret from the keyring.
 pub async fn build_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
     let protocol = Protocol::parse(&account.protocol)?;

@@ -16,7 +16,7 @@ export interface AddAccountInput {
   name: string;
   protocol: string;
   endpoint?: string;
-  region: string;
+  region?: string;
   access_key_id: string;
   secret_access_key: string;
   addressing_style?: string;

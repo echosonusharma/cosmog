@@ -141,6 +141,9 @@ where
             "SlowDown" | "TooManyRequests" | "RequestTimeTooSkewed" => {
                 return AppError::RateLimited(display);
             }
+            "PermanentRedirect" => {
+                return AppError::RegionRedirect(display);
+            }
             _ => {}
         }
     }
@@ -278,7 +281,12 @@ impl ObjectStore for S3Store {
             .send()
             .await
             .map_err(|e| classify_aws("get_bucket_location", e))?;
-        Ok(resp.location_constraint().map(|c| c.as_str().to_string()))
+        // AWS returns an empty LocationConstraint for us-east-1 (SDK quirk).
+        // Normalise to None so callers can use unwrap_or("us-east-1").
+        Ok(resp
+            .location_constraint()
+            .map(|c| c.as_str().to_string())
+            .filter(|s| !s.is_empty()))
     }
 
     async fn put_bucket_acl(&self, name: &str, acl: CannedAcl) -> AppResult<()> {
