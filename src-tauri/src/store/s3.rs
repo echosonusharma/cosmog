@@ -104,10 +104,12 @@ fn s3_err<E: std::fmt::Display>(ctx: &str, e: E) -> AppError {
 /// Classify an AWS SDK error into the most specific [`AppError`] variant
 /// available. Falls back to [`AppError::S3`] for unknown codes or non-service
 /// failures (timeouts, DNS, etc.).
-fn classify_aws<E, R>(ctx: &str, err: SdkError<E, R>) -> AppError
+fn classify_aws<E>(
+    ctx: &str,
+    err: SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
+) -> AppError
 where
     E: ProvideErrorMetadata + std::fmt::Display + std::fmt::Debug,
-    R: std::fmt::Debug,
 {
     let mut display = format!("{ctx}: {err}");
     if let Some(service_err) = err.as_service_error() {
@@ -145,6 +147,14 @@ where
                 return AppError::RegionRedirect(display);
             }
             _ => {}
+        }
+    }
+    // HEAD responses (HeadBucket/HeadObject) carry no XML error body, so a
+    // cross-region 301 yields an empty error code above. Classify it from the
+    // raw HTTP status so region auto-recovery still kicks in.
+    if let SdkError::ServiceError(ref se) = err {
+        if se.raw().status().as_u16() == 301 {
+            return AppError::RegionRedirect(display);
         }
     }
     AppError::S3(display)

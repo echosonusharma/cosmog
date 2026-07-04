@@ -26,6 +26,7 @@ use crate::db::Db;
 use crate::error::AppResult;
 use crate::providers::{build_probe_store, build_store};
 use crate::store::logging::LoggingStore;
+use crate::store::region_retry::RegionRetryStore;
 use crate::store::ObjectStore;
 use crate::transfer::TransferManager;
 
@@ -123,7 +124,12 @@ impl AppState {
         // Slow path: build client, then insert only if another caller hasn't
         // beaten us (or_insert is a no-op when the entry already exists).
         let account = self.db.get_account(account_id).await?;
-        let inner = build_store(&account).await?;
+        let mut inner = build_store(&account).await?;
+        // Real AWS only: buckets can live in other regions; route + retry
+        // per bucket so PermanentRedirect never surfaces to the FE.
+        if account.endpoint.is_none() {
+            inner = Arc::new(RegionRetryStore::new(inner, account.clone()));
+        }
         let store: Arc<dyn ObjectStore> = Arc::new(LoggingStore::new(
             inner,
             self.db.clone(),
@@ -154,11 +160,16 @@ impl AppState {
     ) -> AppResult<Arc<dyn ObjectStore>> {
         let account = self.db.get_account(account_id).await?;
         let probe = build_probe_store(&account).await?;
+        // Never persist a guessed region: if the probe fails (e.g. IAM denies
+        // GetBucketLocation) we'd overwrite a possibly-correct stored region
+        // with a wrong one and break every bucket in the account.
         let real_region = probe
             .get_bucket_location(bucket)
             .await
-            .ok()
-            .flatten()
+            .map_err(|e| {
+                tracing::warn!(bucket = %bucket, "region probe failed, keeping stored region: {e}");
+                e
+            })?
             .unwrap_or_else(|| "us-east-1".to_string());
         tracing::info!(
             account_id = %account_id,

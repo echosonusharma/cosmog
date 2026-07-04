@@ -55,6 +55,17 @@ pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectSto
     Ok(Arc::new(store))
 }
 
+/// Like [`build_store`] but signs for an explicit region instead of the
+/// account's stored one. Used for per-bucket region routing.
+pub async fn build_store_with_region(
+    account: &Account,
+    region: &str,
+) -> AppResult<Arc<dyn ObjectStore>> {
+    let mut acct = account.clone();
+    acct.region = region.to_string();
+    build_store(&acct).await
+}
+
 /// Build an ObjectStore for the given account, pulling its secret from the keyring.
 pub async fn build_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
     let protocol = Protocol::parse(&account.protocol)?;
