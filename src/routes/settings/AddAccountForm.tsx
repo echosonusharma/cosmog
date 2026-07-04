@@ -4,6 +4,7 @@ import {
   type AddAccountInput, type Account,
 } from "../../api/accounts";
 import { toast } from "../../state/toast";
+import { bumpBucketsRefresh } from "../../state/app";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 
@@ -77,6 +78,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         });
         await testAccount(props.editing!.id);
         toast.ok(`Account "${f.name}" updated`);
+        bumpBucketsRefresh();
         props.onDone();
       } catch (e) {
         toast.err(e);
@@ -92,6 +94,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       id = acct.id;
       await testAccount(id);
       toast.ok(`Account "${acct.name}" added`);
+      bumpBucketsRefresh();
       props.onDone();
     } catch (e) {
       if (id) await deleteAccount(id).catch(() => {});
