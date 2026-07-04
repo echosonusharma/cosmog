@@ -15,6 +15,7 @@
 pub mod accounts;
 pub mod cache;
 pub mod capabilities;
+pub mod request_logs;
 pub mod settings;
 pub mod transfers;
 
@@ -315,6 +316,42 @@ const MIGRATIONS: &[Migration] = &[
         sql: r#"
             DROP INDEX IF EXISTS idx_co_prefix;
             ALTER TABLE cached_objects DROP COLUMN parent_prefix;
+        "#,
+    },
+    Migration {
+        version: 10,
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS request_logs (
+                id TEXT PRIMARY KEY,
+                account_id TEXT,
+                account_name TEXT,
+                operation TEXT NOT NULL,
+                bucket TEXT,
+                key TEXT,
+                status TEXT NOT NULL,
+                error_code TEXT,
+                error_msg TEXT,
+                duration_ms INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rl_created ON request_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_rl_account ON request_logs(account_id);
+            CREATE INDEX IF NOT EXISTS idx_rl_status ON request_logs(status);
+        "#,
+    },
+    Migration {
+        version: 11,
+        sql: r#"
+            ALTER TABLE request_logs ADD COLUMN http_method TEXT;
+            ALTER TABLE request_logs ADD COLUMN request_url TEXT;
+            ALTER TABLE request_logs ADD COLUMN request_params TEXT;
+            ALTER TABLE request_logs ADD COLUMN response_status INTEGER;
+        "#,
+    },
+    Migration {
+        version: 12,
+        sql: r#"
+            ALTER TABLE request_logs ADD COLUMN response_meta TEXT;
         "#,
     },
 ];

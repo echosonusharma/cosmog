@@ -25,6 +25,7 @@ use crate::db::settings::AppSettings;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::providers::{build_probe_store, build_store};
+use crate::store::logging::LoggingStore;
 use crate::store::ObjectStore;
 use crate::transfer::TransferManager;
 
@@ -33,6 +34,7 @@ use crate::transfer::TransferManager;
 pub struct AppState {
     pub db: Db,
     pub transfers: TransferManager,
+    pub app: tauri::AppHandle,
     /// Filesystem directory where the rolling log file lives. Used by the
     /// `get_log_tail` command.
     pub log_dir: PathBuf,
@@ -62,11 +64,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: Db, concurrency: usize, log_dir: PathBuf, db_path: PathBuf) -> Self {
+    pub fn new(db: Db, concurrency: usize, log_dir: PathBuf, db_path: PathBuf, app: tauri::AppHandle) -> Self {
         let transfers = TransferManager::new(db.clone(), concurrency);
         Self {
             db,
             transfers,
+            app,
             log_dir,
             db_path,
             clients: Arc::new(DashMap::new()),
@@ -120,7 +123,16 @@ impl AppState {
         // Slow path: build client, then insert only if another caller hasn't
         // beaten us (or_insert is a no-op when the entry already exists).
         let account = self.db.get_account(account_id).await?;
-        let store = build_store(&account).await?;
+        let inner = build_store(&account).await?;
+        let store: Arc<dyn ObjectStore> = Arc::new(LoggingStore::new(
+            inner,
+            self.db.clone(),
+            self.app.clone(),
+            &account.id,
+            &account.name,
+            account.endpoint.clone(),
+            account.region.clone(),
+        ));
         Ok(self.clients
             .entry(account_id.to_string())
             .or_insert(store)

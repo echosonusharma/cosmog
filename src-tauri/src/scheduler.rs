@@ -60,6 +60,14 @@ async fn run_once(
     // Expire old failure entries (older than AUTH_BACKOFF_SECS).
     fail_times.retain(|_, v| v.elapsed() < backoff);
 
+    // Prune request logs older than the configured TTL.
+    if let Ok(settings) = state.load_settings().await {
+        let cutoff = Utc::now().timestamp() - (settings.request_log_ttl_days as i64 * 86_400);
+        if let Err(e) = state.db.delete_old_request_logs(cutoff).await {
+            warn!("request log TTL cleanup failed: {e}");
+        }
+    }
+
     let due = state.db.bucket_index_due_list().await?;
     let now = Utc::now().timestamp();
     for (account_id, bucket, next_due) in due {

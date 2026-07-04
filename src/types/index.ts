@@ -79,6 +79,26 @@ export interface AppSettings {
   confirm_destructive: boolean;
   http_proxy: string | null;
   custom_ca_path: string | null;
+  request_log_ttl_days: number;
+}
+
+export interface RequestLog {
+  id: string;
+  account_id: string | null;
+  account_name: string | null;
+  operation: string;
+  http_method: string | null;
+  request_url: string | null;
+  request_params: string | null;
+  response_meta: string | null;
+  bucket: string | null;
+  key: string | null;
+  status: "ok" | "error";
+  response_status: number | null;
+  error_code: string | null;
+  error_msg: string | null;
+  duration_ms: number;
+  created_at: number;
 }
 
 export type SearchScope =

@@ -6,6 +6,7 @@
 //! configuration). Adding a new protocol = adding a new submodule + trait impl
 //! and wiring it through [`crate::providers::Protocol`].
 
+pub mod logging;
 pub mod s3;
 
 use std::path::PathBuf;

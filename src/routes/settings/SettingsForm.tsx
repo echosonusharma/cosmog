@@ -135,6 +135,15 @@ export function SettingsForm() {
                  value={field("custom_ca_path") ?? ""}
                  onInput={(e) => patch("custom_ca_path", (e.currentTarget.value || null) as any)} />
 
+          <label class="settings-label">Request log retention (days)</label>
+          <div class="num-field">
+            <input type="number" min={1} max={365}
+                   value={field("request_log_ttl_days") ?? 14}
+                   onInput={(e) => patch("request_log_ttl_days", Math.min(365, Math.max(1, parseInt(e.currentTarget.value) || 14)))} />
+            <button type="button" class="num-field-btn" onClick={() => patch("request_log_ttl_days", Math.max(1, (field("request_log_ttl_days") ?? 14) - 1))}>−</button>
+            <button type="button" class="num-field-btn" onClick={() => patch("request_log_ttl_days", Math.min(365, (field("request_log_ttl_days") ?? 14) + 1))}>+</button>
+          </div>
+
           <label class="settings-label">Show hidden files</label>
           <div><input type="checkbox" checked={field("show_hidden") ?? false}
                        onChange={(e) => patch("show_hidden", e.currentTarget.checked)} /></div>

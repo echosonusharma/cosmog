@@ -17,6 +17,7 @@ pub mod capabilities;
 pub mod logs;
 pub mod objects;
 pub mod portable;
+pub mod request_logs;
 pub mod search;
 pub mod settings;
 pub mod transfers;

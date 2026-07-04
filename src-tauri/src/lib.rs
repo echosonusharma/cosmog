@@ -157,7 +157,13 @@ pub fn run() {
                     }
                 }
                 let concurrency = settings.transfer_concurrency as usize;
-                let state = AppState::new(db, concurrency, log_dir, db_path);
+                // Prune request logs older than the configured TTL.
+                let ttl_cutoff = chrono::Utc::now().timestamp()
+                    - (settings.request_log_ttl_days as i64 * 86_400);
+                if let Err(e) = db.delete_old_request_logs(ttl_cutoff).await {
+                    tracing::warn!("request log TTL cleanup failed: {e}");
+                }
+                let state = AppState::new(db, concurrency, log_dir, db_path, app.handle().clone());
                 // Background auto re-index loop. Token is dropped (leaked) on
                 // app shutdown; tokio cancels it as the runtime tears down.
                 let _scheduler_cancel = scheduler::spawn(state.clone());
@@ -249,6 +255,12 @@ pub fn run() {
             // -------- logs: diagnostic file access --------
             commands::logs::get_log_dir,                    // return path to the rolling log directory
             commands::logs::get_log_tail,                   // return last N bytes of today's log file
+
+            // -------- request_logs: S3 API call history --------
+            commands::request_logs::list_request_logs,      // paginated S3 API request log (newest first)
+            commands::request_logs::count_request_logs,     // count of log rows matching optional search
+            commands::request_logs::clear_request_logs,     // delete all request log rows
+            commands::request_logs::purge_old_request_logs, // delete rows older than the TTL setting
 
             // -------- portable: backup / restore / import / export --------
             commands::portable::export_config,              // dump accounts (no secrets) + settings as a JSON bundle

@@ -2277,3 +2277,302 @@ input[type="checkbox"] {
 .context-item:disabled { opacity: 0.4; cursor: not-allowed; }
 .context-item-icon { width: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
 .context-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* ── logs tabs ───────────────────────────────────────────────────────────── */
+
+.logs-tab {
+  background: none; border: none;
+  padding: 10px 12px 8px;
+  font: inherit; font-size: 12.5px;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.logs-tab:hover { color: var(--text); }
+.logs-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* ── request log rows ────────────────────────────────────────────────────── */
+
+.req-log-row {
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.req-log-row:hover { background: var(--bg-hover); }
+.req-log-row.req-log-error { background: rgba(239,68,68,0.03); }
+.req-log-row.req-log-error:hover { background: rgba(239,68,68,0.07); }
+.req-log-row.req-log-open { background: var(--bg-active); }
+
+.req-log-main {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 14px 8px 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.req-log-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.req-log-ts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 62px;
+}
+.req-log-ts-date {
+  font-size: 9.5px;
+  opacity: 0.6;
+  margin-right: 3px;
+}
+
+.req-log-op {
+  font-size: 11px; font-weight: 600;
+  padding: 2px 9px; border-radius: 20px;
+  white-space: nowrap; flex-shrink: 0;
+  background: color-mix(in srgb, var(--op-color) 15%, transparent);
+  color: var(--op-color);
+  border: 1px solid color-mix(in srgb, var(--op-color) 30%, transparent);
+  letter-spacing: 0.01em;
+}
+
+.req-log-account {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  padding: 1px 7px; border-radius: 4px;
+  max-width: 130px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.req-log-target {
+  display: flex; align-items: center; gap: 0;
+  min-width: 0; flex: 1;
+  font-family: var(--font-mono); font-size: 11px;
+  overflow: hidden;
+}
+
+.req-log-bucket {
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.req-log-sep {
+  color: var(--text-faint);
+  opacity: 0.4;
+  padding: 0 1px;
+  flex-shrink: 0;
+}
+
+.req-log-key {
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.req-log-duration {
+  font-family: var(--font-mono); font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap; flex-shrink: 0;
+  min-width: 52px; text-align: right;
+  transition: color 0.2s;
+}
+
+.req-log-chevron {
+  color: var(--text-faint);
+  font-size: 10px;
+  flex-shrink: 0;
+  margin-left: 2px;
+  transition: transform 0.15s;
+}
+
+/* ── detail card ─────────────────────────────────────────────────────────── */
+
+.req-log-detail {
+  padding: 0 14px 14px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.req-log-detail-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 10px;
+  margin: 0 -1px;
+  border-radius: 0;
+  background: var(--panel);
+  border-left: 3px solid;
+}
+
+.req-log-detail-op {
+  font-size: 13px; font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.req-log-detail-raw-op {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--bg-active);
+  padding: 1px 6px; border-radius: 3px;
+}
+
+.req-log-detail-status-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px;
+  letter-spacing: 0.02em;
+}
+.req-log-detail-ok-badge  { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.req-log-detail-err-badge { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
+.req-log-detail-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding-top: 2px;
+}
+
+.req-log-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 9px;
+  color: var(--text-soft);
+}
+.req-log-chip-label {
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.req-log-chip-account { border-color: rgba(99,102,241,0.3); }
+.req-log-chip-bucket  { border-color: rgba(148,163,184,0.3); }
+.req-log-chip-duration { font-weight: 700; }
+.req-log-chip-time { font-size: 10.5px; color: var(--text-faint); }
+
+.req-log-detail-key-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.req-log-detail-key {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-soft);
+  word-break: break-all;
+  white-space: pre-wrap;
+  flex: 1;
+}
+
+.req-log-detail-error-box {
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.req-log-detail-error-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.req-log-detail-error-code {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: #fca5a5;
+  background: rgba(239,68,68,0.15);
+  padding: 1px 7px; border-radius: 4px;
+}
+.req-log-detail-error-msg {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: #fca5a5;
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* ── detail: HTTP method + status badges ─────────────────────────────────── */
+
+.req-log-http-method {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 4px;
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99,102,241,0.3);
+  flex-shrink: 0;
+}
+
+.req-log-http-status {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px;
+  flex-shrink: 0;
+}
+.req-log-http-status-ok  { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+.req-log-http-status-err { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+
+/* ── detail: URL bar ─────────────────────────────────────────────────────── */
+
+.req-log-url-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.req-log-url-text {
+  flex: 1;
+  color: #93c5fd;
+  word-break: break-all;
+  user-select: text;
+  cursor: text;
+}
+.req-log-copy-btn {
+  background: none; border: none;
+  color: var(--text-faint);
+  cursor: pointer; padding: 0 4px;
+  font-size: 14px; line-height: 1;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: color 0.1s, background 0.1s;
+}
+.req-log-copy-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+/* ── detail: request params JSON block ───────────────────────────────────── */
+
+.req-log-params-block {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.req-log-params-header {
+  display: flex; align-items: center;
+  padding: 5px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.req-log-params-json {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--bg);
+  font-family: var(--font-mono); font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.6;
+  overflow-x: auto;
+  user-select: text;
+  cursor: text;
+  tab-size: 2;
+}

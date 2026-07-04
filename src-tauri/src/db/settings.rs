@@ -71,6 +71,10 @@ pub struct AppSettings {
     /// Filesystem path to a custom CA-bundle PEM. Honoured by setting
     /// `SSL_CERT_FILE` env var. Reverted requires app restart.
     pub custom_ca_path: Option<String>,
+
+    /// How many days to retain API request log entries. Older rows are
+    /// deleted on startup. Range enforced 1..=365.
+    pub request_log_ttl_days: u32,
 }
 
 impl Default for AppSettings {
@@ -88,6 +92,7 @@ impl Default for AppSettings {
             confirm_destructive: true,
             http_proxy: None,
             custom_ca_path: None,
+            request_log_ttl_days: 14,
         }
     }
 }
@@ -104,6 +109,7 @@ impl AppSettings {
         self.multipart_threshold_bytes = self.multipart_threshold_bytes.max(s3_floor);
         // 7-day signature ceiling for presigned URLs.
         self.presign_default_expires_secs = self.presign_default_expires_secs.min(7 * 24 * 3600);
+        self.request_log_ttl_days = self.request_log_ttl_days.clamp(1, 365);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "system".into();
         }
@@ -203,6 +209,7 @@ fn serialize_settings(s: &AppSettings) -> Vec<(&'static str, String)> {
         ("confirm_destructive", enc(&s.confirm_destructive)),
         ("http_proxy", enc(&s.http_proxy)),
         ("custom_ca_path", enc(&s.custom_ca_path)),
+        ("request_log_ttl_days", enc(&s.request_log_ttl_days)),
     ]
 }
 
@@ -269,6 +276,11 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
         "custom_ca_path" => {
             if let Some(v) = dec(raw) {
                 s.custom_ca_path = v;
+            }
+        }
+        "request_log_ttl_days" => {
+            if let Some(v) = dec(raw) {
+                s.request_log_ttl_days = v;
             }
         }
         // Unknown key — silently ignored so older binaries don't corrupt
