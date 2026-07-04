@@ -50,8 +50,9 @@
 | Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 
-> Linux: secrets are stored via the D-Bus Secret Service — a provider such as
-> GNOME Keyring, KWallet, or KeePassXC must be running.
+> Credentials are stored in the native OS secret store: Keychain on macOS,
+> Credential Manager on Windows, and the D-Bus Secret Service on Linux —
+> where a provider such as GNOME Keyring, KWallet, or KeePassXC must be running.
 
 ## Development
 
