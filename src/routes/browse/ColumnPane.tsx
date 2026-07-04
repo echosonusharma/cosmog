@@ -130,12 +130,12 @@ export function ColumnPane(props: {
     return rows;
   });
 
-  const hasData = () => state.initialLoaded;
+  const hasData = () => state.initialLoaded && !state.error;
 
   return (
     <Show when={hasData()} fallback={
       <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto">
-        <Show when={state.loading}>
+        <Show when={state.loading && !state.error}>
           <div style="padding:12px;display:flex;justify-content:center"><span class="spinner" /></div>
         </Show>
         <Show when={state.error}>
@@ -145,7 +145,11 @@ export function ColumnPane(props: {
     }>
       <Show when={items().length > 0} fallback={
         <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding-top:12px">
-          <span style="color:var(--faint);font-size:12px">Empty folder</span>
+          <Show when={!state.loading} fallback={
+            <div style="padding:12px;display:flex;justify-content:center"><span class="spinner" /></div>
+          }>
+            <span style="color:var(--faint);font-size:12px">Empty folder</span>
+          </Show>
         </div>
       }>
         <ColumnPaneVirtual

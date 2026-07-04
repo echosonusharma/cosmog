@@ -133,7 +133,7 @@ export function ObjectBrowser(props: {
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
 
-  createEffect(() => { props.prefix; setSelected(new Set<string>()); });
+  createEffect(() => { props.prefix; props.bucket; props.accountId; setSelected(new Set<string>()); });
   createEffect(() => { viewMode(); setSelected(new Set<string>()); });
 
   // Consume pendingPreview set by navigateToObject (from Search).

@@ -70,7 +70,7 @@ export function ListView(props: {
         <div
           ref={listScrollEl}
           class={`object-list ${props.hasSel ? "has-selection" : ""}`}
-          style={{ flex: "1", "overflow-y": "auto", position: "relative", opacity: props.browseData.loading && !props.browseData.initialLoaded ? "0.45" : "1", transition: "opacity 0.12s" }}
+          style={{ flex: "1", "overflow-y": "auto", position: "relative", opacity: props.browseData.loading ? "0.45" : "1", transition: "opacity 0.12s" }}
         >
           <Show when={props.browseData.error}>
             <div class="status-msg err" style="margin:12px 16px">{errMsg(props.browseData.error)}</div>
@@ -80,7 +80,7 @@ export function ListView(props: {
             <div class="loading-row"><span class="spinner" /> Loading…</div>
           </Show>
 
-          <Show when={props.browseData.initialLoaded && listItems().length === 0}>
+          <Show when={props.browseData.initialLoaded && !props.browseData.loading && !props.browseData.error && listItems().length === 0}>
             <div class="empty-state">
               <span class="empty-icon"><IconBucket size={36} /></span>
               Empty prefix
