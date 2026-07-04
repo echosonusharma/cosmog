@@ -44,7 +44,7 @@ aws-smithy-runtime-api = "1"
 tokio-rusqlite = "0.6"
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 urlencoding = "2"
