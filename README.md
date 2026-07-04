@@ -21,6 +21,12 @@
 - **Full-text search** with local index per bucket
 - **Multiple accounts** — manage many credentials side by side
 - **Transfer manager** — real-time speed, filter by active/done/failed
+- **Request logs** — searchable history of every S3 API call with operation/status filters, configurable retention
+- **System logs** — live-tailing log viewer with level filter and search
+- **Multi-region aware** — buckets are routed to their own AWS region automatically, no manual region config
+- **Secure credentials** — secrets live in the OS keychain (Keychain, Credential Manager, Secret Service), never on disk
+- **Backup & restore** — export/import accounts and settings as JSON (secrets excluded)
+- **Themes** — light, dark, or follow system
 
 ## Supported Providers
 
@@ -43,3 +49,16 @@
 | Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+
+> Linux: secrets are stored via the D-Bus Secret Service — a provider such as
+> GNOME Keyring, KWallet, or KeePassXC must be running.
+
+## Development
+
+```sh
+npm install
+npm run tauri dev     # run the app with hot reload
+npm run tauri build   # production bundles
+```
+
+Architecture, module layout, and internals are documented in [DOCS.md](DOCS.md).
