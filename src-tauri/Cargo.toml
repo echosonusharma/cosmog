@@ -1,8 +1,11 @@
 [package]
 name = "cosmog"
 version = "0.1.7"
-description = "A Tauri App"
-authors = ["you"]
+description = "Desktop S3-compatible object storage manager"
+authors = ["Sonu Sharma <sonu.s@eclateng.com>"]
+homepage = "https://github.com/sonusharma/cosmog"
+repository = "https://github.com/sonusharma/cosmog"
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
