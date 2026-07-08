@@ -3,42 +3,42 @@
 
   # Cosmog
 
-  Native desktop app for managing S3-compatible object storage.  
+  Desktop app for managing S3-compatible object storage.  
   Browse, upload, download, and organize files across any S3 provider.
 </div>
 
 ## Features
 
 - **Browse** buckets and objects with folder navigation, column layout, and search
-- **Upload & download** files with background transfer queue, progress tracking, and retry
+- **Upload and download** files with background transfer queue, progress tracking, and retry
 - **Preview** images, text, JSON, XML, and spreadsheets inline
 - **Edit** text files directly in the app
-- **Bulk operations** — multi-select delete, copy presigned links
-- **Create & delete** buckets, folders, and objects
-- **Copy / move** objects within and across buckets
-- **Presigned URLs** — generate shareable links with custom expiry
-- **Versioning** — view and toggle bucket versioning
+- **Bulk operations** including multi-select delete and presigned link generation
+- **Create and delete** buckets, folders, and objects
+- **Copy and move** objects within and across buckets
+- **Presigned URLs** with configurable expiry
+- **Versioning** view and toggle bucket versioning
 - **Full-text search** with local index per bucket
-- **Multiple accounts** — manage many credentials side by side
-- **Transfer manager** — real-time speed, filter by active/done/failed
-- **Request logs** — searchable history of every S3 API call with operation/status filters, configurable retention
-- **System logs** — live-tailing log viewer with level filter and search
-- **Multi-region aware** — buckets are routed to their own AWS region automatically, no manual region config
-- **Secure credentials** — secrets live in the OS keychain (Keychain, Credential Manager, Secret Service), never on disk
-- **Backup & restore** — export/import accounts and settings as JSON (secrets excluded)
-- **Themes** — light, dark, or follow system
+- **Multiple accounts** manage credentials for many providers side by side
+- **Transfer manager** real-time speed, filter by active, done, or failed
+- **Request logs** searchable history of every S3 API call with operation and status filters
+- **System logs** live-tailing log viewer with level filter and search
+- **Multi-region routing** buckets are automatically routed to their correct AWS region
+- **Secure credentials** secrets stored in the OS keychain, never written to disk
+- **Backup and restore** export and import accounts and settings as JSON (secrets excluded)
+- **Themes** light, dark, or follow system
 
 ## Supported Providers
 
 | Provider | Notes |
 |---|---|
-| Amazon S3 | Native AWS |
+| Amazon S3 | Native AWS support |
 | Cloudflare R2 | Custom endpoint required |
 | Backblaze B2 | Custom endpoint required |
 | DigitalOcean Spaces | Custom endpoint required |
 | Wasabi | Custom endpoint required |
 | MinIO | Self-hosted |
-| S3-compatible | Any S3-compatible API |
+| Any S3-compatible API | Works with any provider matching the AWS S3 API |
 
 ## Download
 
@@ -48,17 +48,17 @@
 | macOS (Intel) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| Linux (deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Linux (.deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 
 > Credentials are stored in the native OS secret store: Keychain on macOS,
-> Credential Manager on Windows, and the D-Bus Secret Service on Linux —
-> where a provider such as GNOME Keyring, KWallet, or KeePassXC must be running.
+> Credential Manager on Windows, and the D-Bus Secret Service on Linux.
+> A compatible provider such as GNOME Keyring, KWallet, or KeePassXC must be running on Linux.
 
 ## Development
 
 ```sh
 npm install
-npm run tauri dev     # run the app with hot reload
+npm run tauri dev     # run with hot reload
 npm run tauri build   # production bundles
 ```
 
