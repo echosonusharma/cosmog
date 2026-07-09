@@ -62,6 +62,26 @@ pub fn run() {
             use tracing_subscriber::Layer;
 
             let app_dir = app.path().app_data_dir().expect("resolve app data dir");
+
+            // If the user requested a full data wipe (via clear_app_data command),
+            // a marker file is written before exit. Apply it now, before any
+            // files in app_dir are opened, so nothing is held open during removal.
+            let wipe_marker = app_dir.join("pending_wipe");
+            if wipe_marker.exists() {
+                match std::fs::remove_dir_all(&app_dir) {
+                    Ok(()) => {
+                        let _ = std::fs::create_dir_all(&app_dir);
+                    }
+                    Err(e) => {
+                        // Wipe failed (permissions, locked file, etc.). Remove the
+                        // marker so the app doesn't retry on every boot with partial
+                        // data present. User can retry the clear via Settings.
+                        eprintln!("pending_wipe: remove_dir_all failed: {e}");
+                        let _ = std::fs::remove_file(&wipe_marker);
+                    }
+                }
+            }
+
             let db_path = app_dir.join("cosmog.sqlite");
             let log_dir = app_dir.join("logs");
 
@@ -267,6 +287,7 @@ pub fn run() {
             commands::portable::import_config,              // merge a JSON bundle into the local DB
             commands::portable::backup_database,            // atomic SQLite-Backup-API copy of the live DB to a path
             commands::portable::stage_restore,              // validate + stage a SQLite file; applied at next boot
+            commands::portable::clear_app_data,             // delete all keyring secrets + wipe app data dir on next boot, then exit
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale

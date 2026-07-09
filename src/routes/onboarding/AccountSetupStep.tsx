@@ -113,7 +113,7 @@ export function AccountSetupStep(props: {
             disabled={busy()}
           />
         </Show>
-        <LabeledField label="Access Key ID" placeholder="AKIAIOSFODNN7EXAMPLE" value={accessKey()} onInput={setAccessKey} disabled={busy()} />
+        <LabeledField label="Access Key ID" placeholder="Your access key ID" value={accessKey()} onInput={setAccessKey} disabled={busy()} />
         <LabeledField label="Secret Access Key" placeholder="••••••••••••••••••••" value={secretKey()} onInput={setSecretKey} type="password" disabled={busy()} />
       </div>
 

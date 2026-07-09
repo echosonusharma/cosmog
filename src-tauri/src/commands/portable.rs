@@ -117,6 +117,47 @@ pub async fn stage_restore(
     Ok(pending.to_string_lossy().to_string())
 }
 
+/// Wipe all local app data and exit.
+///
+/// Deletes every OS keyring secret for every configured account, then writes
+/// a `pending_wipe` marker file next to the database. On the next launch the
+/// boot sequence detects the marker and removes the entire app data directory
+/// before opening any files, giving a guaranteed clean slate.
+///
+/// The app exits immediately after writing the marker so no open file handles
+/// block the deletion.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn clear_app_data(state: State<'_, AppState>) -> AppResult<()> {
+    use crate::error::AppError;
+
+    let accounts = state.db.list_accounts().await?;
+    for account in accounts {
+        let id = account.id.clone();
+        match tokio::task::spawn_blocking(move || crate::secrets::delete_secret(&id)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("keyring delete failed for {}: {e}", account.id),
+            Err(e) => tracing::warn!("spawn_blocking failed for {}: {e}", account.id),
+        }
+    }
+
+    let app_dir = state
+        .db_path
+        .parent()
+        .ok_or_else(|| AppError::Internal("db_path has no parent directory".into()))?;
+    tokio::fs::write(app_dir.join("pending_wipe"), b"1").await?;
+
+    // Delay exit so the IPC response reaches the frontend before the process
+    // terminates. app.exit() tears down Tauri synchronously and can crash if
+    // called while the command response is still in flight.
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        std::process::exit(0);
+    });
+
+    Ok(())
+}
+
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn import_config(

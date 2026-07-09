@@ -277,6 +277,7 @@ cosmog/
 | `import_config` | Merge JSON bundle into local DB |
 | `backup_database` | Atomic SQLite backup to path |
 | `stage_restore` | Validate and stage SQLite file; applied at next boot |
+| `clear_app_data` | Delete all keyring secrets, write wipe marker, and exit; app data dir removed on next boot |
 
 ### Browse
 
@@ -404,14 +405,35 @@ npm run tauri <cmd>    # uses cross-env NO_STRIP=1
 
 ## App Startup Sequence
 
-1. Resolve `app_data_dir` and ensure `logs/` exists
-2. Init `tracing` (console and rolling file)
-3. Check for `cosmog.sqlite.restore_pending`, validate and apply if present
-4. Open SQLite and apply pending migrations
-5. Reap orphan transfers from crashed session
-6. Load settings and apply `http_proxy` and `custom_ca_path` to env
-7. Build `AppState` with configured concurrency semaphore
-8. Spawn background scheduler (auto-reindex loop)
-9. Register `AppState` with Tauri via `manage()`
-10. Register all ~60 Tauri commands
-11. Run Tauri event loop
+1. Resolve `app_data_dir`
+2. Check for `pending_wipe` marker; if present, delete entire `app_data_dir` and recreate it
+3. Ensure `logs/` exists and init `tracing` (console and rolling file)
+4. Check for `cosmog.sqlite.restore_pending`, validate and apply if present
+5. Open SQLite and apply pending migrations
+6. Reap orphan transfers from crashed session
+7. Load settings and apply `http_proxy` and `custom_ca_path` to env
+8. Build `AppState` with configured concurrency semaphore
+9. Spawn background scheduler (auto-reindex loop)
+10. Register `AppState` with Tauri via `manage()`
+11. Register all ~60 Tauri commands
+12. Run Tauri event loop
+
+---
+
+## Uninstall and Data Removal
+
+App data persists across reinstalls by default. To remove all local data:
+
+**In-app (all platforms):** Settings > Danger zone > Clear all data. Deletes all keyring secrets, writes a `pending_wipe` marker, and exits. On the next launch the entire app data directory is removed before any files are opened.
+
+**Windows uninstaller:** The NSIS uninstaller prompts to delete `%APPDATA%\com.sonus.cosmog`. Note: credentials in Windows Credential Manager are not removed by the NSIS prompt alone; use the in-app option for a complete wipe.
+
+**Manual removal paths:**
+
+| Platform | App data directory |
+|----------|--------------------|
+| macOS | `~/Library/Application Support/com.sonus.cosmog` |
+| Windows | `%APPDATA%\com.sonus.cosmog` |
+| Linux | `~/.local/share/com.sonus.cosmog` |
+
+Keyring entries are keyed by account ID under the service name `com.sonus.cosmog`. On Linux these live in the Secret Service (GNOME Keyring, KWallet, or KeePassXC). On macOS they are in Keychain Access. On Windows they are in Credential Manager.
