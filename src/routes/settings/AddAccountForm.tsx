@@ -32,13 +32,13 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
           access_key_id: props.editing.access_key_id,
           secret_access_key: "",
           endpoint: props.editing.endpoint ?? undefined,
-          addressing_style: props.editing.addressing_style as any,
+          addressing_style: props.editing.addressing_style,
         }
       : {
           name: "", protocol: "s3", region: providers[0].region,
           access_key_id: "", secret_access_key: "",
           endpoint: providers[0].endpoint || undefined,
-          addressing_style: providers[0].addressing_style as any || undefined,
+          addressing_style: providers[0].addressing_style || undefined,
         }
   );
   const [busy, setBusy] = createSignal(false);
@@ -49,7 +49,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       ...f,
       region: p.region || f.region,
       endpoint: p.endpoint || undefined,
-      addressing_style: p.addressing_style as any || undefined,
+      addressing_style: p.addressing_style || undefined,
     }));
   }
 

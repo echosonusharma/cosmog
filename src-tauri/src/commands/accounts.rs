@@ -55,7 +55,9 @@ pub async fn add_account(
     // Write secret AFTER DB insert (we need the generated id).
     // On keyring failure roll back the DB row so no orphan is left.
     if let Err(e) = secrets::set_secret(&acct.id, &input.secret_access_key) {
-        let _ = state.db.delete_account(&acct.id).await;
+        if let Err(del_err) = state.db.delete_account(&acct.id).await {
+            tracing::error!(account_id = %acct.id, "failed to roll back account after keyring write failed: {del_err}");
+        }
         return Err(e);
     }
     Ok(acct)

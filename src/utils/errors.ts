@@ -30,8 +30,9 @@ export function parseWireError(raw: unknown): WireError {
   for (let i = 0; i < 2 && typeof obj === "string"; i++) {
     try { obj = JSON.parse(obj); } catch { break; }
   }
-  const code    = (obj as any)?.code    ?? "";
-  let   message = (obj as any)?.message
+  const parsed  = typeof obj === "object" && obj !== null ? obj as Record<string, unknown> : {};
+  const code    = typeof parsed.code === "string" ? parsed.code : "";
+  let   message = (typeof parsed.message === "string" ? parsed.message : null)
     ?? (raw instanceof Error ? raw.message : typeof raw === "string" ? raw : String(raw ?? ""));
   const pfx = PREFIXES[code];
   if (pfx && message.startsWith(pfx)) message = message.slice(pfx.length);

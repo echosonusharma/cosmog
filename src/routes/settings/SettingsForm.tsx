@@ -21,7 +21,7 @@ export function SettingsForm() {
 
   function patch<K extends keyof AppSettings>(key: K, val: AppSettings[K]) {
     setForm((p) => ({ ...p, [key]: val }));
-    if (key === "theme") setTheme(val as any);
+    if (key === "theme") setTheme(val as "light" | "dark" | "system");
   }
 
   async function save() {
@@ -46,7 +46,7 @@ export function SettingsForm() {
     setBusy(true);
     try {
       const s = await resetSettings();
-      setTheme((s.theme as any) ?? "system");
+      setTheme(s.theme ?? "system");
       setForm({});
       await refetch();
       toast.ok("Defaults restored");
@@ -72,13 +72,13 @@ export function SettingsForm() {
               { value: "dark", label: "Dark" },
               { value: "light", label: "Light" },
             ]}
-            onChange={(v) => patch("theme", v)}
+            onChange={(v) => patch("theme", v as "light" | "dark" | "system")}
           />
 
           <label class="settings-label">Default download directory</label>
           <input class="field" placeholder="~/Downloads"
                  value={field("default_download_dir") ?? ""}
-                 onInput={(e) => patch("default_download_dir", (e.currentTarget.value || null) as any)} />
+                 onInput={(e) => patch("default_download_dir", (e.currentTarget.value || null) as string | null)} />
 
           <label class="settings-label">Transfer concurrency</label>
           <div class="num-field">
@@ -128,12 +128,12 @@ export function SettingsForm() {
           <label class="settings-label">HTTP proxy</label>
           <input class="field" placeholder="http://host:port (optional)"
                  value={field("http_proxy") ?? ""}
-                 onInput={(e) => patch("http_proxy", (e.currentTarget.value || null) as any)} />
+                 onInput={(e) => patch("http_proxy", (e.currentTarget.value || null) as string | null)} />
 
           <label class="settings-label">Custom CA cert path</label>
           <input class="field" placeholder="/path/to/cert.pem (optional)"
                  value={field("custom_ca_path") ?? ""}
-                 onInput={(e) => patch("custom_ca_path", (e.currentTarget.value || null) as any)} />
+                 onInput={(e) => patch("custom_ca_path", (e.currentTarget.value || null) as string | null)} />
 
           <label class="settings-label">Request log retention (days)</label>
           <div class="num-field">

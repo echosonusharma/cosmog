@@ -2,9 +2,13 @@ import ExcelJS from "exceljs";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+function hasStringPath(x: unknown): x is { path: string } {
+  return typeof x === "object" && x !== null && "path" in x && typeof (x as { path: unknown }).path === "string";
+}
+
 export function pathFromDialog(sel: unknown): string {
   if (!sel) return "";
-  let s = typeof sel === "string" ? sel : typeof (sel as any).path === "string" ? (sel as any).path : "";
+  let s = typeof sel === "string" ? sel : hasStringPath(sel) ? sel.path : "";
   // Tauri on Linux/Wayland may return file:// URIs — unwrap to a plain path.
   if (s.startsWith("file://")) s = decodeURIComponent(s.replace(/^file:\/\//, ""));
   return s;

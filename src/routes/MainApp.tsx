@@ -38,7 +38,7 @@ export default function MainApp() {
 
   createEffect(() => {
     const s = settings();
-    if (s) setTheme((s.theme as any) ?? "system");
+    if (s) setTheme(s.theme ?? "system");
   });
 
   // load buckets for active account; refetch on global bucket refresh tick

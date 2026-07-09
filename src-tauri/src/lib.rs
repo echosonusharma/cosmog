@@ -184,9 +184,12 @@ pub fn run() {
                     tracing::warn!("request log TTL cleanup failed: {e}");
                 }
                 let state = AppState::new(db, concurrency, log_dir, db_path, app.handle().clone());
-                // Background auto re-index loop. Token is dropped (leaked) on
-                // app shutdown; tokio cancels it as the runtime tears down.
-                let _scheduler_cancel = scheduler::spawn(state.clone());
+                // Keep the cancel token alive for the process lifetime so the
+                // scheduler can be stopped cleanly if needed. Stored in a
+                // OnceLock so it is not dropped until the process exits.
+                static SCHEDULER_CANCEL: std::sync::OnceLock<tokio_util::sync::CancellationToken> =
+                    std::sync::OnceLock::new();
+                let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
                 handle.manage(state);
             });
             Ok(())

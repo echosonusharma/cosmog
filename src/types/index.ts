@@ -74,7 +74,7 @@ export interface AppSettings {
   part_size_bytes: number;
   prefix_sync_ttl_secs: number;
   presign_default_expires_secs: number;
-  theme: string;
+  theme: "light" | "dark" | "system";
   show_hidden: boolean;
   confirm_destructive: boolean;
   http_proxy: string | null;

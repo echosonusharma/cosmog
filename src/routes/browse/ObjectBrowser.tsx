@@ -104,10 +104,10 @@ export function ObjectBrowser(props: {
     refresh: refresh(),
   }));
 
-  const VALID_VIEW_MODES = ["list", "columns"] as const;
   const storedView = localStorage.getItem("cosmog:viewMode");
+  const isViewMode = (v: string | null): v is "list" | "columns" => v === "list" || v === "columns";
   const [viewMode, setViewMode] = createSignal<"list" | "columns">(
-    VALID_VIEW_MODES.includes(storedView as any) ? (storedView as "list" | "columns") : "columns"
+    isViewMode(storedView) ? storedView : "columns"
   );
   const saveViewMode = (m: "list" | "columns") => {
     localStorage.setItem("cosmog:viewMode", m);
