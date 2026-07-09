@@ -1816,6 +1816,11 @@ input[type="checkbox"] {
   background: var(--bg-elev-1);
   display: flex; flex-direction: column;
   overflow: hidden;
+  animation: preview-in 0.1s ease;
+}
+@keyframes preview-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 .preview-header {
   display: flex; align-items: center;
@@ -2153,8 +2158,10 @@ input[type="checkbox"] {
   flex: 1;
   display: flex;
   overflow-x: auto;
+  overflow-y: hidden;
   min-height: 0;
   min-width: 0;
+  scrollbar-gutter: stable;
 }
 
 .col-pane {

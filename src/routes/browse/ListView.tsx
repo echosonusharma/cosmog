@@ -1,4 +1,4 @@
-import { createMemo, createEffect, Show, Index } from "solid-js";
+import { createMemo, createEffect, Show, Index, onMount, onCleanup } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { errMsg } from "../../state/toast";
 import { goUpPrefix, navigateToPrefix } from "../../state/app";
@@ -54,6 +54,13 @@ export function ListView(props: {
       listItems().length;
       requestAnimationFrame(() => listVirtualizer.measure());
     }
+  });
+
+  // Re-measure when the scroll container resizes (e.g. preview pane opens/closes)
+  onMount(() => {
+    const ro = new ResizeObserver(() => requestAnimationFrame(() => listVirtualizer.measure()));
+    ro.observe(listScrollEl);
+    onCleanup(() => ro.disconnect());
   });
 
   return (
