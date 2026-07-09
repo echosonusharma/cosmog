@@ -54,6 +54,7 @@ export const IconActivity     = I("activity");
 export const IconColumns      = I("columns-2");
 export const IconList         = I("list");
 export const IconTable        = I("table-2");
+export const IconBug          = I("bug");
 
 // ── file type mapping ─────────────────────────────────────────────────────────
 

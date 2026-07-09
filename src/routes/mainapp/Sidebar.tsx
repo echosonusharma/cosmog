@@ -1,5 +1,7 @@
-import { Show, For, createSignal, createMemo } from "solid-js";
+import { Show, For, createSignal, createMemo, createResource } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion, getTauriVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   currentView, setCurrentView,
   accounts, browseState, selectAccount, navigateToBucket,
@@ -9,12 +11,106 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug,
 } from "../../utils/icons";
 import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
 import { ProviderTile } from "./ProviderTile";
+
+const GITHUB_ISSUES_URL = "https://github.com/echosonusharma/cosmog/issues";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+async function loadBugInfo() {
+  const appVersion = isTauri ? await getVersion() : "unknown";
+  const tauriVersion = isTauri ? await getTauriVersion() : "unknown";
+  const ua = navigator.userAgent;
+  const platform = navigator.platform;
+  const screen = `${window.screen.width}x${window.screen.height} @${window.devicePixelRatio}x`;
+  const locale = navigator.language;
+  return { appVersion, tauriVersion, ua, platform, screen, locale };
+}
+
+function BugReportModal(props: { onClose: () => void }) {
+  const [info] = createResource(loadBugInfo);
+  const [copied, setCopied] = createSignal(false);
+
+  const infoText = () => {
+    const d = info();
+    if (!d) return "Loading…";
+    return [
+      `App Version:   ${d.appVersion}`,
+      `Tauri Version: ${d.tauriVersion}`,
+      `Platform:      ${d.platform}`,
+      `Screen:        ${d.screen}`,
+      `Locale:        ${d.locale}`,
+      `User Agent:    ${d.ua}`,
+    ].join("\n");
+  };
+
+  function copyInfo() {
+    navigator.clipboard.writeText(infoText()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div class="modal-backdrop" onClick={props.onClose}>
+      <div class="bug-modal" onClick={(e) => e.stopPropagation()}>
+        <div class="bug-modal-header">
+          <span class="bug-modal-title">
+            <span class="bug-modal-icon-wrap"><IconBug size={15} /></span>
+            Report a Bug
+          </span>
+          <button class="cd-modal-close" onClick={props.onClose} aria-label="Close">✕</button>
+        </div>
+
+        <div class="bug-modal-body">
+          <p class="bug-modal-desc">
+            Found something broken? Open an issue on GitHub and include the system info below so we can reproduce it faster.
+          </p>
+
+          <div class="bug-info-section">
+            <div class="bug-info-header">
+              <span class="bug-info-label">System Info</span>
+              <button class="bug-copy-btn" onClick={copyInfo}>
+                {copied() ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <Show when={info()} fallback={<div class="bug-info-loading">Loading…</div>}>
+              <dl class="bug-info-grid">
+                <dt>App Version</dt><dd>{info()!.appVersion}</dd>
+                <dt>Tauri Version</dt><dd>{info()!.tauriVersion}</dd>
+                <dt>Platform</dt><dd>{info()!.platform}</dd>
+                <dt>Screen</dt><dd>{info()!.screen}</dd>
+                <dt>Locale</dt><dd>{info()!.locale}</dd>
+                <dt>User Agent</dt><dd>{info()!.ua}</dd>
+              </dl>
+            </Show>
+          </div>
+
+          <div class="bug-steps">
+            <div class="bug-steps-title">How to report</div>
+            <ol class="bug-steps-list">
+              <li>Click <strong>Copy</strong> above to copy system info</li>
+              <li>Click <strong>Open Issue</strong> below to go to GitHub</li>
+              <li>Describe the bug and paste the copied info in the <em>Additional context</em> section</li>
+            </ol>
+          </div>
+
+          <button
+            class="bug-open-btn"
+            onClick={() => openUrl(GITHUB_ISSUES_URL).catch(() => {})}
+          >
+            Open Issue on GitHub
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── nav definition ────────────────────────────────────────────────────────────
 
@@ -33,6 +129,7 @@ export function Sidebar(props: {
   activeCount: number;
 }) {
   const [bucketFilter, setBucketFilter] = createSignal("");
+  const [showBugModal, setShowBugModal] = createSignal(false);
   const filteredBuckets = createMemo(() => {
     const q = bucketFilter().trim().toLowerCase();
     const all = sidebarBuckets();
@@ -177,6 +274,18 @@ export function Sidebar(props: {
         </Show>
       </div>
 
+      {/* bug report button */}
+      <button
+        class="sidebar-bug-btn"
+        title="Report a bug"
+        onClick={() => setShowBugModal(true)}
+      >
+        <span class="sidebar-bug-icon"><IconBug size={14} /></span>
+        <Show when={!props.collapsed}>
+          <span class="sidebar-bug-label">Report Bug</span>
+        </Show>
+      </button>
+
       {/* devtools button — dev builds only */}
       <Show when={import.meta.env.DEV}>
         <button
@@ -186,6 +295,10 @@ export function Sidebar(props: {
         >
           {"{ }"}
         </button>
+      </Show>
+
+      <Show when={showBugModal()}>
+        <BugReportModal onClose={() => setShowBugModal(false)} />
       </Show>
     </aside>
   );
