@@ -60,6 +60,10 @@
 > Credential Manager on Windows, and the D-Bus Secret Service on Linux.
 > A compatible provider such as GNOME Keyring, KWallet, or KeePassXC must be running on Linux.
 
+> Cosmog is built with [Tauri](https://tauri.app) and renders using each platform's native WebView
+> (WKWebView on macOS, WebView2 on Windows, WebKit2GTK on Linux). Visual appearance may vary
+> slightly between operating systems.
+
 ## Development
 
 **Prerequisites**
