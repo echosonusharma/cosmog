@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onMount, For, Show } from "solid-js";
-import { listAccounts, deleteAccount } from "../../api/accounts";
-import { setAccounts, openAddAccount, setOpenAddAccount } from "../../state/app";
+import { deleteAccount } from "../../api/accounts";
+import { accounts, openAddAccount, setOpenAddAccount, bumpAccountsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import { ProviderIcon, providerLabel, IconX, IconEdit } from "../../utils/icons";
@@ -10,7 +10,6 @@ import { AddAccountForm } from "./AddAccountForm";
 // ── accounts list ─────────────────────────────────────────────────────────────
 
 export function AccountsList() {
-  const [accts, setAccts] = createSignal<Account[]>([]);
   const [showAdd, setShowAdd] = createSignal(false);
   const [editing, setEditing] = createSignal<Account | null>(null);
 
@@ -22,14 +21,8 @@ export function AccountsList() {
     }
   });
 
-  async function load() {
-    try {
-      const list = await listAccounts();
-      setAccts(list);
-      setAccounts(list);
-    } catch (e) { toast.err(e); }
-  }
-  onMount(load);
+  // Refresh whenever Settings tab opens so the list is never stale.
+  onMount(bumpAccountsRefresh);
 
   async function handleDelete(id: string, name: string) {
     const ok = await confirmDialog({
@@ -39,7 +32,7 @@ export function AccountsList() {
       danger: true,
     });
     if (!ok) return;
-    try { await deleteAccount(id); await load(); toast.ok("Account removed"); }
+    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed"); }
     catch (e) { toast.err(e); }
   }
 
@@ -55,15 +48,15 @@ export function AccountsList() {
       <Show when={showAdd()}>
         <AddAccountForm
           editing={editing() ?? undefined}
-          onDone={() => { setShowAdd(false); setEditing(null); load(); }}
+          onDone={() => { setShowAdd(false); setEditing(null); bumpAccountsRefresh(); }}
           onCancel={() => { setShowAdd(false); setEditing(null); }}
         />
       </Show>
 
-      <Show when={accts().length > 0}
+      <Show when={accounts().length > 0}
             fallback={<div class="empty-state" style="padding:24px">No accounts</div>}>
         <div class="account-rows">
-          <For each={accts()}>
+          <For each={accounts()}>
             {(a) => (
               <div class="account-row-item">
                 <ProviderIcon account={a} size={32} />

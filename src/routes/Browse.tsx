@@ -26,6 +26,9 @@ export default function Browse(props: { defaultDownloadDir: string }) {
     return _lastAccountId;
   });
   const stableBucket = createMemo(() => {
+    // Reset when account changes so a previous account's bucket never leaks
+    // into the new account's ObjectBrowser instance.
+    if (browseState.accountId !== _lastAccountId) _lastBucket = "";
     if (browseState.bucket) _lastBucket = browseState.bucket;
     return _lastBucket;
   });

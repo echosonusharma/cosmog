@@ -56,6 +56,11 @@
 
 ## Development
 
+**Prerequisites**
+- [Rust](https://rustup.rs) (stable toolchain)
+- Node 22+
+- Linux only: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`
+
 ```sh
 npm install
 npm run tauri dev     # run with hot reload

@@ -21,6 +21,7 @@ export default function Transfers() {
   const [filter, setFilter] = createSignal<Filter>("all");
 
   async function load() {
+    setErr("");
     try {
       const list = await listTransfers();
       list.sort(

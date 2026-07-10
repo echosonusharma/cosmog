@@ -845,6 +845,7 @@ input[type="checkbox"] {
 }
 .sidebar-bucket-search-clear:hover { color: var(--text); }
 
+
 .sidebar-bucket-item {
   display: flex; align-items: center;
   gap: 9px;
@@ -1305,6 +1306,7 @@ input[type="checkbox"] {
 .bulk-bar .bulk-actions { margin-left: auto; display: flex; gap: 6px; }
 
 /* ── bucket grid ────────────────────────────────────────────────────────── */
+
 
 .bucket-grid-view {
   flex: 1; overflow-y: auto;

@@ -64,7 +64,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     catch { return ""; }
   }
 
-  const imgSrc = () => imgUrl.latest ?? "";
+  const imgSrc = () => imgUrl() ?? "";
 
   async function saveEdit(content: string) {
     const ct = props.obj.content_type || `text/${ext() || "plain"}`;
@@ -79,7 +79,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         <div class="preview-header">
           <FileIcon name={props.obj.basename} size={20} />
           <span class="preview-title">{props.obj.basename}</span>
-          <Show when={isImage() && imgUrl.latest}>
+          <Show when={isImage() && imgUrl()}>
             <button class="icon-btn" title="Expand" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
           </Show>
           <Show when={isText() && cur()}>
@@ -101,7 +101,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               <Show when={imgUrl.error}>
                 <span class="muted" style="font-size:12px">Failed to load preview</span>
               </Show>
-              <Show when={imgUrl.latest}>
+              <Show when={imgUrl()}>
                 <img class="preview-thumb" src={imgSrc()}
                      onClick={() => setExpanded(true)} style="cursor:zoom-in" />
               </Show>
@@ -164,7 +164,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
       {/* Lightbox */}
       <Lightbox
-        open={expanded() && !!imgUrl.latest}
+        open={expanded() && !!imgUrl()}
         src={imgSrc()}
         alt={props.obj.basename}
         onClose={() => setExpanded(false)}

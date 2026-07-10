@@ -49,14 +49,14 @@ export function ObjectBrowser(props: {
     debounceTimer = setTimeout(() => setDebouncedQuery(q), 300);
   });
   // clear search when bucket changes
-  createEffect(() => { props.bucket; setSearchQuery(""); setDebouncedQuery(""); });
+  createEffect(() => { props.bucket; setSearchQuery(""); setDebouncedQuery(""); mutateSearchResults(undefined); });
 
   const [indexStatus, { refetch: refetchIndex }] = createResource(
     () => ({ a: props.accountId, b: props.bucket }),
     ({ a, b }) => bucketIndexStatus(a, b),
   );
 
-  const [searchResults] = createResource(
+  const [searchResults, { mutate: mutateSearchResults }] = createResource(
     () => debouncedQuery()
       ? { a: props.accountId, b: props.bucket, q: debouncedQuery(), r: refresh() }
       : null,
@@ -134,7 +134,7 @@ export function ObjectBrowser(props: {
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
 
   createEffect(() => { props.prefix; props.bucket; props.accountId; setSelected(new Set<string>()); });
-  createEffect(() => { viewMode(); setSelected(new Set<string>()); });
+  createEffect(() => { viewMode(); setSelected(new Set<string>()); setPreviewTarget(null); });
 
   // Consume pendingPreview set by navigateToObject (from Search).
   createEffect(() => {
@@ -275,6 +275,23 @@ export function ObjectBrowser(props: {
 
   const hasSel = () => selected().size > 0;
 
+  let columnsScrollEl: HTMLDivElement | undefined;
+  let scrollPending = false;
+
+  function scrollColumnsRight() {
+    if (!columnsScrollEl || scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        columnsScrollEl?.scrollTo({ left: columnsScrollEl.scrollWidth, behavior: "smooth" });
+        scrollPending = false;
+      });
+    });
+  }
+
+  createEffect(() => { colPrefixes(); scrollColumnsRight(); });
+  createEffect(() => { previewTarget(); scrollColumnsRight(); });
+
   return (
     <div class="object-browser"
          onDragOver={onDragOver}
@@ -348,7 +365,7 @@ export function ObjectBrowser(props: {
 
       {/* ── columns view ── */}
         <div style={{ display: viewMode() === "columns" && !searchQuery() ? "flex" : "none", flex: "1", overflow: "hidden" }}>
-          <div class="columns-scroll">
+          <div class="columns-scroll" ref={columnsScrollEl}>
             <For each={colPrefixes()}>
               {(pfx, i) => {
                 const nextPfx = () => colPrefixes()[i() + 1] ?? null;

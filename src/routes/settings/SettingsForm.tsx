@@ -78,7 +78,7 @@ export function SettingsForm() {
           <label class="settings-label">Default download directory</label>
           <input class="field" placeholder="~/Downloads"
                  value={field("default_download_dir") ?? ""}
-                 onInput={(e) => patch("default_download_dir", (e.currentTarget.value || null) as string | null)} />
+                 onInput={(e) => patch("default_download_dir", (e.currentTarget.value.trim() || null) as string | null)} />
 
           <label class="settings-label">Transfer concurrency</label>
           <div class="num-field">
@@ -128,12 +128,12 @@ export function SettingsForm() {
           <label class="settings-label">HTTP proxy</label>
           <input class="field" placeholder="http://host:port (optional)"
                  value={field("http_proxy") ?? ""}
-                 onInput={(e) => patch("http_proxy", (e.currentTarget.value || null) as string | null)} />
+                 onInput={(e) => patch("http_proxy", (e.currentTarget.value.trim() || null) as string | null)} />
 
           <label class="settings-label">Custom CA cert path</label>
           <input class="field" placeholder="/path/to/cert.pem (optional)"
                  value={field("custom_ca_path") ?? ""}
-                 onInput={(e) => patch("custom_ca_path", (e.currentTarget.value || null) as string | null)} />
+                 onInput={(e) => patch("custom_ca_path", (e.currentTarget.value.trim() || null) as string | null)} />
 
           <label class="settings-label">Request log retention (days)</label>
           <div class="num-field">

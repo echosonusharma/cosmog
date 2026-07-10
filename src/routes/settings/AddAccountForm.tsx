@@ -1,10 +1,10 @@
 import { createSignal, For, Show } from "solid-js";
 import {
-  addAccount, deleteAccount, testAccount, updateAccount,
+  addAccount, testAccount, updateAccount,
   type AddAccountInput, type Account,
 } from "../../api/accounts";
 import { toast } from "../../state/toast";
-import { bumpBucketsRefresh } from "../../state/app";
+import { bumpBucketsRefresh, bumpAccountsRefresh } from "../../state/app";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 
@@ -78,6 +78,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         });
         await testAccount(props.editing!.id);
         toast.ok(`Account "${f.name}" updated`);
+        bumpAccountsRefresh();
         bumpBucketsRefresh();
         props.onDone();
       } catch (e) {
@@ -85,19 +86,23 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       } finally { setBusy(false); }
       return;
     }
-    let id: string | null = null;
     try {
       const acct = await addAccount({
         ...form(),
         region: regionFromEndpoint(provider(), form().endpoint ?? ""),
       });
-      id = acct.id;
-      await testAccount(id);
-      toast.ok(`Account "${acct.name}" added`);
+      bumpAccountsRefresh();
       bumpBucketsRefresh();
       props.onDone();
+      // Test connectivity after the form closes so the account is always saved.
+      // If the test fails the user can fix credentials via Edit.
+      try {
+        await testAccount(acct.id);
+        toast.ok(`Account "${acct.name}" added`);
+      } catch {
+        toast.warn(`Account "${acct.name}" saved — connection test failed. Check credentials in Settings.`);
+      }
     } catch (e) {
-      if (id) await deleteAccount(id).catch(() => {});
       toast.err(e);
     } finally { setBusy(false); }
   }
@@ -127,20 +132,20 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
 
       <div class="fields">
         <input class="field" placeholder="Name" value={form().name}
-               onInput={(e) => set("name", e.currentTarget.value)} disabled={busy()} />
+               onInput={(e) => set("name", e.currentTarget.value.trim())} disabled={busy()} />
         <Show when={provider().id !== "aws"}>
           <input class="field"
                  placeholder={provider().endpoint_placeholder ?? "Endpoint URL"}
                  value={form().endpoint ?? ""}
-                 onInput={(e) => set("endpoint", e.currentTarget.value || undefined)}
+                 onInput={(e) => set("endpoint", e.currentTarget.value.trim() || undefined)}
                  disabled={busy()} />
         </Show>
         <input class="field" placeholder="Access Key ID" value={form().access_key_id}
-               onInput={(e) => set("access_key_id", e.currentTarget.value)} disabled={busy()} />
+               onInput={(e) => set("access_key_id", e.currentTarget.value.trim())} disabled={busy()} />
         <input class="field" type="password"
                placeholder={isEdit ? "Secret Access Key (leave blank to keep)" : "Secret Access Key"}
                value={form().secret_access_key}
-               onInput={(e) => set("secret_access_key", e.currentTarget.value)} disabled={busy()} />
+               onInput={(e) => set("secret_access_key", e.currentTarget.value.trim())} disabled={busy()} />
       </div>
       <div class="btn-row mt-2" style="justify-content:flex-end">
         <button class="btn-secondary" style="min-width:90px" onClick={props.onCancel}>Cancel</button>

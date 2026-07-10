@@ -5,8 +5,8 @@ import Settings from "./Settings";
 import Logs from "./Logs";
 import {
   currentView,
-  setAccounts, accounts, browseState, selectAccount,
-  setSidebarBuckets, bucketsRefreshTick,
+  setAccounts, accounts, browseState, setBrowseState, selectAccount,
+  setSidebarBuckets, bucketsRefreshTick, accountsRefreshTick,
 } from "../state/app";
 import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
@@ -22,17 +22,19 @@ export default function MainApp() {
   const [collapsed, setCollapsed] = createSignal(false);
   const [activeCount, setActiveCount] = createSignal(0);
 
-  const [accountsData] = createResource(listAccounts);
+  const [accountsData] = createResource(accountsRefreshTick, listAccounts);
   const [settings] = createResource(getSettings);
 
   createEffect(() => {
     const list = accountsData();
-    if (list) {
-      setAccounts(list);
-      // auto-select first account if none selected
-      if (!browseState.accountId && list.length > 0) {
-        selectAccount(list[0].id);
-      }
+    if (!list) return;
+    setAccounts(list);
+    const currentId = browseState.accountId;
+    const stillExists = currentId && list.some((a) => a.id === currentId);
+    if (!stillExists && list.length > 0) {
+      selectAccount(list[0].id);
+    } else if (!stillExists) {
+      setBrowseState({ accountId: null, bucket: null, prefix: "" });
     }
   });
 
@@ -45,10 +47,11 @@ export default function MainApp() {
   createEffect(() => {
     const id = browseState.accountId;
     bucketsRefreshTick();
-    if (!id) { setSidebarBuckets([]); return; }
+    setSidebarBuckets([]);
+    if (!id) return;
     listBuckets(id)
       .then((b) => setSidebarBuckets(b))
-      .catch(() => setSidebarBuckets([]));
+      .catch(() => {});
   });
 
   // poll active transfer count for badge + fire sys notifications when

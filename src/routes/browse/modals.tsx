@@ -45,7 +45,7 @@ export function DownloadModal(props: {
         <div class="modal-sub">{props.obj.key}</div>
         <label class="modal-label">Save to</label>
         <div class="file-picker-row">
-          <input class="field" value={dest()} onInput={(e) => setDest(e.currentTarget.value)} disabled={busy()} />
+          <input class="field" value={dest()} onInput={(e) => setDest(e.currentTarget.value.trim())} disabled={busy()} />
           <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
         </div>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
@@ -151,7 +151,7 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-title">New bucket</div>
         <input class="field" placeholder="bucket-name" value={name()}
-               onInput={(e) => setName(e.currentTarget.value)} disabled={busy()}
+               onInput={(e) => setName(e.currentTarget.value.trim())} disabled={busy()}
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
@@ -187,7 +187,7 @@ export function NewFolderModal(props: {
         <div class="modal-sub" style="font-size:11px;color:var(--muted);margin-bottom:4px">Path</div>
         <input class="field" placeholder="path/to/folder-name"
                value={path()}
-               onInput={(e) => setPath(e.currentTarget.value)}
+               onInput={(e) => setPath(e.currentTarget.value.trim())}
                onKeyDown={(e) => e.key === "Enter" && submit()}
                ref={(el) => setTimeout(() => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 0)} />
         <div class="btn-row mt-3">
@@ -227,7 +227,7 @@ export function RenameModal(props: {
         <div class="modal-title">Rename / Move</div>
         <div class="modal-sub">{props.obj.key}</div>
         <input class="field" value={newKey()}
-               onInput={(e) => setNewKey(e.currentTarget.value)} disabled={busy()} autofocus
+               onInput={(e) => setNewKey(e.currentTarget.value.trim())} disabled={busy()} autofocus
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
