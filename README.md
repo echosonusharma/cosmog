@@ -9,20 +9,27 @@
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/01-bucket-browser.png" alt="Bucket browser" /><br/><sub>Bucket browser</sub></td>
-    <td align="center"><img src="docs/screenshots/03-column-view-text-preview.png" alt="Column view + preview" /><br/><sub>Column view + file preview</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/05-column-view-image-preview.png" alt="Image preview" /><br/><sub>Image preview</sub></td>
-    <td align="center"><img src="docs/screenshots/04-spreadsheet-preview.png" alt="Spreadsheet preview" /><br/><sub>Spreadsheet preview</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/02-transfers.png" alt="Transfer manager" /><br/><sub>Transfer manager</sub></td>
-    <td align="center"><img src="docs/screenshots/06-request-logs.png" alt="Request logs" /><br/><sub>Request logs</sub></td>
-  </tr>
-</table>
+<div align="center">
+
+![Bucket browser](docs/screenshots/01-bucket-browser.png)
+*Bucket browser*
+
+![Column view + file preview](docs/screenshots/03-column-view-text-preview.png)
+*Column view + file preview*
+
+![Image preview](docs/screenshots/05-column-view-image-preview.png)
+*Image preview*
+
+![Spreadsheet preview](docs/screenshots/04-spreadsheet-preview.png)
+*Spreadsheet preview*
+
+![Transfer manager](docs/screenshots/02-transfers.png)
+*Transfer manager*
+
+![Request logs](docs/screenshots/06-request-logs.png)
+*Request logs*
+
+</div>
 
 ## Features
 
