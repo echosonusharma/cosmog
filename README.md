@@ -7,27 +7,9 @@
   Browse, upload, download, and organize files across any S3 provider.
 </div>
 
-## Screenshots
-
 <div align="center">
 
-![Bucket browser](docs/screenshots/01-bucket-browser.png)
-*Bucket browser*
-
-![Column view + file preview](docs/screenshots/03-column-view-text-preview.png)
-*Column view + file preview*
-
-![Image preview](docs/screenshots/05-column-view-image-preview.png)
-*Image preview*
-
-![Spreadsheet preview](docs/screenshots/04-spreadsheet-preview.png)
-*Spreadsheet preview*
-
-![Transfer manager](docs/screenshots/02-transfers.png)
-*Transfer manager*
-
-![Request logs](docs/screenshots/06-request-logs.png)
-*Request logs*
+![Cosmog preview](docs/preview.gif)
 
 </div>
 
