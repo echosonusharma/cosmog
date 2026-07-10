@@ -7,6 +7,23 @@
   Browse, upload, download, and organize files across any S3 provider.
 </div>
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/01-bucket-browser.png" alt="Bucket browser" /><br/><sub>Bucket browser</sub></td>
+    <td align="center"><img src="docs/screenshots/03-column-view-text-preview.png" alt="Column view + preview" /><br/><sub>Column view + file preview</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/05-column-view-image-preview.png" alt="Image preview" /><br/><sub>Image preview</sub></td>
+    <td align="center"><img src="docs/screenshots/04-spreadsheet-preview.png" alt="Spreadsheet preview" /><br/><sub>Spreadsheet preview</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/02-transfers.png" alt="Transfer manager" /><br/><sub>Transfer manager</sub></td>
+    <td align="center"><img src="docs/screenshots/06-request-logs.png" alt="Request logs" /><br/><sub>Request logs</sub></td>
+  </tr>
+</table>
+
 ## Features
 
 - **Browse** buckets and objects with folder navigation, column layout, and search
