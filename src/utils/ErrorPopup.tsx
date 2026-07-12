@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 import { IconAlertCircle, IconX } from "./icons";
-import { parseWireError, isCredentialError } from "./errors";
+import { parseWireError, isCredentialError, isNetworkError } from "./errors";
 import { setCurrentView } from "../state/app";
 
 /**
@@ -10,7 +10,10 @@ import { setCurrentView } from "../state/app";
 export function ErrorPopup(props: { error: unknown; onClose: () => void }) {
   const { code, message } = parseWireError(props.error);
   const credErr = isCredentialError(code);
-  const title = credErr ? "Credentials not found" : "Something went wrong";
+  const netErr  = isNetworkError(code);
+  const title = credErr ? "Credentials not found"
+              : netErr  ? "Service unreachable"
+              : "Something went wrong";
 
   return (
     <div class="err-popup-backdrop" onClick={props.onClose}>
@@ -23,8 +26,13 @@ export function ErrorPopup(props: { error: unknown; onClose: () => void }) {
           </button>
         </div>
         <p class="err-popup-msg">{message}</p>
+        <Show when={netErr}>
+          <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">
+            Check that the endpoint is running and reachable, then try again.
+          </p>
+        </Show>
         <div class="err-popup-actions">
-          <Show when={credErr}>
+          <Show when={credErr || netErr}>
             <button class="btn-primary" style="font-size:12px"
                     onClick={() => { setCurrentView("settings"); props.onClose(); }}>
               Open Settings

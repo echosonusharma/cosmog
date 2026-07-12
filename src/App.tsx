@@ -6,7 +6,7 @@ import Titlebar from "./routes/Titlebar";
 import { ToastStack } from "./state/toast";
 import { ConfirmHost } from "./state/confirm";
 import { setBrowseState, setCurrentView, type View } from "./state/app";
-import { parseWireError, isCredentialError } from "./utils/errors";
+import { parseWireError, isCredentialError, isNetworkError } from "./utils/errors";
 
 export default function App() {
   const [accounts, { refetch }] = createResource(listAccounts);
@@ -36,15 +36,16 @@ export default function App() {
         <ErrorBoundary fallback={(err, reset) => {
           const { code, message } = parseWireError(err);
           const credErr = isCredentialError(code);
+          const netErr  = isNetworkError(code);
+          const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
           return (
             <div style="display:flex;align-items:center;justify-content:center;height:100%">
               <div class="err-popup" style="position:static;box-shadow:none">
                 <div class="err-popup-header">
-                  <span class="err-popup-title">
-                    {credErr ? "Credentials not found" : "Something went wrong"}
-                  </span>
+                  <span class="err-popup-title">{title}</span>
                 </div>
                 <p class="err-popup-msg">{message}</p>
+                {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
                 <div class="err-popup-actions">
                   <Show when={(accounts() ?? []).length > 0}
                         fallback={

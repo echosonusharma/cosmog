@@ -103,6 +103,8 @@ impl AppSettings {
     fn normalize(&mut self) {
         self.transfer_concurrency = self.transfer_concurrency.clamp(1, 16);
         self.multipart_parallelism = self.multipart_parallelism.clamp(1, 16);
+        // 10s floor so the app never hammers the server; 24h ceiling is generous.
+        self.prefix_sync_ttl_secs = self.prefix_sync_ttl_secs.clamp(10, 86400);
         // 5 MiB floor for non-final multipart parts per S3 spec.
         let s3_floor: u64 = 5 * 1024 * 1024;
         self.part_size_bytes = self.part_size_bytes.max(s3_floor);

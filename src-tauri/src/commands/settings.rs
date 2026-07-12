@@ -52,6 +52,7 @@ pub struct SettingsPatch {
     pub http_proxy: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub custom_ca_path: Option<Option<String>>,
+    pub request_log_ttl_days: Option<u32>,
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -97,6 +98,9 @@ pub async fn update_settings(
     if let Some(v) = patch.custom_ca_path {
         cur.custom_ca_path = v;
     }
+    if let Some(v) = patch.request_log_ttl_days {
+        cur.request_log_ttl_days = v;
+    }
     let saved = state.db.settings_save(cur).await?;
     state.invalidate_settings().await;
     if patch.transfer_concurrency.is_some() {
@@ -108,5 +112,7 @@ pub async fn update_settings(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn reset_settings(state: State<'_, AppState>) -> AppResult<AppSettings> {
-    state.db.settings_reset().await
+    let s = state.db.settings_reset().await?;
+    state.invalidate_settings().await;
+    Ok(s)
 }

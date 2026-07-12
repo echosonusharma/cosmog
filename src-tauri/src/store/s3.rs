@@ -112,6 +112,21 @@ where
     E: ProvideErrorMetadata + std::fmt::Display + std::fmt::Debug,
 {
     let mut display = format!("{ctx}: {err}");
+
+    // Network-level failures: connection refused, DNS failure, TCP timeout.
+    // These fire before any HTTP response exists, so no service error code.
+    if let SdkError::DispatchFailure(ref df) = err {
+        let msg = if df.is_timeout() {
+            format!("{ctx}: connection timed out")
+        } else {
+            display.clone()
+        };
+        return AppError::NetworkUnreachable(msg);
+    }
+    if let SdkError::TimeoutError(_) = err {
+        return AppError::NetworkUnreachable(format!("{ctx}: request timed out"));
+    }
+
     if let Some(service_err) = err.as_service_error() {
         let code = service_err.code().unwrap_or_default();
         let msg = service_err.message().unwrap_or_default();

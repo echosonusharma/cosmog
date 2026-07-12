@@ -14,6 +14,7 @@ export type SettingsPatch = Partial<{
   confirm_destructive: boolean;
   http_proxy: string | null;
   custom_ca_path: string | null;
+  request_log_ttl_days: number;
 }>;
 
 export const getSettings = (): Promise<AppSettings> => invoke("get_settings");

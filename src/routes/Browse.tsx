@@ -3,7 +3,7 @@ import { accounts, browseState, setBrowseState, setCurrentView } from "../state/
 import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
-import { isCredentialError, parseWireError } from "../utils/errors";
+import { isCredentialError, isNetworkError, parseWireError } from "../utils/errors";
 
 // ── root ──────────────────────────────────────────────────────────────────────
 
@@ -53,11 +53,15 @@ export default function Browse(props: { defaultDownloadDir: string }) {
             {(accountId) => (
               <ErrorBoundary fallback={(err, reset) => {
                 const { code, message } = parseWireError(err);
+                const credErr = isCredentialError(code);
+                const netErr  = isNetworkError(code);
+                const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
                 return (
                   <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
                     <div class="err-popup" style="position:static;box-shadow:none">
-                      <div class="err-popup-header"><span class="err-popup-title">{isCredentialError(code) ? "Credentials not found" : "Something went wrong"}</span></div>
+                      <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
                       <p class="err-popup-msg">{message}</p>
+                      {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
                       <div class="err-popup-actions">
                         <button class="btn-secondary" style="font-size:12px" onClick={() => reset()}>Dismiss</button>
                         <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
@@ -75,11 +79,15 @@ export default function Browse(props: { defaultDownloadDir: string }) {
           <div class="view-slot" style="display:flex;flex:1;min-height:0">
             <ErrorBoundary fallback={(err, reset) => {
               const { code, message } = parseWireError(err);
+              const credErr = isCredentialError(code);
+              const netErr  = isNetworkError(code);
+              const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
               return (
                 <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
                   <div class="err-popup" style="position:static;box-shadow:none">
-                    <div class="err-popup-header"><span class="err-popup-title">{isCredentialError(code) ? "Credentials not found" : "Something went wrong"}</span></div>
+                    <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
                     <p class="err-popup-msg">{message}</p>
+                    {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
                     <div class="err-popup-actions">
                       <button class="btn-secondary" style="font-size:12px" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>Back to buckets</button>
                       <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>

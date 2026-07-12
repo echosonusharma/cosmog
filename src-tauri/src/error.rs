@@ -80,6 +80,11 @@ pub enum AppError {
     #[error("region redirect: {0}")]
     RegionRedirect(String),
 
+    /// Network-level failure: connection refused, DNS resolution failure,
+    /// TCP timeout, or TLS error. The endpoint is likely down or misconfigured.
+    #[error("network unreachable: {0}")]
+    NetworkUnreachable(String),
+
     /// Catch-all for unexpected internal failures.
     #[error("internal: {0}")]
     Internal(String),
@@ -102,6 +107,7 @@ impl AppError {
             AppError::Io(_) => "io",
             AppError::Canceled(_) => "canceled",
             AppError::RegionRedirect(_) => "region_redirect",
+            AppError::NetworkUnreachable(_) => "network_unreachable",
             AppError::Internal(_) => "internal",
         }
     }

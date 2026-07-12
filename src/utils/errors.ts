@@ -1,19 +1,20 @@
 /** Centralized error parsing and formatting for Tauri IPC errors. */
 
 const PREFIXES: Record<string, string> = {
-  not_found:           "not found: ",
-  invalid_input:       "invalid input: ",
-  database:            "database error: ",
-  keyring:             "keyring error: ",
-  s3:                  "s3 error: ",
-  access_denied:       "access denied: ",
-  credentials_invalid: "credentials invalid: ",
-  conflict:            "conflict: ",
-  rate_limited:        "rate limited: ",
-  io:                  "io error: ",
-  canceled:            "canceled: ",
-  region_redirect:     "region redirect: ",
-  internal:            "internal: ",
+  not_found:            "not found: ",
+  invalid_input:        "invalid input: ",
+  database:             "database error: ",
+  keyring:              "keyring error: ",
+  s3:                   "s3 error: ",
+  access_denied:        "access denied: ",
+  credentials_invalid:  "credentials invalid: ",
+  conflict:             "conflict: ",
+  rate_limited:         "rate limited: ",
+  io:                   "io error: ",
+  canceled:             "canceled: ",
+  region_redirect:      "region redirect: ",
+  network_unreachable:  "network unreachable: ",
+  internal:             "internal: ",
 };
 
 export interface WireError { code: string; message: string }
@@ -43,6 +44,11 @@ export function parseWireError(raw: unknown): WireError {
 /** True when the error code indicates a credentials/keychain problem. */
 export function isCredentialError(code: string): boolean {
   return code === "not_found" || code === "credentials_invalid" || code === "keyring";
+}
+
+/** True when the error is a network-level failure (endpoint down, no internet). */
+export function isNetworkError(code: string): boolean {
+  return code === "network_unreachable";
 }
 
 /** Extract a user-facing string from any Tauri IPC rejection. */

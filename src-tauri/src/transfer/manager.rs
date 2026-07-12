@@ -32,7 +32,7 @@ use super::{CompletedPart, ProgressSink, ResumeState, TransferCtx, TransferEvent
 
 /// Returns `true` for transient S3 errors that are safe to retry.
 fn is_retriable(err: &AppError) -> bool {
-    matches!(err, AppError::RateLimited(_) | AppError::S3(_))
+    matches!(err, AppError::RateLimited(_) | AppError::S3(_) | AppError::NetworkUnreachable(_))
 }
 
 /// A semaphore whose permit count can be adjusted at runtime.
