@@ -111,25 +111,33 @@ fn like_prefix(prefix: &str) -> String {
     out
 }
 
-/// Sanitize a user-supplied FTS5 MATCH query. Wraps each whitespace-separated
-/// term in double quotes (with internal `"` escaped) so special operators
-/// (`AND`, `OR`, `NOT`, `*`, `:`) cannot escape into the FTS grammar. A
-/// trailing `*` on a quoted prefix term is preserved as a prefix match.
-pub fn sanitize_fts_query(input: &str) -> String {
-    input
+/// Build an FTS5 MATCH query for the trigram tokenizer.
+/// Terms shorter than 3 chars are skipped (trigram minimum).
+/// Returns None if no usable terms remain (caller should use LIKE fallback).
+pub fn build_fts_query(input: &str) -> Option<String> {
+    let terms: Vec<String> = input
         .split_whitespace()
-        .filter(|t| !t.is_empty())
+        .filter(|t| t.chars().count() >= 3)
         .map(|term| {
-            let (core, suffix) = if let Some(stripped) = term.strip_suffix('*') {
-                (stripped, "*")
-            } else {
-                (term, "")
-            };
-            let escaped = core.replace('"', "\"\"");
-            format!("\"{escaped}\"{suffix}")
+            let escaped = term.replace('"', "\"\"");
+            format!("\"{escaped}\"")
         })
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect();
+    if terms.is_empty() { None } else { Some(terms.join(" ")) }
+}
+
+/// Wrap a query string in `%…%` LIKE wildcards with proper escaping.
+fn like_contains(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('%');
+    for c in s.chars() {
+        match c {
+            '%' | '_' | '\\' => { out.push('\\'); out.push(c); }
+            _ => out.push(c),
+        }
+    }
+    out.push('%');
+    out
 }
 
 fn row_to_cached(row: &rusqlite::Row) -> rusqlite::Result<CachedObjectMeta> {
@@ -1122,27 +1130,62 @@ impl Db {
                 let (filter_sql, filter_params) =
                     build_filter(&account_id, &bucket, &scope, &filters, None);
 
-                let fts = query.as_deref().map(sanitize_fts_query).filter(|s| !s.is_empty());
+                let raw_query = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                let fts = raw_query.and_then(build_fts_query);
+                // For queries where all terms are <3 chars, fall back to LIKE on each term OR'd on basename.
+                let short_like_terms: Vec<String> = if fts.is_none() {
+                    raw_query
+                        .iter()
+                        .flat_map(|q| q.split_whitespace())
+                        .filter(|t| !t.is_empty())
+                        .map(like_contains)
+                        .collect()
+                } else {
+                    vec![]
+                };
 
-                let (join_sql, fts_clause, fts_param) = if let Some(text) = &fts {
+                // When FTS active: FTS table is primary in FROM so that `cached_objects_fts MATCH`
+                // and `fts.rank` (BM25) work correctly. filter_sql inner clauses appended after
+                // the MATCH condition. fts_param must be first in the param list.
+                let like_placeholders: String = short_like_terms
+                    .iter()
+                    .map(|_| "co.basename LIKE ? ESCAPE '\\'")
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                let like_clause: String = if like_placeholders.is_empty() {
+                    String::new()
+                } else {
+                    format!(" AND ({like_placeholders})")
+                };
+
+                let (from_sql, where_sql, base_params) = if let Some(text) = &fts {
+                    let filter_inner = filter_sql
+                        .strip_prefix("WHERE ")
+                        .expect("build_filter always produces a WHERE-prefixed clause");
+                    let mut params = vec![Value::Text(text.clone())];
+                    params.extend(filter_params.iter().cloned());
                     (
-                        "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-                        " AND cached_objects_fts MATCH ? ".to_string(),
-                        Some(Value::Text(text.clone())),
+                        "cached_objects_fts fts JOIN cached_objects co ON co.rowid = fts.rowid".to_string(),
+                        format!("WHERE cached_objects_fts MATCH ? AND {filter_inner}"),
+                        params,
                     )
                 } else {
-                    (String::new(), String::new(), None)
+                    (
+                        "cached_objects co".to_string(),
+                        filter_sql.clone(),
+                        filter_params.clone(),
+                    )
                 };
 
                 // ---------- TOTAL ----------
                 let count_sql = format!(
-                    "SELECT COUNT(*) FROM cached_objects co {join_sql} {filter_sql} {fts_clause}"
+                    "SELECT COUNT(*) FROM {from_sql} {where_sql} {like_clause}"
                 );
                 let total: i64 = {
                     let mut stmt = conn.prepare(&count_sql)?;
-                    let mut all = filter_params.clone();
-                    if let Some(p) = fts_param.clone() {
-                        all.push(p);
+                    let mut all = base_params.clone();
+                    for p in &short_like_terms {
+                        all.push(Value::Text(p.clone()));
                     }
                     let refs: Vec<&dyn rusqlite::ToSql> =
                         all.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
@@ -1150,41 +1193,36 @@ impl Db {
                 };
 
                 // ---------- RESULTS ----------
-                let order_col = match sort {
-                    SortBy::Name => "co.key",
-                    SortBy::Size => "co.size",
-                    SortBy::Modified => "co.last_modified",
-                    SortBy::Extension => "co.extension",
+                // When FTS active with default name sort, use BM25 relevance (fts.rank, lower = better).
+                // FTS+Name sort is always ASC (rank). cursor_clause and rowid_order must use the
+                // same effective direction to avoid pagination gaps.
+                let fts_name_sort = fts.is_some() && matches!(sort, SortBy::Name);
+                let (order_col, order_dir_str) = match (sort, fts.is_some()) {
+                    (SortBy::Name, true)  => ("fts.rank", "ASC"),
+                    (SortBy::Name, false) => ("co.key",            match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
+                    (SortBy::Size, _)     => ("co.size",           match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
+                    (SortBy::Modified, _) => ("co.last_modified",  match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
+                    (SortBy::Extension, _)=> ("co.extension",      match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
                 };
-                let order_dir = match sort_dir {
-                    SortDir::Asc => "ASC",
-                    SortDir::Desc => "DESC",
-                };
-                // Cursor direction must match sort direction to page correctly.
-                // For ASC: advance forward (rowid > last). For DESC: advance backward (rowid < last).
+                // Cursor and rowid tie-break must use the effective direction, not the raw sort_dir,
+                // so that FTS+Name (always ASC) paginates correctly.
+                let effective_asc = fts_name_sort || matches!(sort_dir, SortDir::Asc);
                 let cursor_clause = if cursor.is_some() {
-                    match sort_dir {
-                        SortDir::Asc  => " AND co.rowid > ? ",
-                        SortDir::Desc => " AND co.rowid < ? ",
-                    }
+                    if effective_asc { " AND co.rowid > ? " } else { " AND co.rowid < ? " }
                 } else {
                     ""
                 };
-                // Tie-break rowid direction must also match sort direction.
-                let rowid_order = match sort_dir {
-                    SortDir::Asc  => "ASC",
-                    SortDir::Desc => "DESC",
-                };
+                let rowid_order = if effective_asc { "ASC" } else { "DESC" };
 
                 let select_sql = format!(
-                    "SELECT {SELECT_COLS}, co.rowid FROM cached_objects co {join_sql} {filter_sql} {fts_clause} {cursor_clause}
-                     ORDER BY {order_col} {order_dir}, co.rowid {rowid_order}
+                    "SELECT {SELECT_COLS}, co.rowid FROM {from_sql} {where_sql} {like_clause} {cursor_clause}
+                     ORDER BY {order_col} {order_dir_str}, co.rowid {rowid_order}
                      LIMIT ?"
                 );
                 let mut stmt = conn.prepare(&select_sql)?;
-                let mut all = filter_params.clone();
-                if let Some(p) = fts_param.clone() {
-                    all.push(p);
+                let mut all = base_params.clone();
+                for p in &short_like_terms {
+                    all.push(Value::Text(p.clone()));
                 }
                 if let Some(c) = cursor {
                     all.push(Value::Integer(c));
@@ -1202,6 +1240,7 @@ impl Db {
                 let next_cursor = if objects.len() as i64 == limit { last_rowid } else { None };
 
                 // ---------- FACETS ----------
+                // Pass built FTS query (not raw input) so facets use same trigram matching.
                 let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, fts.as_deref())?;
 
                 Ok::<SearchResult, tokio_rusqlite::Error>(SearchResult {

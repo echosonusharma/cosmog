@@ -1566,6 +1566,13 @@ input[type="checkbox"] {
 
 .search-results { flex: 1; overflow-y: auto; }
 
+.search-highlight {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .results-header {
   padding: 10px 16px;
   font-size: 10.5px;

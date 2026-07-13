@@ -354,4 +354,43 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE request_logs ADD COLUMN response_meta TEXT;
         "#,
     },
+    Migration {
+        version: 13,
+        sql: r#"
+            DROP TRIGGER IF EXISTS cached_objects_ai;
+            DROP TRIGGER IF EXISTS cached_objects_ad;
+            DROP TRIGGER IF EXISTS cached_objects_au;
+            DROP TABLE IF EXISTS cached_objects_fts;
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS cached_objects_fts USING fts5(
+                key,
+                basename,
+                content='cached_objects',
+                content_rowid='rowid',
+                tokenize='trigram'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_ai
+            AFTER INSERT ON cached_objects BEGIN
+                INSERT INTO cached_objects_fts(rowid, key, basename)
+                VALUES (new.rowid, new.key, new.basename);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_ad
+            AFTER DELETE ON cached_objects BEGIN
+                INSERT INTO cached_objects_fts(cached_objects_fts, rowid, key, basename)
+                VALUES('delete', old.rowid, old.key, old.basename);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_au
+            AFTER UPDATE ON cached_objects BEGIN
+                INSERT INTO cached_objects_fts(cached_objects_fts, rowid, key, basename)
+                VALUES('delete', old.rowid, old.key, old.basename);
+                INSERT INTO cached_objects_fts(rowid, key, basename)
+                VALUES (new.rowid, new.key, new.basename);
+            END;
+
+            INSERT INTO cached_objects_fts(cached_objects_fts) VALUES('rebuild');
+        "#,
+    },
 ];

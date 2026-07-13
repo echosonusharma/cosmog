@@ -8,6 +8,26 @@ import { formatBytes, formatDate } from "../../utils/fmt";
 import { navigateToPrefix } from "../../state/app";
 import type { CachedObjectMeta, BucketIndexStatus, SearchResult } from "../../types";
 
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightText(text: string, query: string) {
+  const terms = query.trim().split(/\s+/).filter(t => t.length >= 3);
+  if (!terms.length) return <>{text}</>;
+  const pattern = terms.map(escapeRegex).join("|");
+  const re = new RegExp(`(${pattern})`, "gi");
+  const parts = text.split(re);
+  const matchRe = new RegExp(`^(?:${pattern})$`, "i");
+  return (
+    <>
+      {parts.map((part) =>
+        matchRe.test(part) ? <mark class="search-highlight">{part}</mark> : part
+      )}
+    </>
+  );
+}
+
 export function SearchResultsPane(props: {
   searchQuery: string;
   searchResults: Resource<SearchResult | undefined>;
@@ -55,7 +75,7 @@ export function SearchResultsPane(props: {
                     <div class="obj-name-cell">
                       <span class="obj-checkbox-spacer" />
                       <FileIcon name={obj.basename} />
-                      <span class="obj-name" title={obj.key}>{obj.key}</span>
+                      <span class="obj-name" title={obj.key}>{highlightText(obj.key, props.searchQuery)}</span>
                     </div>
                     <div class="obj-type">{fileTypeLabel(obj.basename)}</div>
                     <div class="obj-size">{formatBytes(obj.size)}</div>
