@@ -87,13 +87,6 @@ export function ListView(props: {
             <div class="loading-row"><span class="spinner" /> Loading…</div>
           </Show>
 
-          <Show when={props.browseData.initialLoaded && !props.browseData.loading && !props.browseData.error && listItems().length === 0}>
-            <div class="empty-state">
-              <span class="empty-icon"><IconBucket size={36} /></span>
-              Empty prefix
-            </div>
-          </Show>
-
           {/* ".." back row — outside virtual list so it's always at top */}
           <Show when={props.prefix !== "" && props.browseData.initialLoaded}>
             <button class="obj-row folder-row" onClick={goUpPrefix} style={`height:${LIST_ROW_H}px`}>
@@ -107,6 +100,13 @@ export function ListView(props: {
               <div class="obj-date" />
               <div />
             </button>
+          </Show>
+
+          <Show when={props.browseData.initialLoaded && !props.browseData.loading && !props.browseData.error && listItems().length === 0}>
+            <div class="empty-state">
+              <span class="empty-icon"><IconBucket size={36} /></span>
+              Empty prefix
+            </div>
           </Show>
 
           <Show when={props.browseData.continuation}>
