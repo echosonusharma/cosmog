@@ -30,12 +30,15 @@ export function ListView(props: {
   onDelete: (obj: CachedObjectMeta) => void;
   onCtxFile: (e: MouseEvent, obj: CachedObjectMeta) => void;
   onCtxFolder: (e: MouseEvent, sub: string) => void;
+  pendingFolders?: string[];
 }) {
   const listItems = createMemo<ListItem[]>(() => {
     const d = props.browseData;
     if (!d.initialLoaded) return [];
+    const realSubs = new Set(d.subprefixes);
+    const optimistic = (props.pendingFolders ?? []).filter((f) => !realSubs.has(f));
     return [
-      ...d.subprefixes.map((sub: string) => ({ kind: "folder" as const, sub })),
+      ...[...d.subprefixes, ...optimistic].map((sub: string) => ({ kind: "folder" as const, sub })),
       ...d.objects.map((obj: CachedObjectMeta) => ({ kind: "file" as const, obj })),
     ];
   });

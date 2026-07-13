@@ -114,6 +114,7 @@ export function ColumnPane(props: {
   onCtxFile?: (e: MouseEvent, obj: CachedObjectMeta) => void;
   onCtxPane?: (e: MouseEvent, prefix: string) => void;
   refresh: number;
+  pendingFolders?: string[];
 }) {
   const { state, loadMore } = createPagedBrowse(() => ({
     accountId: props.accountId,
@@ -123,14 +124,16 @@ export function ColumnPane(props: {
   }));
 
   const items = createMemo<Row[]>(() => {
-    const folders: Row[] = state.subprefixes.map((key) => ({ kind: "folder", key }));
+    const realSubs = new Set(state.subprefixes);
+    const optimistic = (props.pendingFolders ?? []).filter((f) => !realSubs.has(f));
+    const folders: Row[] = [...state.subprefixes, ...optimistic].map((key) => ({ kind: "folder", key }));
     const files: Row[] = state.objects.map((obj) => ({ kind: "file", obj }));
     const rows: Row[] = [...folders, ...files];
     if (state.continuation) rows.push({ kind: "loadmore" });
     return rows;
   });
 
-  const hasData = () => state.initialLoaded && !state.error;
+  const hasData = () => (state.initialLoaded || (props.pendingFolders ?? []).length > 0) && !state.error;
 
   return (
     <Show when={hasData()} fallback={

@@ -6,7 +6,7 @@ import {
 } from "../../api/search";
 import {
   deleteObject, deleteObjects, presignGet,
-  listKeysUnderPrefix,
+  listKeysUnderPrefix, createFolder,
 } from "../../api/objects";
 import { notify } from "../../utils/notify";
 import {
@@ -132,6 +132,14 @@ export function ObjectBrowser(props: {
   const [ctxMenu, setCtxMenu] = createSignal<CtxMenu | null>(null);
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
+  const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
+
+  // Auto-prune pending folders once real browse data for the current prefix covers them.
+  createEffect(() => {
+    const realSubs = new Set(browseData.subprefixes);
+    if (realSubs.size > 0)
+      setPendingFolders((prev) => prev.filter((f) => !realSubs.has(f)));
+  });
 
   createEffect(() => { props.prefix; props.bucket; props.accountId; setSelected(new Set<string>()); });
   createEffect(() => { viewMode(); setSelected(new Set<string>()); setPreviewTarget(null); });
@@ -383,6 +391,10 @@ export function ObjectBrowser(props: {
                     onCtxFile={openCtx}
                     onCtxPane={(e, prefix) => setCtxMenu({ kind: "pane", x: e.clientX, y: e.clientY, prefix })}
                     refresh={refresh()}
+                    pendingFolders={pendingFolders().filter((f) => {
+                      const rel = f.slice(pfx.length);
+                      return f.startsWith(pfx) && rel.replace(/\/$/, "").indexOf("/") === -1;
+                    })}
                   />
                 );
               }}
@@ -395,6 +407,10 @@ export function ObjectBrowser(props: {
         <ListView
           prefix={props.prefix}
           browseData={browseData}
+          pendingFolders={pendingFolders().filter((f) => {
+            const rel = f.slice(props.prefix.length);
+            return f.startsWith(props.prefix) && rel.replace(/\/$/, "").indexOf("/") === -1;
+          })}
           onLoadMore={browseLoadMore}
           hasSel={hasSel()}
           selected={selected()}
@@ -465,7 +481,15 @@ export function ObjectBrowser(props: {
         <NewFolderModal
           prefix={showNewFolder()!}
           onClose={() => setShowNewFolder(null)}
-          onDone={(folderKey) => { navigateToPrefix(folderKey); setRefresh((n) => n + 1); }}
+          onDone={(folderKey) => {
+            setPendingFolders((prev) => prev.includes(folderKey) ? prev : [...prev, folderKey]);
+            createFolder(props.accountId, props.bucket, folderKey)
+              .then(() => setRefresh((n) => n + 1))
+              .catch((e) => {
+                toast.err(e);
+                setPendingFolders((prev) => prev.filter((f) => f !== folderKey));
+              });
+          }}
         />
       </Show>
 
