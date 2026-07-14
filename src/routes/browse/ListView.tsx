@@ -179,7 +179,7 @@ export function ListView(props: {
                                 </div>
                                 <div class="obj-type">{obj().key.endsWith("/") ? "Folder" : fileTypeLabel(obj().basename)}</div>
                                 <div class="obj-size">{formatBytes(obj().size)}</div>
-                                <div class="obj-date">{obj().last_modified ? formatDate(obj().last_modified) : "—"}</div>
+                                <div class="obj-date">{obj().last_modified ? formatDate(obj().last_modified) : "-"}</div>
                                 <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
                                   <button class="icon-btn" title="Download" onClick={() => props.onDownload(obj())}><IconDownload size={15} /></button>
                                   <button class="icon-btn" title="Copy link" onClick={() => props.onCopyLink(obj())}><IconLink size={15} /></button>

@@ -246,6 +246,10 @@ impl ObjectStore for RegionRetryStore {
         with_retry!(self, bucket, s, s.read_object_range(bucket, key, max_bytes).await)
     }
 
+    async fn read_object_full(&self, bucket: &str, key: &str) -> AppResult<Vec<u8>> {
+        with_retry!(self, bucket, s, s.read_object_full(bucket, key).await)
+    }
+
     async fn get_object_tagging(&self, bucket: &str, key: &str) -> AppResult<Vec<ObjectTag>> {
         with_retry!(self, bucket, s, s.get_object_tagging(bucket, key).await)
     }
@@ -283,10 +287,11 @@ impl ObjectStore for RegionRetryStore {
         key: &str,
         content_type: &str,
         data: Vec<u8>,
+        user_metadata: std::collections::HashMap<String, String>,
     ) -> AppResult<()> {
         with_retry!(
             self, bucket, s,
-            s.put_object_bytes(bucket, key, content_type, data.clone()).await
+            s.put_object_bytes(bucket, key, content_type, data.clone(), user_metadata.clone()).await
         )
     }
 

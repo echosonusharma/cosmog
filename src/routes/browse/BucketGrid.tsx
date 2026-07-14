@@ -34,7 +34,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   async function handleDelete(name: string) {
     const ok = await confirmDialog({
       title: "Delete bucket?",
-      body: `"${name}" — all objects and the bucket itself will be removed. This action is irreversible.`,
+      body: `"${name}": all objects and the bucket itself will be removed. This action is irreversible.`,
       confirmLabel: "Delete",
       danger: true,
     });

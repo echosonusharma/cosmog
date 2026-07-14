@@ -41,11 +41,17 @@ export function SearchResultsPane(props: {
   onClearSearch: () => void;
 }) {
   return (
-    <div class="search-results-pane">
-      <Show when={props.searchResults.loading}>
+    <div class="search-results-pane" style="position:relative">
+      <Show when={props.searchResults.loading && !!props.searchResults.latest}>
+        <span class="spinner" style="position:absolute;top:8px;right:8px;z-index:1" />
+      </Show>
+      {/* Latch: while a new query is fetching, keep the previous result set
+          rendered underneath a small corner spinner instead of flashing the
+          full "Searching…" placeholder on every keystroke. */}
+      <Show when={props.searchResults.loading && !props.searchResults.latest}>
         <div class="loading-row"><span class="spinner" /> Searching…</div>
       </Show>
-      <Show when={!props.searchResults.loading && props.searchResults()}>
+      <Show when={props.searchResults.latest}>
         {(r) => (
           <Show when={r().objects.length > 0}
                 fallback={
@@ -79,7 +85,7 @@ export function SearchResultsPane(props: {
                     </div>
                     <div class="obj-type">{fileTypeLabel(obj.basename)}</div>
                     <div class="obj-size">{formatBytes(obj.size)}</div>
-                    <div class="obj-date">{obj.last_modified ? formatDate(obj.last_modified) : "—"}</div>
+                    <div class="obj-date">{obj.last_modified ? formatDate(obj.last_modified) : "-"}</div>
                     <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
                       <button class="icon-btn" title="Download" onClick={() => props.onDownload(obj)}><IconDownload size={15} /></button>
                       <button class="icon-btn" title="Copy link" onClick={() => props.onCopyLink(obj)}><IconLink size={15} /></button>

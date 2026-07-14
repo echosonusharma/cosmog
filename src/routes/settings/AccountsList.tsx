@@ -27,7 +27,7 @@ export function AccountsList() {
   async function handleDelete(id: string, name: string) {
     const ok = await confirmDialog({
       title: "Remove account?",
-      body: `"${name}" — cached objects, transfers, and credentials will be removed. This action is irreversible.`,
+      body: `"${name}": cached objects, transfers, and credentials will be removed. This action is irreversible.`,
       confirmLabel: "Remove",
       danger: true,
     });

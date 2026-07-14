@@ -11,8 +11,17 @@ export function TransferRow(props: {
   onCancel: () => void;
   onClear: () => void;
   onRetry: () => void;
+  onLoadKey?: (accountId: string, bucket: string) => void;
 }) {
   const t = () => props.t;
+  // Backend surfaces missing-key failures via a stable message prefix
+  // matching AppError::EncryptionIdentityMissing's Display impl. Detecting
+  // the prefix lets the row show a "Load key" shortcut without a schema
+  // change to persist the error code.
+  const isKeyMissing = () => {
+    const e = t().error;
+    return !!e && (e.startsWith("encryption identity missing:") || e.includes("identity for bucket"));
+  };
   const isActive = () => t().status === "active" || t().status === "pending";
   const isTerminal = () =>
     t().status === "done" || t().status === "failed" || t().status === "canceled";
@@ -101,7 +110,16 @@ export function TransferRow(props: {
         </Show>
 
         <Show when={t().error}>
-          <div class="transfer-error">{t().error!}</div>
+          <Show when={isKeyMissing()} fallback={<div class="transfer-error">{t().error!}</div>}>
+            <div class="transfer-error" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="flex:1;min-width:0">Encryption key for this bucket is not on this device. Load it to decrypt this download.</span>
+              <Show when={props.onLoadKey}>
+                <button class="btn-primary" style="padding:4px 8px;font-size:11px" onClick={() => props.onLoadKey!(t().account_id, t().bucket)}>
+                  Load key
+                </button>
+              </Show>
+            </div>
+          </Show>
         </Show>
       </div>
     </div>

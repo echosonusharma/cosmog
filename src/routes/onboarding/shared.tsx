@@ -86,7 +86,7 @@ export function LabeledField(props: {
       <div class="field-label">
         {props.label}
         <Show when={props.optional}>
-          <span class="field-optional">— optional</span>
+          <span class="field-optional">(optional)</span>
         </Show>
       </div>
       <input

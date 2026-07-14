@@ -16,7 +16,7 @@ export function SettingsForm() {
   function field<K extends keyof AppSettings>(key: K): AppSettings[K] | undefined {
     const over = form() as Partial<AppSettings>;
     if (key in over) return over[key] as AppSettings[K];
-    return settings()?.[key];
+    return (settings.latest ?? settings())?.[key];
   }
 
   function patch<K extends keyof AppSettings>(key: K, val: AppSettings[K]) {
@@ -59,10 +59,10 @@ export function SettingsForm() {
   return (
     <div class="settings-section">
       <div class="settings-section-title">General</div>
-      <Show when={settings.loading}>
+      <Show when={settings.loading && !settings.latest}>
         <div class="loading-row"><span class="spinner" /> Loading settings…</div>
       </Show>
-      <Show when={!settings.loading && settings()}>
+      <Show when={settings.latest}>
         <div class="settings-grid">
           <label class="settings-label">Theme</label>
           <Select

@@ -31,7 +31,7 @@ export function ConfirmHost() {
         <div class="modal-backdrop" onClick={() => finish(null)}>
           <div class="modal" style="max-width:380px" onClick={(e) => e.stopPropagation()}>
             <div class="modal-title">{p().title}</div>
-            <div class="modal-sub" style="white-space:pre-wrap">{p().body}</div>
+            <div class="modal-sub" style="white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere;line-height:1.5">{p().body}</div>
             <div class="btn-row mt-3">
               <Show when={p().dismissLabel}>
                 <button class="btn-ghost" style="flex:1" onClick={() => finish(null)}>

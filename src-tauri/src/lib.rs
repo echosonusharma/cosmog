@@ -28,6 +28,7 @@
 // `commands::*` functions actually serve as the Tauri API surface.
 pub mod bulk;
 pub mod commands;
+pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod providers;
@@ -183,6 +184,33 @@ pub fn run() {
                 if let Err(e) = db.delete_old_request_logs(ttl_cutoff).await {
                     tracing::warn!("request log TTL cleanup failed: {e}");
                 }
+                // Sweep leftover encryption temp files from a previous crash.
+                // Files under <db_dir>/enc_tmp/ are ciphertext-only, safe to
+                // delete unconditionally: they were staged for uploads that
+                // never completed.
+                if let Some(parent) = db_path.parent() {
+                    let enc_tmp = parent.join("enc_tmp");
+                    if enc_tmp.exists() {
+                        match std::fs::read_dir(&enc_tmp) {
+                            Ok(rd) => {
+                                let mut removed = 0usize;
+                                for entry in rd.flatten() {
+                                    if std::fs::remove_file(entry.path()).is_ok() {
+                                        removed += 1;
+                                    }
+                                }
+                                if removed > 0 {
+                                    tracing::info!(
+                                        "swept {} stale file(s) from {}",
+                                        removed,
+                                        enc_tmp.display()
+                                    );
+                                }
+                            }
+                            Err(e) => tracing::warn!("enc_tmp sweep failed: {e}"),
+                        }
+                    }
+                }
                 let state = AppState::new(db, concurrency, log_dir, db_path, app.handle().clone());
                 // Keep the cancel token alive for the process lifetime so the
                 // scheduler can be stopped cleanly if needed. Stored in a
@@ -291,6 +319,16 @@ pub fn run() {
             commands::portable::backup_database,            // atomic SQLite-Backup-API copy of the live DB to a path
             commands::portable::stage_restore,              // validate + stage a SQLite file; applied at next boot
             commands::portable::clear_app_data,             // delete all keyring secrets + wipe app data dir on next boot, then exit
+
+            // -------- encryption: per-bucket age (X25519 + ChaCha20-Poly1305) --------
+            commands::encryption::enable_bucket_encryption,   // generate identity, store secret in keychain, record recipient in DB
+            commands::encryption::disable_bucket_encryption,  // remove identity from keychain + config from DB
+            commands::encryption::get_bucket_encryption_status, // is encryption enabled for this bucket?
+            commands::encryption::export_encryption_key,      // return identity payload for external decryption tools
+            commands::encryption::save_encryption_key_export,  // write identity file (0600) to a user-chosen path
+            commands::encryption::import_encryption_identity,  // load identity text back into the keychain (recovery)
+            commands::encryption::import_encryption_identity_from_file, // convenience: read + import
+            commands::encryption::has_encryption_identity,     // FE preflight: keychain-present check
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale

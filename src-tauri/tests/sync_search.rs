@@ -158,6 +158,7 @@ async fn cache_upsert_batch_inserts_all_rows() {
             storage_class: Some("STANDARD".into()),
             content_type: Some("text/plain".into()),
             version_id: None,
+            user_metadata: Default::default(),
         })
         .collect();
 
@@ -192,6 +193,7 @@ async fn cache_upsert_batch_overwrites_on_conflict() {
             storage_class: None,
             content_type: None,
             version_id: None,
+            user_metadata: Default::default(),
         }],
     )
     .await
@@ -208,6 +210,7 @@ async fn cache_upsert_batch_overwrites_on_conflict() {
             storage_class: None,
             content_type: None,
             version_id: None,
+            user_metadata: Default::default(),
         }],
     )
     .await

@@ -55,6 +55,9 @@ export const IconColumns      = I("columns-2");
 export const IconList         = I("list");
 export const IconTable        = I("table-2");
 export const IconBug          = I("bug");
+export const IconLock         = I("lock");
+export const IconLockOpen     = I("lock-open");
+export const IconKey          = I("key");
 
 // ── file type mapping ─────────────────────────────────────────────────────────
 

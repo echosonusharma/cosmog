@@ -9,6 +9,8 @@ import { IconArrowUpLine, IconX, IconTransfer } from "../utils/icons";
 import type { Transfer } from "../types";
 import { STATUS_ORDER, recordAndComputeSpeed } from "./transfers/helpers";
 import { TransferRow } from "./transfers/TransferRow";
+import { EncryptionModal } from "./browse/EncryptionModal";
+import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +21,22 @@ export default function Transfers() {
   const [loading, setLoading] = createSignal(true);
   const [err, setErr] = createSignal("");
   const [filter, setFilter] = createSignal<Filter>("all");
+  // Load-key flow: opened from a failed transfer row whose error indicates
+  // the encryption key is not present locally. We fetch enable status +
+  // identity presence for the target bucket before rendering the modal so
+  // it lands directly in the import branch.
+  const [keyModal, setKeyModal] = createSignal<
+    { accountId: string; bucket: string; enabled: boolean; identityPresent: boolean } | null
+  >(null);
+  async function openKeyModal(accountId: string, bucket: string) {
+    try {
+      const [status, present] = await Promise.all([
+        getBucketEncryptionStatus(accountId, bucket),
+        hasEncryptionIdentity(accountId, bucket),
+      ]);
+      setKeyModal({ accountId, bucket, enabled: status.enabled, identityPresent: present });
+    } catch (e) { toast.err(errMsg(e)); }
+  }
 
   async function load() {
     setErr("");
@@ -156,6 +174,7 @@ export default function Transfers() {
                   onCancel={() => cancel(t.id)}
                   onClear={() => clearOne(t.id)}
                   onRetry={() => retry(t.id)}
+                  onLoadKey={openKeyModal}
                 />
               )}
             </For>
@@ -179,6 +198,19 @@ export default function Transfers() {
           {counts().all === 0 && "No transfers"}
         </span>
       </div>
+
+      <Show when={keyModal()}>
+        {(m) => (
+          <EncryptionModal
+            accountId={m().accountId}
+            bucket={m().bucket}
+            enabled={m().enabled}
+            identityPresent={m().identityPresent}
+            onClose={() => setKeyModal(null)}
+            onChanged={() => { setKeyModal(null); load(); }}
+          />
+        )}
+      </Show>
     </div>
   );
 }

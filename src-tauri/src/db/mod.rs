@@ -15,6 +15,7 @@
 pub mod accounts;
 pub mod cache;
 pub mod capabilities;
+pub mod encryption;
 pub mod request_logs;
 pub mod settings;
 pub mod transfers;
@@ -391,6 +392,19 @@ const MIGRATIONS: &[Migration] = &[
             END;
 
             INSERT INTO cached_objects_fts(cached_objects_fts) VALUES('rebuild');
+        "#,
+    },
+    Migration {
+        version: 14,
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS bucket_encryption (
+                account_id TEXT NOT NULL,
+                bucket     TEXT NOT NULL,
+                salt_hex   TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (account_id, bucket),
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
         "#,
     },
 ];

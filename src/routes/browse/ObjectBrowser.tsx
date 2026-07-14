@@ -4,6 +4,7 @@ import {
   searchObjects, bucketIndexStatus,
   enableBucketIndex, disableBucketIndex, reindexBucket,
 } from "../../api/search";
+import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../../api/encryption";
 import {
   deleteObject, deleteObjects, presignGet,
   listKeysUnderPrefix, createFolder,
@@ -13,10 +14,11 @@ import {
   navigateToPrefix,
   pendingPreview, setPendingPreview,
 } from "../../state/app";
-import { toast } from "../../state/toast";
+import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import type { CachedObjectMeta } from "../../types";
 import { DownloadModal, UploadModal, NewFolderModal, RenameModal } from "./modals";
+import { EncryptionModal } from "./EncryptionModal";
 import { PreviewPane } from "./PreviewPane";
 import { ColumnPane } from "./ColumnPane";
 import { Toolbar } from "./Toolbar";
@@ -55,6 +57,24 @@ export function ObjectBrowser(props: {
     () => ({ a: props.accountId, b: props.bucket }),
     ({ a, b }) => bucketIndexStatus(a, b),
   );
+
+  const [encStatus, { refetch: refetchEncStatus }] = createResource(
+    () => ({ a: props.accountId, b: props.bucket }),
+    ({ a, b }) => getBucketEncryptionStatus(a, b),
+  );
+  // Preflight the keychain so we can prompt the user to re-import the age
+  // identity when the OS layer lost it (new machine, keychain wipe, different
+  // OS user). Refetches when encStatus changes so the banner clears the moment
+  // an import succeeds.
+  const [identityPresent, { refetch: refetchIdentityPresent }] = createResource(
+    () => {
+      const s = encStatus.latest ?? encStatus();
+      if (!s || !s.enabled) return null;
+      return { a: props.accountId, b: props.bucket };
+    },
+    ({ a, b }) => hasEncryptionIdentity(a, b),
+  );
+  const [showEncryption, setShowEncryption] = createSignal(false);
 
   const [searchResults, { mutate: mutateSearchResults }] = createResource(
     () => debouncedQuery()
@@ -155,7 +175,7 @@ export function ObjectBrowser(props: {
   });
 
   createEffect(() => { props.bucket; setPreviewTarget(null); });
-  const showSyncing = () => browseData.loading && !browseData.initialLoaded;
+  const showSyncing = () => browseData.loading;
 
   function toggleSel(key: string) {
     const s = new Set<string>(selected());
@@ -224,9 +244,26 @@ export function ObjectBrowser(props: {
 
   async function handleCopyLink(obj: CachedObjectMeta) {
     try {
-      const url = await presignGet(obj.account_id, obj.bucket, obj.key);
+      // Encrypted buckets: backend refuses presign for encrypted objects unless
+      // the caller explicitly opts in to sharing ciphertext. Prompt first.
+      let allowCiphertext = false;
+      if ((encStatus.latest ?? encStatus())?.enabled) {
+        const ok = await confirmDialog({
+          title: "Share encrypted object?",
+          body: `"${obj.key}" is encrypted. A shared link downloads the locked file as-is, not the readable version. The person you share it with will need your key file to open it. Continue?`,
+          confirmLabel: "Copy link anyway",
+          danger: true,
+        });
+        if (!ok) return;
+        allowCiphertext = true;
+      }
+      const url = await presignGet(obj.account_id, obj.bucket, obj.key, undefined, allowCiphertext);
       await navigator.clipboard.writeText(url);
-      toast.ok("Link copied");
+      if (allowCiphertext) {
+        toast.warn("Link copied. The recipient gets the locked file, share your key file separately so they can open it");
+      } else {
+        toast.ok("Link copied");
+      }
     } catch (e) { toast.err(e); }
   }
 
@@ -313,6 +350,8 @@ export function ObjectBrowser(props: {
         indexStatus={indexStatus}
         indexBusy={indexBusy()}
         onToggleIndex={toggleIndex}
+        encryptionEnabled={(encStatus.latest ?? encStatus())?.enabled ?? false}
+        onOpenEncryption={() => setShowEncryption(true)}
         searchQuery={searchQuery()}
         onSearchInput={setSearchQuery}
         onClearSearch={() => setSearchQuery("")}
@@ -350,6 +389,22 @@ export function ObjectBrowser(props: {
           onClear={() => setSelected(new Set<string>())}
           onDelete={handleBulkDelete}
         />
+      </Show>
+
+      {/* Identity-missing banner: bucket has encryption configured but the
+          OS keychain does not hold the secret (fresh install, keychain wipe,
+          different OS user). Downloads/previews of encrypted objects will
+          fail until the user imports a backup identity file. */}
+      <Show when={(encStatus.latest ?? encStatus())?.enabled && identityPresent() === false}>
+        <div style="margin:8px 12px;padding:10px 12px;background:color-mix(in srgb,var(--red) 12%,transparent);border:1px solid color-mix(in srgb,var(--red) 40%,transparent);border-radius:6px;display:flex;align-items:center;gap:12px;font-size:12px;line-height:1.5">
+          <div style="flex:1;color:var(--red)">
+            <strong>Encryption key missing on this device.</strong>{" "}
+            Files in this bucket cannot be opened until you load the key file you saved earlier.
+          </div>
+          <button class="btn-primary" style="padding:6px 10px;font-size:12px" onClick={() => setShowEncryption(true)}>
+            Load key
+          </button>
+        </div>
       </Show>
 
       {/* ── search results ── */}
@@ -429,7 +484,7 @@ export function ObjectBrowser(props: {
       <Show when={previewTarget()}>
         <ErrorBoundary fallback={(err, reset) => (
           <div class="preview-pane" style="padding:16px;display:flex;flex-direction:column;gap:8px">
-            <span style="color:var(--err);font-size:12px">Preview error: {String(err)}</span>
+            <span style="color:var(--err);font-size:12px">Preview error: {errMsg(err)}</span>
             <button class="btn-ghost" style="font-size:12px;align-self:flex-start" onClick={() => { setPreviewTarget(null); reset(); }}>Close</button>
           </div>
         )}>
@@ -438,6 +493,7 @@ export function ObjectBrowser(props: {
             onClose={() => setPreviewTarget(null)}
             onDownload={() => { const o = previewTarget(); if (o) setDownloadTarget(o); }}
             onCopyLink={() => { const o = previewTarget(); if (o) handleCopyLink(o); }}
+            encrypted={(encStatus.latest ?? encStatus())?.enabled}
           />
         </ErrorBoundary>
       </Show>
@@ -496,6 +552,17 @@ export function ObjectBrowser(props: {
       <Show when={renameTarget()}>
         {(obj) => <RenameModal obj={obj()} onClose={() => setRenameTarget(null)}
                                 onDone={() => setRefresh((n) => n + 1)} />}
+      </Show>
+
+      <Show when={showEncryption()}>
+        <EncryptionModal
+          accountId={props.accountId}
+          bucket={props.bucket}
+          enabled={(encStatus.latest ?? encStatus())?.enabled ?? false}
+          identityPresent={identityPresent() ?? true}
+          onClose={() => setShowEncryption(false)}
+          onChanged={() => { refetchEncStatus(); refetchIdentityPresent(); }}
+        />
       </Show>
     </div>
   );

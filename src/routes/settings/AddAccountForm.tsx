@@ -100,7 +100,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         await testAccount(acct.id);
         toast.ok(`Account "${acct.name}" added`);
       } catch {
-        toast.warn(`Account "${acct.name}" saved — connection test failed. Check credentials in Settings.`);
+        toast.warn(`Account "${acct.name}" saved. Connection test failed. Check credentials in Settings.`);
       }
     } catch (e) {
       toast.err(e);
