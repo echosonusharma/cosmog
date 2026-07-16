@@ -6,6 +6,7 @@ import { enqueueUpload, enqueueDownload } from "../../api/transfers";
 import { notify } from "../../utils/notify";
 import { toast, errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
+import { IconLock } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import { pathFromDialog } from "./helpers";
 
@@ -65,6 +66,7 @@ export function UploadModal(props: {
   bucket: string;
   prefix: string;
   initialFiles?: string[];
+  encrypted?: boolean;
   onClose: () => void;
   onQueued?: () => void;
 }) {
@@ -72,6 +74,11 @@ export function UploadModal(props: {
   const [keyPrefix, setKeyPrefix] = createSignal(props.prefix);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
+  // Which file we're currently encrypting (encrypted buckets stream through
+  // crypto::encrypt_file synchronously before enqueue returns, so a 3 GB file
+  // can spend minutes here with the button stuck on "Queuing…"). Surface the
+  // file name so the user knows something is happening.
+  const [currentIdx, setCurrentIdx] = createSignal(0);
 
   async function browse() {
     const sel = await openDialog({ multiple: true, directory: false });
@@ -83,9 +90,11 @@ export function UploadModal(props: {
   async function submit() {
     const list = files();
     if (!list.length) return;
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setCurrentIdx(0);
     try {
-      for (const path of list) {
+      for (let i = 0; i < list.length; i++) {
+        setCurrentIdx(i);
+        const path = list[i];
         const key = keyPrefix().trim()
           ? keyPrefix().trim().replace(/\/?$/, "/") + basename(path)
           : basename(path);
@@ -97,6 +106,17 @@ export function UploadModal(props: {
     } catch (e) {
       setErr(errMsg(e));
     } finally { setBusy(false); }
+  }
+
+  function submitLabel() {
+    if (!busy()) return `Upload${files().length > 1 ? ` (${files().length})` : ""}`;
+    if (props.encrypted) {
+      const idx = currentIdx();
+      const name = files()[idx];
+      const suffix = files().length > 1 ? ` (${idx + 1}/${files().length})` : "";
+      return name ? `Encrypting${suffix}…` : "Encrypting…";
+    }
+    return "Queuing…";
   }
 
   return (
@@ -119,11 +139,25 @@ export function UploadModal(props: {
         <label class="modal-label">Key prefix (optional)</label>
         <input class="field" placeholder={props.prefix || "folder/"} value={keyPrefix()}
                onInput={(e) => setKeyPrefix(e.currentTarget.value)} disabled={busy()} />
+        <Show when={props.encrypted}>
+          <div style="margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--accent) 6%,transparent);border-left:2px solid var(--accent);border-radius:4px;font-size:12px;line-height:1.5;color:var(--text-muted, var(--muted));display:flex;align-items:center;gap:10px">
+            <span style="color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0"><IconLock size={18} /></span>
+            <span style="flex:1;min-width:0">Encrypted bucket. Files lock on this device before upload; large files may take a moment.</span>
+          </div>
+        </Show>
+        <Show when={busy() && props.encrypted && files().length > 0}>
+          <div style="margin-top:8px;padding:6px 10px;font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:8px;overflow:hidden">
+            <span class="spinner" style="width:11px;height:11px;border-width:2px;flex-shrink:0" />
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              Encrypting <code style="font-family:var(--mono, monospace)">{basename(files()[currentIdx()] ?? "")}</code>
+            </span>
+          </div>
+        </Show>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
+          <button class="btn-secondary" style="flex:1" onClick={props.onClose} disabled={busy()}>Cancel</button>
           <button class="btn-primary" style="flex:1" disabled={!files().length || busy()} onClick={submit}>
-            {busy() ? "Queuing…" : `Upload${files().length > 1 ? ` (${files().length})` : ""}`}
+            {submitLabel()}
           </button>
         </div>
       </div>

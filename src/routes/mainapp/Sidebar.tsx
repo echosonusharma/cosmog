@@ -11,8 +11,9 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock,
 } from "../../utils/icons";
+import { listEncryptedBuckets } from "../../api/encryption";
 import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
@@ -136,6 +137,12 @@ export function Sidebar(props: {
     if (!q) return all;
     return all.filter((b) => b.name.toLowerCase().includes(q));
   });
+  // Encrypted bucket names for the active account. Refetches when the account
+  // switches. Errors swallowed so a keychain hiccup can never crash the sidebar.
+  const [encSet] = createResource<Set<string>, string | null>(
+    () => props.activeAccount?.id ?? null,
+    async (id) => (id ? new Set(await listEncryptedBuckets(id).catch(() => [] as string[])) : new Set<string>()),
+  );
   return (
     <aside class={`sidebar ${props.collapsed ? "collapsed" : ""}`}>
 
@@ -233,8 +240,10 @@ export function Sidebar(props: {
                     }}
                     title={b.name}
                   >
-                    <span class="sidebar-bucket-icon">
-                      <IconBucket size={13} />
+                    <span class="sidebar-bucket-icon" style={encSet()?.has(b.name) ? "color:var(--accent)" : ""}>
+                      <Show when={encSet()?.has(b.name)} fallback={<IconBucket size={13} />}>
+                        <IconLock size={13} />
+                      </Show>
                     </span>
                     <span class="sidebar-bucket-name">{b.name}</span>
                   </button>

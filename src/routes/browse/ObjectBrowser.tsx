@@ -529,6 +529,7 @@ export function ObjectBrowser(props: {
       <Show when={showUpload() !== false}>
         <UploadModal accountId={props.accountId} bucket={props.bucket} prefix={showUpload() as string}
                      initialFiles={pendingDrop()}
+                     encrypted={(encStatus.latest ?? encStatus())?.enabled ?? false}
                      onClose={() => { setShowUpload(false); setPendingDrop([]); }}
                      onQueued={() => { const t = setTimeout(() => setRefresh((n) => n + 1), 1500); onCleanup(() => clearTimeout(t)); }} />
       </Show>

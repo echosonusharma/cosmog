@@ -329,6 +329,7 @@ pub fn run() {
             commands::encryption::import_encryption_identity,  // load identity text back into the keychain (recovery)
             commands::encryption::import_encryption_identity_from_file, // convenience: read + import
             commands::encryption::has_encryption_identity,     // FE preflight: keychain-present check
+            commands::encryption::list_encrypted_buckets,      // per-account list of encrypted buckets for grid lock badges
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale

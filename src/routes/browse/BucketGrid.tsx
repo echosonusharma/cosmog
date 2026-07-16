@@ -1,13 +1,14 @@
 import { createSignal, createResource, createMemo, For, Show } from "solid-js";
 import { listBuckets, deleteBucket } from "../../api/buckets";
 import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
+import { listEncryptedBuckets } from "../../api/encryption";
 import { notify } from "../../utils/notify";
 import { setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
 import {
-  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX,
+  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX, IconLock,
 } from "../../utils/icons";
 import type { Bucket } from "../../types";
 import { ErrorPopup } from "../../utils/ErrorPopup";
@@ -21,6 +22,13 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [buckets] = createResource<Bucket[], { a: string; r: number }>(
     () => ({ a: props.accountId, r: refresh() }),
     ({ a }) => { setErrDismissed(false); return listBuckets(a); },
+  );
+  // Encrypted bucket names for this account, in a Set for O(1) badge lookup.
+  // Re-fetches whenever the grid is refreshed so a fresh enable/disable is
+  // reflected without a page reload.
+  const [encSet] = createResource<Set<string>, { a: string; r: number }>(
+    () => ({ a: props.accountId, r: refresh() }),
+    async ({ a }) => new Set(await listEncryptedBuckets(a).catch(() => [] as string[])),
   );
   const [showNew, setShowNew] = createSignal(false);
   const [filter, setFilter] = createSignal("");
@@ -132,10 +140,21 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
             <div class="bucket-grid">
               <For each={filtered()}>
                 {(b) => (
-                  <div class="bucket-card">
+                  <div
+                    class="bucket-card"
+                    style={
+                      encSet()?.has(b.name)
+                        ? "background:color-mix(in srgb, var(--accent) 8%, transparent);border-color:color-mix(in srgb, var(--accent) 35%, var(--border))"
+                        : ""
+                    }
+                  >
                     <button class="bucket-name"
                             onClick={() => setBrowseState({ bucket: b.name, prefix: "" })}>
-                      <span class="bucket-icon"><IconBucket size={18} /></span>
+                      <Show when={encSet()?.has(b.name)} fallback={<span class="bucket-icon"><IconBucket size={18} /></span>}>
+                        <span class="bucket-icon" title="Encrypted bucket" style="color:var(--accent)">
+                          <IconLock size={16} />
+                        </span>
+                      </Show>
                       <span class="truncate">{b.name}</span>
                     </button>
                     <button class="icon-btn danger bucket-del" title="Delete bucket"

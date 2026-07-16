@@ -296,6 +296,16 @@ pub async fn import_encryption_identity_from_file(
     import_encryption_identity(state, account_id, bucket, text).await
 }
 
+/// Return the list of buckets for `account_id` that have client-side
+/// encryption enabled. FE uses this to render lock badges on the bucket grid.
+#[tauri::command]
+pub async fn list_encrypted_buckets(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> AppResult<Vec<String>> {
+    state.db.list_encrypted_buckets_for_account(&account_id).await
+}
+
 /// Return `true` iff the OS keychain has an identity stored for this bucket.
 /// Used by the FE to detect the "identity missing" state proactively (fresh
 /// install, keychain wipe) and prompt for import before an operation fails.

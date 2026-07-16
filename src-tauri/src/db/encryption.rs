@@ -69,6 +69,30 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Return every bucket name that has an encryption config for this account.
+    /// Used by the FE bucket grid to render a lock badge per encrypted bucket
+    /// with a single round-trip instead of one query per bucket card.
+    pub async fn list_encrypted_buckets_for_account(
+        &self,
+        account_id: &str,
+    ) -> AppResult<Vec<String>> {
+        let account_id = account_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT bucket FROM bucket_encryption WHERE account_id=?1",
+                )?;
+                let rows = stmt.query_map(params![account_id], |row| row.get::<_, String>(0))?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(r?);
+                }
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn delete_encryption_config(&self, account_id: &str, bucket: &str) -> AppResult<()> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();

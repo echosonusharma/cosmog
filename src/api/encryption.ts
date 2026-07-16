@@ -77,3 +77,8 @@ export const hasEncryptionIdentity = (
   bucket: string,
 ): Promise<boolean> =>
   invoke("has_encryption_identity", { accountId, bucket });
+
+export const listEncryptedBuckets = (
+  accountId: string,
+): Promise<string[]> =>
+  invoke("list_encrypted_buckets", { accountId });
