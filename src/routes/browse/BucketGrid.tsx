@@ -116,7 +116,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
         </div>
       </div>
 
-      <div style="padding:20px;overflow-y:auto;flex:1">
+      <div class="bucket-grid-body">
         <Show when={buckets.loading}>
           <div class="loading-row"><span class="spinner" /> Loading buckets…</div>
         </Show>
@@ -142,16 +142,12 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                 {(b) => (
                   <div
                     class="bucket-card"
-                    style={
-                      encSet()?.has(b.name)
-                        ? "background:color-mix(in srgb, var(--accent) 8%, transparent);border-color:color-mix(in srgb, var(--accent) 35%, var(--border))"
-                        : ""
-                    }
+                    classList={{ encrypted: encSet()?.has(b.name) }}
                   >
                     <button class="bucket-name"
                             onClick={() => setBrowseState({ bucket: b.name, prefix: "" })}>
                       <Show when={encSet()?.has(b.name)} fallback={<span class="bucket-icon"><IconBucket size={18} /></span>}>
-                        <span class="bucket-icon" title="Encrypted bucket" style="color:var(--accent)">
+                        <span class="bucket-icon encrypted" title="Encrypted bucket">
                           <IconLock size={16} />
                         </span>
                       </Show>

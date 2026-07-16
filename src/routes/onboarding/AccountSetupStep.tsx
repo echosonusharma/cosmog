@@ -98,7 +98,7 @@ export function AccountSetupStep(props: {
       <div class="provider-badge">
         <ProviderIconTile provider={props.provider} size={36} />
         <div>
-          <div style="font-size:15px;font-weight:600;letter-spacing:-0.01em">Connect {props.provider.label}</div>
+          <div class="provider-badge-title">Connect {props.provider.label}</div>
           <div class="provider-sub">Credentials are encrypted in your OS keychain.</div>
         </div>
       </div>
@@ -139,7 +139,7 @@ export function AccountSetupStep(props: {
         <button type="button" class="btn-secondary" disabled={!valid() || busy()} onClick={doTest}>
           Test connection
         </button>
-        <button type="submit" class="btn-primary" disabled={!valid() || busy()} style="flex:1">
+        <button type="submit" class="btn-primary flex-1" disabled={!valid() || busy()}>
           Save &amp; open
         </button>
       </div>

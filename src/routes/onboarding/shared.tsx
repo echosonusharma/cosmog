@@ -27,11 +27,7 @@ export function ProviderIconTile(props: { provider: ProviderDef; size?: number }
       style={{ background: color, width: `${sz}px`, height: `${sz}px`, "border-radius": `${Math.round(sz * 0.22)}px` }}
       title={props.provider.label}
     >
-      <img
-        src={props.provider.iconUrl}
-        alt={props.provider.label}
-        style="width:65%;height:65%;object-fit:contain;filter:brightness(0) invert(1)"
-      />
+      <img src={props.provider.iconUrl} alt={props.provider.label} />
     </span>
   );
 }

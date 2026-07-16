@@ -174,7 +174,6 @@ export function Sidebar(props: {
         <Show when={props.collapsed}>
           <button
             class="sidebar-account-pill collapsed-expand"
-            style="justify-content:center;border:none;background:transparent;cursor:pointer;width:100%"
             onClick={props.onExpand}
             title="Expand sidebar"
           >
@@ -195,7 +194,8 @@ export function Sidebar(props: {
             <button
               class={`sidebar-item ${currentView() === item.view ? "active" : ""}`}
               onClick={() => setCurrentView(item.view)}
-              title={props.collapsed ? item.label : undefined}
+              data-tt={props.collapsed ? item.label : undefined}
+              aria-label={item.label}
             >
               <span class="sidebar-item-icon">{item.icon()}</span>
               <Show when={!props.collapsed}>
@@ -238,9 +238,10 @@ export function Sidebar(props: {
                       const id = browseState.accountId;
                       if (id) navigateToBucket(id, b.name);
                     }}
-                    title={b.name}
+                    aria-label={b.name}
+                    data-tt={b.name}
                   >
-                    <span class="sidebar-bucket-icon" style={encSet()?.has(b.name) ? "color:var(--accent)" : ""}>
+                    <span class="sidebar-bucket-icon" classList={{ "is-encrypted": !!encSet()?.has(b.name) }}>
                       <Show when={encSet()?.has(b.name)} fallback={<IconBucket size={13} />}>
                         <IconLock size={13} />
                       </Show>
@@ -265,7 +266,8 @@ export function Sidebar(props: {
                 <button
                   class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
                   onClick={() => selectAccount(a.id)}
-                  title={a.name}
+                  aria-label={a.name}
+                  data-tt={a.name}
                 >
                   <ProviderTile account={a} size="small" />
                   <span class="sidebar-account-item-name">{a.name}</span>

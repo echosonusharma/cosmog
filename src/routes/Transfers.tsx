@@ -130,7 +130,7 @@ export default function Transfers() {
   return (
     <div class="view-container">
       <div class="transfer-filterbar">
-        <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em">Transfers</h2>
+        <h2 class="transfer-filterbar-title">Transfers</h2>
         <div class="filter-chips">
           <button class={`chip ${filter() === "all"    ? "active" : ""}`} onClick={() => setFilter("all")}>
             All <span class="chip-count">{counts().all}</span>
@@ -145,15 +145,15 @@ export default function Transfers() {
             Failed <span class="chip-count">{counts().failed}</span>
           </button>
         </div>
-        <div style="flex:1" />
+        <div class="flex-1" />
         <Show when={hasDone()}>
-          <button class="btn-ghost" style="font-size:12px;padding:6px 11px;border:1px solid var(--border);border-radius:8px" onClick={clearAll}>
+          <button class="btn-ghost transfer-clear-btn" onClick={clearAll}>
             <IconX size={13} /> Clear completed
           </button>
         </Show>
       </div>
 
-      <Show when={err()}><div class="status-msg err" style="margin:12px 20px">{err()}</div></Show>
+      <Show when={err()}><div class="status-msg err transfer-err-msg">{err()}</div></Show>
       <Show when={loading()}>
         <div class="loading-row"><span class="spinner" /> Loading…</div>
       </Show>
@@ -184,12 +184,12 @@ export default function Transfers() {
 
       <div class="transfer-footer-bar">
         <Show when={counts().active > 0}>
-          <span style="display:flex;align-items:center;gap:4px">
+          <span class="transfer-footer-speed">
             <IconArrowUpLine size={12} /> {formatBytes(activeSpeedTotal())}/s
           </span>
         </Show>
-        <div style="flex:1" />
-        <span style="color:var(--faint)">
+        <div class="flex-1" />
+        <span class="faint">
           {counts().active > 0 && `${counts().active} active`}
           {counts().active > 0 && (counts().done > 0 || counts().failed > 0) && " · "}
           {counts().done > 0 && `${counts().done} done`}

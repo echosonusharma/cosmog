@@ -54,7 +54,7 @@ export function AccountsList() {
       </Show>
 
       <Show when={accounts().length > 0}
-            fallback={<div class="empty-state" style="padding:24px">No accounts</div>}>
+            fallback={<div class="empty-state empty-state-accounts">No accounts</div>}>
         <div class="account-rows">
           <For each={accounts()}>
             {(a) => (

@@ -76,14 +76,14 @@ export function ListView(props: {
         <div />
       </div>
 
-      <div style="display:flex;flex:1;overflow:hidden">
+      <div class="list-view-scroll-wrap">
         <div
           ref={listScrollEl}
-          class={`object-list ${props.hasSel ? "has-selection" : ""}`}
-          style={{ flex: "1", "overflow-y": "auto", position: "relative", opacity: props.browseData.loading ? "0.45" : "1", transition: "opacity 0.12s" }}
+          class={`object-list object-list-scroll ${props.hasSel ? "has-selection" : ""}`}
+          classList={{ loading: props.browseData.loading }}
         >
           <Show when={props.browseData.error}>
-            <div class="status-msg err" style="margin:12px 16px">{errMsg(props.browseData.error)}</div>
+            <div class="status-msg err list-status-msg">{errMsg(props.browseData.error)}</div>
           </Show>
 
           <Show when={props.browseData.loading && !props.browseData.initialLoaded}>
@@ -115,7 +115,6 @@ export function ListView(props: {
           <Show when={props.browseData.continuation}>
             <button
               class="loadmore-row"
-              style="display:block;width:calc(100% - 32px);margin:8px 16px;padding:8px;border:1px dashed var(--border);border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font-size:12px"
               disabled={props.browseData.loading}
               onClick={props.onLoadMore}
             >

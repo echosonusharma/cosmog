@@ -1,0 +1,75 @@
+/* ── miller columns ─────────────────────────────────────────────────────── */
+
+.columns-scroll {
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+  min-width: 0;
+  scrollbar-gutter: stable;
+}
+
+.col-pane {
+  width: 236px;
+  flex: 0 0 236px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 4px 4px;
+  contain: layout paint;
+  position: relative;
+}
+
+.col-pane-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.col-pane-item {
+  display: flex; align-items: center;
+  gap: 9px;
+  height: 30px;
+  padding: 0 12px;
+  border: none; border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer; text-align: left;
+  width: 100%;
+  transition: background 0.1s;
+  font: inherit; font-size: 12.5px;
+  box-sizing: border-box;
+}
+.col-pane-item:hover { background: var(--panel-2); }
+.col-pane-item.selected { background: color-mix(in srgb, var(--accent) 32%, transparent); color: var(--text); }
+.col-pane-item.selected .col-pane-chev { color: var(--muted); }
+
+.col-pane-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.col-pane-chev {
+  flex-shrink: 0;
+  color: var(--faint);
+}
+
+.col-pane-scroll {
+  overflow-y: auto;
+  transition: opacity 0.12s;
+}
+.col-pane-scroll.loading { opacity: 0.45; }
+.col-pane-item.fill-cell { height: 100%; width: 100%; }
+.col-pane-loadmore.fill-cell { justify-content: center; color: var(--muted); }
+.col-pane-empty {
+  overflow-y: auto;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12px;
+}
+.col-pane-empty-text { color: var(--faint); font-size: 12px; }
+.col-pane-inline-spinner {
+  padding: 12px;
+  display: flex; justify-content: center;
+}
+.col-pane-inline-err {
+  padding: 8px; font-size: 11px; color: var(--red);
+}
+

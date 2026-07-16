@@ -79,13 +79,13 @@ export function TransferRow(props: {
         {/* progress bar only while in-flight */}
         <Show when={isActive() && (t().bytes_total || t().bytes_done > 0)}>
           <div class="progress-track">
-            <div class="progress-fill" style={`width:${pct(t())}%`} />
+            <div class="progress-fill" style={{ width: `${pct(t())}%` }} />
           </div>
           <div class="transfer-stats-row">
             <Show when={pctLabel()}>
               <span class="transfer-pct">{pctLabel()}</span>
             </Show>
-            <span style="flex:1" />
+            <span class="flex-1" />
             <Show when={sizeLabel()}>
               <span class="transfer-stat-size">{sizeLabel()}</span>
             </Show>
@@ -104,17 +104,17 @@ export function TransferRow(props: {
             <Show when={sizeLabel()}>
               <span class="transfer-stat-size">{sizeLabel()}</span>
             </Show>
-            <span style="flex:1" />
+            <span class="flex-1" />
             <span class="transfer-stat-time">{formatRelative(t().updated_at)}</span>
           </div>
         </Show>
 
         <Show when={t().error}>
           <Show when={isKeyMissing()} fallback={<div class="transfer-error">{t().error!}</div>}>
-            <div class="transfer-error" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <span style="flex:1;min-width:0">Encryption key for this bucket is not on this device. Load it to decrypt this download.</span>
+            <div class="transfer-error transfer-error-keyload">
+              <span class="transfer-error-keyload-text">Encryption key for this bucket is not on this device. Load it to decrypt this download.</span>
               <Show when={props.onLoadKey}>
-                <button class="btn-primary" style="padding:4px 8px;font-size:11px" onClick={() => props.onLoadKey!(t().account_id, t().bucket)}>
+                <button class="btn-primary transfer-error-keyload-btn" onClick={() => props.onLoadKey!(t().account_id, t().bucket)}>
                   Load key
                 </button>
               </Show>

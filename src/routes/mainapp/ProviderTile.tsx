@@ -14,7 +14,7 @@ export function ProviderTile(props: {
       style={{ background: def().color }}
       title={def().label}
     >
-      <img src={def().iconUrl} alt={def().label} style="width:65%;height:65%;object-fit:contain;filter:brightness(0) invert(1)" />
+      <img src={def().iconUrl} alt={def().label} />
     </span>
   );
 }

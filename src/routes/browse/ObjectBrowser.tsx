@@ -341,8 +341,7 @@ export function ObjectBrowser(props: {
     <div class="object-browser"
          onDragOver={onDragOver}
          onDragLeave={onDragLeave}
-         onDrop={onDrop}
-         style="position:relative">
+         onDrop={onDrop}>
       <Toolbar
         accountName={props.accountName}
         bucket={props.bucket}
@@ -366,8 +365,8 @@ export function ObjectBrowser(props: {
 
       {/* ── initial load overlay — covers content area while first page fetches ── */}
       <Show when={!browseData.initialLoaded && !browseData.error}>
-        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg, #0d0d0d);z-index:10;pointer-events:none">
-          <span class="spinner" style="width:32px;height:32px;border-width:3px" />
+        <div class="browse-loading-overlay">
+          <span class="spinner spinner-lg" />
         </div>
       </Show>
 
@@ -396,12 +395,12 @@ export function ObjectBrowser(props: {
           different OS user). Downloads/previews of encrypted objects will
           fail until the user imports a backup identity file. */}
       <Show when={(encStatus.latest ?? encStatus())?.enabled && identityPresent() === false}>
-        <div style="margin:8px 12px;padding:10px 12px;background:color-mix(in srgb,var(--red) 12%,transparent);border:1px solid color-mix(in srgb,var(--red) 40%,transparent);border-radius:6px;display:flex;align-items:center;gap:12px;font-size:12px;line-height:1.5">
-          <div style="flex:1;color:var(--red)">
+        <div class="enc-identity-banner">
+          <div class="enc-identity-banner-text">
             <strong>Encryption key missing on this device.</strong>{" "}
             Files in this bucket cannot be opened until you load the key file you saved earlier.
           </div>
-          <button class="btn-primary" style="padding:6px 10px;font-size:12px" onClick={() => setShowEncryption(true)}>
+          <button class="btn-primary" onClick={() => setShowEncryption(true)}>
             Load key
           </button>
         </div>
@@ -424,10 +423,10 @@ export function ObjectBrowser(props: {
       </Show>
 
       {/* ── view area: all view modes + shared preview as flex-row siblings ── */}
-      <div style={{ display: searchQuery() ? "none" : "flex", flex: "1", overflow: "hidden", "min-height": "0" }}>
+      <div class="browse-area" classList={{ hidden: !!searchQuery() }}>
 
       {/* ── columns view ── */}
-        <div style={{ display: viewMode() === "columns" && !searchQuery() ? "flex" : "none", flex: "1", overflow: "hidden" }}>
+        <div class="browse-view" classList={{ hidden: viewMode() !== "columns" || !!searchQuery() }}>
           <div class="columns-scroll" ref={columnsScrollEl}>
             <For each={colPrefixes()}>
               {(pfx, i) => {
@@ -458,7 +457,7 @@ export function ObjectBrowser(props: {
         </div>
 
       {/* ── list view ── */}
-      <div style={{ display: viewMode() === "list" && !searchQuery() ? "flex" : "none", flex: "1", overflow: "hidden", "flex-direction": "column" }}>
+      <div class="browse-view list" classList={{ hidden: viewMode() !== "list" || !!searchQuery() }}>
         <ListView
           prefix={props.prefix}
           browseData={browseData}
@@ -483,9 +482,9 @@ export function ObjectBrowser(props: {
       {/* ── shared preview pane (single instance for all view modes) ── */}
       <Show when={previewTarget()}>
         <ErrorBoundary fallback={(err, reset) => (
-          <div class="preview-pane" style="padding:16px;display:flex;flex-direction:column;gap:8px">
-            <span style="color:var(--err);font-size:12px">Preview error: {errMsg(err)}</span>
-            <button class="btn-ghost" style="font-size:12px;align-self:flex-start" onClick={() => { setPreviewTarget(null); reset(); }}>Close</button>
+          <div class="preview-pane preview-err-card">
+            <span class="preview-err-card-msg">Preview error: {errMsg(err)}</span>
+            <button class="btn-ghost preview-err-card-close" onClick={() => { setPreviewTarget(null); reset(); }}>Close</button>
           </div>
         )}>
           <PreviewPane

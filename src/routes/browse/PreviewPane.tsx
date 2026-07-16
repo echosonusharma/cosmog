@@ -40,9 +40,9 @@ function previewErrorParts(err: unknown): { title: string; hint: string } {
 function PreviewErrorCard(props: { err: unknown }) {
   const parts = () => previewErrorParts(props.err);
   return (
-    <div style="width:100%;padding:12px 14px;border:1px solid color-mix(in srgb, var(--red) 30%, transparent);background:color-mix(in srgb, var(--red) 8%, transparent);border-radius:6px;color:var(--text);font-size:12px;line-height:1.5">
-      <div style="font-weight:600;margin-bottom:4px;color:var(--red)">{parts().title}</div>
-      <div style="color:var(--muted)">{parts().hint}</div>
+    <div class="preview-err-inline">
+      <div class="preview-err-inline-title">{parts().title}</div>
+      <div class="preview-err-inline-hint">{parts().hint}</div>
     </div>
   );
 }
@@ -185,23 +185,22 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
           {/* Image preview via presigned URL */}
           <Show when={isImage()}>
-            <div class="preview-img-area" style="position:relative">
+            <div class="preview-img-area rel">
               <Show when={!imageAutoLoad() && !loadRequested() && !displayUrl()}>
-                <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px">
-                  <span class="muted" style="font-size:12px">
+                <div class="preview-load-hint">
+                  <span class="muted text-xs">
                     Encrypted image ({formatBytes(props.obj.size)}) — decrypts whole into memory.
                   </span>
-                  <button class="btn-secondary" onClick={() => setLoadRequested(true)}
-                          style="display:flex;align-items:center;gap:8px">
+                  <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
                     <IconEye size={15} /> Load preview
                   </button>
                 </div>
               </Show>
               <Show when={imgUrl.loading && !displayUrl()}>
-                <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+                <div class="preview-decrypting">
                   <span class="spinner" />
                   <Show when={props.encrypted}>
-                    <span class="muted" style="font-size:11px">Decrypting…</span>
+                    <span class="muted text-xxs">Decrypting…</span>
                   </Show>
                 </div>
               </Show>
@@ -209,10 +208,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <PreviewErrorCard err={imgUrl.error} />
               </Show>
               <Show when={displayUrl()}>
-                <img class="preview-thumb" src={imgSrc()}
-                     onClick={() => setExpanded(true)} style="cursor:zoom-in" />
+                <img class="preview-thumb preview-img-thumb-zoom" src={imgSrc()}
+                     onClick={() => setExpanded(true)} />
                 <Show when={imgSwitching()}>
-                  <span class="spinner" style="position:absolute;top:8px;right:8px" />
+                  <span class="spinner preview-corner-spinner" />
                 </Show>
               </Show>
             </div>
@@ -224,33 +223,32 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <div class="loading-row"><span class="spinner" /> {props.encrypted ? "Decrypting…" : "Loading…"}</div>
               </Show>
               <Show when={displayText()}>
-                <div class="preview-editor" style="position:relative">
+                <div class="preview-editor rel">
                   <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
                   <Show when={textSwitching()}>
-                    <span class="spinner" style="position:absolute;top:8px;right:8px" />
+                    <span class="spinner preview-corner-spinner" />
                   </Show>
                 </div>
               </Show>
             </Show>
             <Show when={!textAutoLoad()}>
-              <div class="preview-img-area" style="position:relative">
+              <div class="preview-img-area rel">
                 <Show when={!loadRequested() && !displayText()}>
                   <Show when={tooBig()}
                         fallback={
-                          <button class="btn-secondary" onClick={() => setLoadRequested(true)}
-                                  style="display:flex;align-items:center;gap:8px">
+                          <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
                             <IconEye size={15} /> Load preview
                           </button>
                         }>
-                    <span class="muted" style="font-size:12px">File too large to preview</span>
+                    <span class="muted text-xs">File too large to preview</span>
                   </Show>
                 </Show>
                 <Show when={loadRequested() && !displayText()}><span class="spinner" /></Show>
                 <Show when={displayText()}>
-                  <div class="preview-editor" style="width:100%;position:relative">
+                  <div class="preview-editor full">
                     <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
                     <Show when={textSwitching()}>
-                      <span class="spinner" style="position:absolute;top:8px;right:8px" />
+                      <span class="spinner preview-corner-spinner" />
                     </Show>
                   </div>
                 </Show>
@@ -264,7 +262,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           </Show>
 
           <Show when={!isImage() && !isText() && !isSheet()}>
-            <div class="muted" style="font-size:12px;text-align:center;padding:20px">
+            <div class="muted preview-binary-note">
               Binary content · {formatBytes(props.obj.size)}
             </div>
           </Show>
@@ -272,8 +270,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           <MetaList obj={props.obj} />
 
           <div class="btn-row">
-            <button class="btn-secondary" style="flex:1" onClick={props.onCopyLink}>Copy link</button>
-            <button class="btn-primary" style="flex:1" onClick={props.onDownload}>Download</button>
+            <button class="btn-secondary btn-half" onClick={props.onCopyLink}>Copy link</button>
+            <button class="btn-primary btn-half" onClick={props.onDownload}>Download</button>
           </div>
         </div>
       </div>

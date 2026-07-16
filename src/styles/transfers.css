@@ -1,0 +1,168 @@
+/* ── transfers ──────────────────────────────────────────────────────────── */
+
+.transfer-filterbar {
+  display: flex; align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--panel);
+}
+.filter-chips {
+  display: flex;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--muted);
+  font: inherit; font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  font-weight: 500;
+}
+.chip:hover { color: var(--text); background: var(--elev); }
+.chip.active {
+  color: var(--text);
+  background: var(--elev);
+  font-weight: 600;
+}
+.chip-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+.chip.active .chip-count { opacity: 0.9; }
+
+.transfer-list {
+  flex: 1; overflow-y: auto;
+  padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* card-style rows */
+.transfer-row {
+  display: flex; align-items: flex-start;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--panel);
+  transition: border-color 0.1s;
+}
+.transfer-row:hover { border-color: var(--border-2); }
+
+.transfer-dir {
+  width: 32px; height: 32px; flex: 0 0 32px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.transfer-dir.upload   { color: var(--ok); }
+.transfer-dir.download { color: var(--info); }
+
+.transfer-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+
+.transfer-line-1 {
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0;
+}
+.transfer-filename {
+  font-size: 13px; font-weight: 600; color: var(--text-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1;
+}
+.transfer-action-badge {
+  font-size: 11px; font-weight: 600; flex-shrink: 0; color: var(--muted);
+  white-space: nowrap;
+}
+.transfer-action-badge.active   { color: var(--ok); }
+.transfer-action-badge.pending  { color: var(--amber); }
+.transfer-action-badge.done     { color: var(--blue); }
+.transfer-action-badge.failed   { color: var(--red); }
+.transfer-action-badge.canceled { color: var(--muted); }
+.transfer-action-badge.paused   { color: var(--muted); }
+
+.transfer-btns { flex-shrink: 0; display: flex; gap: 4px; }
+
+.transfer-line-2 {
+  font-size: 11px; color: var(--faint);
+  font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.progress-track {
+  height: 5px; margin-top: 4px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.progress-fill.done   { background: var(--blue); }
+.progress-fill.failed { background: var(--red); }
+
+.transfer-stats-row {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 3px;
+  font-size: 11px; font-family: var(--font-mono);
+}
+.transfer-pct { color: var(--muted); font-weight: 600; }
+.transfer-stat-size { color: var(--text); }
+.transfer-stat-speed { color: var(--ok); }
+.transfer-stat-time { color: var(--faint); }
+
+.transfer-error {
+  margin-top: 5px; font-size: 11px; color: var(--red);
+}
+.transfer-error-keyload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.transfer-error-keyload-text { flex: 1; min-width: 0; }
+.transfer-error-keyload-btn { padding: 4px 8px; font-size: 11px; }
+
+.transfer-filterbar-title {
+  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+}
+.transfer-clear-btn {
+  font-size: 12px; padding: 6px 11px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.transfer-err-msg { margin: 12px 20px; }
+.transfer-footer-speed { display: flex; align-items: center; gap: 4px; }
+
+/* ── transfers footer bar ───────────────────────────────────────────────── */
+
+.transfer-footer-bar {
+  display: flex; align-items: center; gap: 18px;
+  padding: 0 18px;
+  height: 32px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.transfer-footer-speeds { display: flex; gap: 12px; }
+.transfer-footer-speeds span { display: flex; align-items: center; gap: 4px; }
+.transfer-footer-summary { margin-left: auto; display: flex; gap: 10px; }
+.transfer-footer-summary span { display: flex; align-items: center; gap: 4px; }
+.tf-active { color: var(--ok); }
+.tf-failed { color: var(--err); }
+.tf-done   { color: var(--info); }
+

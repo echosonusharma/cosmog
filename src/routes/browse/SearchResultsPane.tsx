@@ -41,9 +41,9 @@ export function SearchResultsPane(props: {
   onClearSearch: () => void;
 }) {
   return (
-    <div class="search-results-pane" style="position:relative">
+    <div class="search-results-pane">
       <Show when={props.searchResults.loading && !!props.searchResults.latest}>
-        <span class="spinner" style="position:absolute;top:8px;right:8px;z-index:1" />
+        <span class="spinner corner-spinner" />
       </Show>
       {/* Latch: while a new query is fetching, keep the previous result set
           rendered underneath a small corner spinner instead of flashing the
@@ -65,17 +65,17 @@ export function SearchResultsPane(props: {
                     <div class="empty-state">
                       <span class="empty-icon"><IconSearch size={32} /></span>
                       <span>Bucket not indexed</span>
-                      <button class="btn-primary" style="margin-top:12px;width:auto;padding:0 20px" disabled={props.indexBusy} onClick={props.onEnableIndex}>
+                      <button class="btn-primary search-enable-index-btn" disabled={props.indexBusy} onClick={props.onEnableIndex}>
                         Enable index
                       </button>
                     </div>
                   </Show>
                 }>
             <div class="results-header">{r().total.toLocaleString()} matches</div>
-            <div class="object-list" style="flex:1;overflow-y:auto">
+            <div class="object-list search-results-list">
               <For each={r().objects}>
                 {(obj) => (
-                  <div class="obj-row" style="cursor:pointer"
+                  <div class="obj-row"
                        onClick={() => { navigateToPrefix(obj.key.includes("/") ? obj.key.slice(0, obj.key.lastIndexOf("/") + 1) : ""); props.onClearSearch(); props.onSelectResult(obj); }}
                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); props.onCtxResult(e, obj); }}>
                     <div class="obj-name-cell">

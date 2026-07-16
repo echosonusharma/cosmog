@@ -48,7 +48,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
       </Show>
 
       <Show when={everHadAccount()}>
-        <div class="view-slot" style={{ display: !hasBucket() ? "flex" : "none" }}>
+        <div class="view-slot" classList={{ hidden: hasBucket() }}>
           <Show when={stableAccountId()} keyed>
             {(accountId) => (
               <ErrorBoundary fallback={(err, reset) => {
@@ -57,14 +57,14 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                 const netErr  = isNetworkError(code);
                 const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
                 return (
-                  <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
-                    <div class="err-popup" style="position:static;box-shadow:none">
+                  <div class="browse-err-fallback">
+                    <div class="err-popup err-popup-boot">
                       <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
                       <p class="err-popup-msg">{message}</p>
-                      {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
+                      {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
                       <div class="err-popup-actions">
-                        <button class="btn-secondary" style="font-size:12px" onClick={() => reset()}>Dismiss</button>
-                        <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                        <button class="btn-secondary btn-xs" onClick={() => reset()}>Dismiss</button>
+                        <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
                       </div>
                     </div>
                   </div>
@@ -76,21 +76,21 @@ export default function Browse(props: { defaultDownloadDir: string }) {
           </Show>
         </div>
         <Show when={hasBucket()}>
-          <div class="view-slot" style="display:flex;flex:1;min-height:0">
+          <div class="view-slot view-slot-fill">
             <ErrorBoundary fallback={(err, reset) => {
               const { code, message } = parseWireError(err);
               const credErr = isCredentialError(code);
               const netErr  = isNetworkError(code);
               const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
               return (
-                <div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%">
-                  <div class="err-popup" style="position:static;box-shadow:none">
+                <div class="browse-err-fallback">
+                  <div class="err-popup err-popup-boot">
                     <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
                     <p class="err-popup-msg">{message}</p>
-                    {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
+                    {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
                     <div class="err-popup-actions">
-                      <button class="btn-secondary" style="font-size:12px" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>Back to buckets</button>
-                      <button class="btn-primary" style="font-size:12px" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                      <button class="btn-secondary btn-xs" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>Back to buckets</button>
+                      <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
                     </div>
                   </div>
                 </div>
