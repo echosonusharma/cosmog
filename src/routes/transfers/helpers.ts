@@ -9,8 +9,8 @@ export function actionVerb(t: Transfer): string {
     case "pending":  return "Queued";
     case "done":     return up ? "Uploaded" : "Downloaded";
     case "failed":   return up ? "Upload failed" : "Download failed";
-    case "canceled": return "canceled";
-    case "paused":   return "paused";
+    case "canceled": return "Canceled";
+    case "paused":   return "Paused";
   }
 }
 

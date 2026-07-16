@@ -14,7 +14,7 @@ import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encrypt
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
-type Filter = "all" | "active" | "done" | "failed";
+type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
 export default function Transfers() {
   const [transfers, setTransfers] = createSignal<Transfer[]>([]);
@@ -106,17 +106,19 @@ export default function Transfers() {
     let list = transfers();
     switch (filter()) {
       case "active": list = list.filter((t) => t.status === "active" || t.status === "pending"); break;
-      case "done":   list = list.filter((t) => t.status === "done"); break;
-      case "failed": list = list.filter((t) => t.status === "failed" || t.status === "canceled"); break;
+      case "done":     list = list.filter((t) => t.status === "done"); break;
+      case "failed":   list = list.filter((t) => t.status === "failed"); break;
+      case "canceled": list = list.filter((t) => t.status === "canceled"); break;
     }
     return list;
   };
 
   const counts = () => ({
-    all:    transfers().length,
-    active: transfers().filter((t) => t.status === "active" || t.status === "pending").length,
-    done:   transfers().filter((t) => t.status === "done").length,
-    failed: transfers().filter((t) => t.status === "failed" || t.status === "canceled").length,
+    all:      transfers().length,
+    active:   transfers().filter((t) => t.status === "active" || t.status === "pending").length,
+    done:     transfers().filter((t) => t.status === "done").length,
+    failed:   transfers().filter((t) => t.status === "failed").length,
+    canceled: transfers().filter((t) => t.status === "canceled").length,
   });
 
   const hasDone = () =>
@@ -143,6 +145,9 @@ export default function Transfers() {
           </button>
           <button class={`chip ${filter() === "failed" ? "active" : ""}`} onClick={() => setFilter("failed")}>
             Failed <span class="chip-count">{counts().failed}</span>
+          </button>
+          <button class={`chip ${filter() === "canceled" ? "active" : ""}`} onClick={() => setFilter("canceled")}>
+            Canceled <span class="chip-count">{counts().canceled}</span>
           </button>
         </div>
         <div class="flex-1" />
@@ -195,6 +200,8 @@ export default function Transfers() {
           {counts().done > 0 && `${counts().done} done`}
           {counts().done > 0 && counts().failed > 0 && " · "}
           {counts().failed > 0 && `${counts().failed} failed`}
+          {(counts().done > 0 || counts().failed > 0) && counts().canceled > 0 && " · "}
+          {counts().canceled > 0 && `${counts().canceled} canceled`}
           {counts().all === 0 && "No transfers"}
         </span>
       </div>
