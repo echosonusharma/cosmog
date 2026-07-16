@@ -26,8 +26,15 @@ export const presignGet = (
   bucket: string,
   key: string,
   expiresSecs?: number,
+  allowCiphertext?: boolean,
 ): Promise<string> =>
-  invoke("presign_get", { accountId, bucket, key, expiresSecs: expiresSecs ?? null });
+  invoke("presign_get", {
+    accountId,
+    bucket,
+    key,
+    expiresSecs: expiresSecs ?? null,
+    allowCiphertext: allowCiphertext ?? null,
+  });
 
 export const copyObject = (
   accountId: string,

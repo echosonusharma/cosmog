@@ -39,26 +39,26 @@ export default function App() {
           const netErr  = isNetworkError(code);
           const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
           return (
-            <div style="display:flex;align-items:center;justify-content:center;height:100%">
-              <div class="err-popup" style="position:static;box-shadow:none">
+            <div class="center-fill">
+              <div class="err-popup err-popup-boot">
                 <div class="err-popup-header">
                   <span class="err-popup-title">{title}</span>
                 </div>
                 <p class="err-popup-msg">{message}</p>
-                {netErr && <p class="err-popup-msg" style="opacity:0.65;margin-top:-8px">Check that the endpoint is running and reachable, then try again.</p>}
+                {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
                 <div class="err-popup-actions">
                   <Show when={(accounts() ?? []).length > 0}
                         fallback={
-                          <button class="btn-primary" style="font-size:12px"
+                          <button class="btn-primary text-xs"
                                   onClick={() => recoverFromError(reset)}>
                             Add account
                           </button>
                         }>
-                    <button class="btn-secondary" style="font-size:12px"
+                    <button class="btn-secondary text-xs"
                             onClick={() => recoverFromError(reset, "settings")}>
                       Settings
                     </button>
-                    <button class="btn-primary" style="font-size:12px"
+                    <button class="btn-primary text-xs"
                             onClick={() => recoverFromError(reset, credErr ? "settings" : "browse")}>
                       Back to accounts
                     </button>
@@ -68,7 +68,7 @@ export default function App() {
             </div>
           );
         }}>
-          <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%"><span class="spinner" style="width:32px;height:32px;border-width:3px" /></div>}>
+          <Suspense fallback={<div class="center-fill"><span class="spinner spinner-lg" /></div>}>
             <Show when={!accounts.loading}>
               <Show
                 when={(accounts() ?? []).length > 0}

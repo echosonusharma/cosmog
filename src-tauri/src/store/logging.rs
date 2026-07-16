@@ -410,6 +410,16 @@ impl ObjectStore for LoggingStore {
         r
     }
 
+    async fn read_object_full(&self, bucket: &str, key: &str) -> AppResult<Vec<u8>> {
+        let start = Instant::now();
+        let r = self.inner.read_object_full(bucket, key).await;
+        let meta = r.as_ref().ok().map(|b| json!({ "bytes_read": b.len() }));
+        self.record("read_object_full", "GET",
+            self.build_url(Some(bucket), Some(key), None),
+            None, meta, Some(bucket), Some(key), start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
     async fn get_object_tagging(&self, bucket: &str, key: &str) -> AppResult<Vec<ObjectTag>> {
         let start = Instant::now();
         let r = self.inner.get_object_tagging(bucket, key).await;
@@ -465,10 +475,11 @@ impl ObjectStore for LoggingStore {
 
     async fn put_object_bytes(
         &self, bucket: &str, key: &str, content_type: &str, data: Vec<u8>,
+        user_metadata: std::collections::HashMap<String, String>,
     ) -> AppResult<()> {
         let start = Instant::now();
         let size = data.len();
-        let r = self.inner.put_object_bytes(bucket, key, content_type, data).await;
+        let r = self.inner.put_object_bytes(bucket, key, content_type, data, user_metadata).await;
         self.record("put_object_bytes", "PUT", self.build_url(Some(bucket), Some(key), None),
             Some(json!({ "content_type": content_type, "content_length": size })), None,
             Some(bucket), Some(key), start, r.is_ok(), r.as_ref().err());

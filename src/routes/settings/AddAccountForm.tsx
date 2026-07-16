@@ -100,7 +100,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         await testAccount(acct.id);
         toast.ok(`Account "${acct.name}" added`);
       } catch {
-        toast.warn(`Account "${acct.name}" saved — connection test failed. Check credentials in Settings.`);
+        toast.warn(`Account "${acct.name}" saved. Connection test failed. Check credentials in Settings.`);
       }
     } catch (e) {
       toast.err(e);
@@ -109,7 +109,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
 
   return (
     <div class="add-account-form">
-      <div class="settings-section-title" style="border-bottom:none;padding:0">{isEdit ? "Edit account" : "Add account"}</div>
+      <div class="settings-section-title settings-section-title-flat">{isEdit ? "Edit account" : "Add account"}</div>
 
       {/* provider picker */}
       <div class="provider-picker">
@@ -122,7 +122,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
               title={p.label}
             >
               <span class="provider-picker-tile-icon" style={{ background: p.color }}>
-                <img src={p.iconUrl} alt={p.label} style={`width:65%;height:65%;object-fit:contain;${p.monochrome_icon ? "filter:brightness(0) invert(1)" : ""}`} />
+                <img src={p.iconUrl} alt={p.label} class="provider-picker-tile-img" classList={{ "provider-picker-tile-img-mono": !!p.monochrome_icon }} />
               </span>
               <span class="provider-picker-tile-label">{p.label}</span>
             </button>
@@ -147,9 +147,9 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
                value={form().secret_access_key}
                onInput={(e) => set("secret_access_key", e.currentTarget.value.trim())} disabled={busy()} />
       </div>
-      <div class="btn-row mt-2" style="justify-content:flex-end">
-        <button class="btn-secondary" style="min-width:90px" onClick={props.onCancel}>Cancel</button>
-        <button class="btn-primary" style="min-width:90px" disabled={!valid() || busy()} onClick={save}>
+      <div class="btn-row mt-2 add-account-btn-row">
+        <button class="btn-secondary add-account-btn" onClick={props.onCancel}>Cancel</button>
+        <button class="btn-primary add-account-btn" disabled={!valid() || busy()} onClick={save}>
           {busy() ? "Testing…" : (isEdit ? "Update" : "Save")}
         </button>
       </div>

@@ -29,21 +29,20 @@ export function ConfirmHost() {
     <Show when={pending()}>
       {(p) => (
         <div class="modal-backdrop" onClick={() => finish(null)}>
-          <div class="modal" style="max-width:380px" onClick={(e) => e.stopPropagation()}>
+          <div class="modal modal-confirm" onClick={(e) => e.stopPropagation()}>
             <div class="modal-title">{p().title}</div>
-            <div class="modal-sub" style="white-space:pre-wrap">{p().body}</div>
+            <div class="modal-sub modal-sub-body">{p().body}</div>
             <div class="btn-row mt-3">
               <Show when={p().dismissLabel}>
-                <button class="btn-ghost" style="flex:1" onClick={() => finish(null)}>
+                <button class="btn-ghost flex-1" onClick={() => finish(null)}>
                   {p().dismissLabel}
                 </button>
               </Show>
-              <button class="btn-secondary" style="flex:1" onClick={() => finish(false)}>
+              <button class="btn-secondary flex-1" onClick={() => finish(false)}>
                 {p().cancelLabel ?? "Cancel"}
               </button>
               <button
-                class={p().danger ? "btn-danger" : "btn-primary"}
-                style="flex:1"
+                class={`${p().danger ? "btn-danger" : "btn-primary"} flex-1`}
                 onClick={() => finish(true)}
               >
                 {p().confirmLabel ?? "Confirm"}

@@ -1,0 +1,119 @@
+/* ── top toolbar / path bar ─────────────────────────────────────────────── */
+
+.app-toolbar {
+  display: flex; align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--panel);
+}
+
+/* left section: nav buttons + breadcrumb */
+.toolbar-left {
+  display: flex; align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.toolbar-nav { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+
+.path-bar {
+  flex: 0 1 auto;
+  display: flex; align-items: center;
+  gap: 10px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 0 14px;
+  min-width: 80px;
+  max-width: 320px;
+  height: 34px;
+  overflow: hidden;
+}
+.path-bar:focus-within { border-color: var(--accent); }
+
+.path-icon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+}
+
+.breadcrumb {
+  display: flex; align-items: center;
+  gap: 2px;
+  flex: 1; min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+}
+.breadcrumb-link {
+  background: none; border: none;
+  color: var(--text-muted);
+  font: inherit; font-size: 13.5px;
+  cursor: pointer; padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s;
+}
+.breadcrumb-link:hover { color: var(--text); background: var(--bg-hover); }
+.breadcrumb-current {
+  color: var(--text); font-weight: 500;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.breadcrumb-sep {
+  color: var(--text-faint);
+  width: 12px; height: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+.toolbar-btn {
+  display: flex !important; align-items: center; gap: 6px;
+  height: 32px !important; padding: 0 12px !important;
+  border-radius: 7px; font-size: 12.5px !important; font-weight: 500;
+  white-space: nowrap; flex-shrink: 0; width: auto !important;
+}
+
+.toolbar-actions {
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── view header ────────────────────────────────────────────────────────── */
+
+.view-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.section-title {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── account picker (top-of-view, when needed) ──────────────────────────── */
+
+.account-selector { padding: 32px; max-width: 600px; margin: 0 auto; }
+.account-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.account-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text); font: inherit;
+  cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.account-card:hover { border-color: var(--accent); background: var(--bg-elev-2); }
+.account-icon { font-size: 18px; }
+.account-info { display: flex; flex-direction: column; gap: 2px; }
+.account-name { font-size: 13px; font-weight: 500; }
+.account-meta { font-size: 11px; color: var(--text-muted); }
+

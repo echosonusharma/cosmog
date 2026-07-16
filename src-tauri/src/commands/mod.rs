@@ -14,6 +14,7 @@ pub mod browse;
 pub mod buckets;
 pub mod bulk;
 pub mod capabilities;
+pub mod encryption;
 pub mod logs;
 pub mod objects;
 pub mod portable;

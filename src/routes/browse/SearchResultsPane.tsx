@@ -42,10 +42,16 @@ export function SearchResultsPane(props: {
 }) {
   return (
     <div class="search-results-pane">
-      <Show when={props.searchResults.loading}>
+      <Show when={props.searchResults.loading && !!props.searchResults.latest}>
+        <span class="spinner corner-spinner" />
+      </Show>
+      {/* Latch: while a new query is fetching, keep the previous result set
+          rendered underneath a small corner spinner instead of flashing the
+          full "Searching…" placeholder on every keystroke. */}
+      <Show when={props.searchResults.loading && !props.searchResults.latest}>
         <div class="loading-row"><span class="spinner" /> Searching…</div>
       </Show>
-      <Show when={!props.searchResults.loading && props.searchResults()}>
+      <Show when={props.searchResults.latest}>
         {(r) => (
           <Show when={r().objects.length > 0}
                 fallback={
@@ -59,17 +65,17 @@ export function SearchResultsPane(props: {
                     <div class="empty-state">
                       <span class="empty-icon"><IconSearch size={32} /></span>
                       <span>Bucket not indexed</span>
-                      <button class="btn-primary" style="margin-top:12px;width:auto;padding:0 20px" disabled={props.indexBusy} onClick={props.onEnableIndex}>
+                      <button class="btn-primary search-enable-index-btn" disabled={props.indexBusy} onClick={props.onEnableIndex}>
                         Enable index
                       </button>
                     </div>
                   </Show>
                 }>
             <div class="results-header">{r().total.toLocaleString()} matches</div>
-            <div class="object-list" style="flex:1;overflow-y:auto">
+            <div class="object-list search-results-list">
               <For each={r().objects}>
                 {(obj) => (
-                  <div class="obj-row" style="cursor:pointer"
+                  <div class="obj-row"
                        onClick={() => { navigateToPrefix(obj.key.includes("/") ? obj.key.slice(0, obj.key.lastIndexOf("/") + 1) : ""); props.onClearSearch(); props.onSelectResult(obj); }}
                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); props.onCtxResult(e, obj); }}>
                     <div class="obj-name-cell">
@@ -79,7 +85,7 @@ export function SearchResultsPane(props: {
                     </div>
                     <div class="obj-type">{fileTypeLabel(obj.basename)}</div>
                     <div class="obj-size">{formatBytes(obj.size)}</div>
-                    <div class="obj-date">{obj.last_modified ? formatDate(obj.last_modified) : "—"}</div>
+                    <div class="obj-date">{obj.last_modified ? formatDate(obj.last_modified) : "-"}</div>
                     <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
                       <button class="icon-btn" title="Download" onClick={() => props.onDownload(obj)}><IconDownload size={15} /></button>
                       <button class="icon-btn" title="Copy link" onClick={() => props.onCopyLink(obj)}><IconLink size={15} /></button>

@@ -1,13 +1,14 @@
 import { createSignal, createResource, createMemo, For, Show } from "solid-js";
 import { listBuckets, deleteBucket } from "../../api/buckets";
 import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
+import { listEncryptedBuckets } from "../../api/encryption";
 import { notify } from "../../utils/notify";
 import { setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
 import {
-  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX,
+  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX, IconLock,
 } from "../../utils/icons";
 import type { Bucket } from "../../types";
 import { ErrorPopup } from "../../utils/ErrorPopup";
@@ -22,6 +23,13 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     () => ({ a: props.accountId, r: refresh() }),
     ({ a }) => { setErrDismissed(false); return listBuckets(a); },
   );
+  // Encrypted bucket names for this account, in a Set for O(1) badge lookup.
+  // Re-fetches whenever the grid is refreshed so a fresh enable/disable is
+  // reflected without a page reload.
+  const [encSet] = createResource<Set<string>, { a: string; r: number }>(
+    () => ({ a: props.accountId, r: refresh() }),
+    async ({ a }) => new Set(await listEncryptedBuckets(a).catch(() => [] as string[])),
+  );
   const [showNew, setShowNew] = createSignal(false);
   const [filter, setFilter] = createSignal("");
   const filtered = createMemo(() => {
@@ -34,7 +42,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   async function handleDelete(name: string) {
     const ok = await confirmDialog({
       title: "Delete bucket?",
-      body: `"${name}" — all objects and the bucket itself will be removed. This action is irreversible.`,
+      body: `"${name}": all objects and the bucket itself will be removed. This action is irreversible.`,
       confirmLabel: "Delete",
       danger: true,
     });
@@ -108,7 +116,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
         </div>
       </div>
 
-      <div style="padding:20px;overflow-y:auto;flex:1">
+      <div class="bucket-grid-body">
         <Show when={buckets.loading}>
           <div class="loading-row"><span class="spinner" /> Loading buckets…</div>
         </Show>
@@ -132,10 +140,17 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
             <div class="bucket-grid">
               <For each={filtered()}>
                 {(b) => (
-                  <div class="bucket-card">
+                  <div
+                    class="bucket-card"
+                    classList={{ encrypted: encSet()?.has(b.name) }}
+                  >
                     <button class="bucket-name"
                             onClick={() => setBrowseState({ bucket: b.name, prefix: "" })}>
-                      <span class="bucket-icon"><IconBucket size={18} /></span>
+                      <Show when={encSet()?.has(b.name)} fallback={<span class="bucket-icon"><IconBucket size={18} /></span>}>
+                        <span class="bucket-icon encrypted" title="Encrypted bucket">
+                          <IconLock size={16} />
+                        </span>
+                      </Show>
                       <span class="truncate">{b.name}</span>
                     </button>
                     <button class="icon-btn danger bucket-del" title="Delete bucket"

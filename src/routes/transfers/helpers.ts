@@ -9,8 +9,8 @@ export function actionVerb(t: Transfer): string {
     case "pending":  return "Queued";
     case "done":     return up ? "Uploaded" : "Downloaded";
     case "failed":   return up ? "Upload failed" : "Download failed";
-    case "canceled": return "canceled";
-    case "paused":   return "paused";
+    case "canceled": return "Canceled";
+    case "paused":   return "Paused";
   }
 }
 
@@ -20,7 +20,7 @@ export function pct(t: Transfer): number {
 }
 
 export function fmtSecs(s: number): string {
-  if (!isFinite(s) || s <= 0) return "—";
+  if (!isFinite(s) || s <= 0) return "-";
   if (s < 60) return `${Math.round(s)}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
   return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;

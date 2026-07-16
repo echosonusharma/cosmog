@@ -1,0 +1,64 @@
+/* ── mask-based icons ──────────────────────────────────────────────────── */
+
+.icon, .obj-icon, .account-avatar { flex-shrink: 0; display: inline-block; vertical-align: middle; }
+
+.icon {
+  background-color: currentColor;
+  width: var(--sz); height: var(--sz);
+  mask-image: var(--mask); -webkit-mask-image: var(--mask);
+  mask-position: center; -webkit-mask-position: center;
+  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+  mask-size: contain; -webkit-mask-size: contain;
+}
+
+.obj-icon {
+  background-color: currentColor;
+  width: var(--sz); height: var(--sz);
+  mask-image: var(--mask); -webkit-mask-image: var(--mask);
+  mask-position: center; -webkit-mask-position: center;
+  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+  mask-size: contain; -webkit-mask-size: contain;
+}
+.obj-icon.folder  { color: var(--c-folder); }
+.obj-icon.image   { color: var(--c-image); }
+.obj-icon.video   { color: var(--c-video); }
+.obj-icon.audio   { color: var(--c-audio); }
+.obj-icon.doc     { color: var(--c-doc); }
+.obj-icon.archive { color: var(--c-archive); }
+.obj-icon.code    { color: var(--c-code); }
+.obj-icon.generic { color: var(--c-generic); }
+
+.account-avatar {
+  border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600;
+  color: #fff;
+}
+
+.provider-tile {
+  flex-shrink: 0;
+  width: var(--sz); height: var(--sz);
+  border-radius: 6px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.provider-tile-img {
+  width: 65%; height: 65%;
+  object-fit: contain;
+}
+.provider-tile.mono .provider-tile-img {
+  filter: brightness(0) invert(0.85);
+}
+:root[data-theme="light"] .provider-tile.mono .provider-tile-img {
+  filter: brightness(0) invert(0.25);
+}
+
+button { font-family: inherit; }
+
+::-webkit-scrollbar             { width: 10px; height: 10px; }
+::-webkit-scrollbar-track       { background: transparent; }
+::-webkit-scrollbar-thumb       { background: var(--border-strong); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-focus); background-clip: padding-box; border: 2px solid transparent; }
+

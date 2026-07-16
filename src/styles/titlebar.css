@@ -1,0 +1,70 @@
+/* ── titlebar ───────────────────────────────────────────────────────────── */
+
+.titlebar {
+  height: 40px;
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  pointer-events: none;
+}
+
+.titlebar-logo {
+  border-radius: 7px;
+  display: block;
+  flex: 0 0 auto;
+  box-shadow: 0 1px 5px rgba(0,0,0,.3);
+}
+
+.titlebar-appname {
+  font-weight: 600;
+  letter-spacing: .2px;
+  font-size: 13px;
+}
+
+.titlebar-version {
+  color: var(--faint);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.titlebar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.titlebar-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.titlebar-btn:hover { background: var(--panel-2); color: var(--text); }
+.titlebar-btn.close:hover { background: var(--red); color: #fff; }
+

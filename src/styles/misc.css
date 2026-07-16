@@ -1,0 +1,119 @@
+/* ── browser status bar ─────────────────────────────────────────────────── */
+
+.browser-statusbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 7px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.browser-statusbar .sel-info { margin-left: auto; color: var(--text-soft); }
+
+/* ── misc ───────────────────────────────────────────────────────────────── */
+
+.empty-state {
+  display: flex; align-items: center; justify-content: center;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 80px 20px;
+  text-align: center;
+}
+.empty-state .empty-icon {
+  color: var(--text-faint);
+  display: inline-flex;
+}
+
+.loading-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.bucket-err-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  margin: 20px;
+  background: color-mix(in srgb, var(--err) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
+  border-radius: 8px;
+  max-width: 420px;
+}
+.bucket-err-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bucket-err-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--err);
+  line-height: 1.4;
+}
+.bucket-err-msg {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.sync-badge {
+  font-size: 11px;
+  color: var(--ok);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.stale-badge {
+  font-size: 11px;
+  color: var(--warn);
+}
+.mode-badge {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.mode-badge.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border: 1.5px solid var(--border-focus);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.spinner-lg { width: 32px; height: 32px; border-width: 3px; }
+
+/* ── browse view error boundary card ─────────────────────────────────────── */
+.browse-err-fallback {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; width: 100%;
+}
+.browse-err-fallback .err-popup { position: static; box-shadow: none; }
+.err-popup-hint { opacity: 0.65; margin-top: -8px; }
+.btn-xs { font-size: 12px; }
+.view-slot-fill { display: flex; flex: 1; min-height: 0; }
+
+/* ── browse loading overlay ──────────────────────────────────────────────── */
+.browse-loading-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg, #0d0d0d);
+  z-index: 10;
+  pointer-events: none;
+}
+.browse-loading-overlay .spinner { width: 32px; height: 32px; border-width: 3px; }
+

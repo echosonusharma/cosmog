@@ -1,0 +1,23 @@
+/* ── view mode toggle ───────────────────────────────────────────────────── */
+
+.view-mode-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.view-mode-btn {
+  width: 30px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.view-mode-btn:hover { background: var(--elev); color: var(--text); }
+.view-mode-btn.active { background: var(--elev); color: var(--text); }
+

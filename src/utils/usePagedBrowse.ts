@@ -38,35 +38,18 @@ export function createPagedBrowse(getKey: () => {
   let nextContinuation: string | null = null;
 
   // Refetch first page whenever the identity (account/bucket/prefix/refresh)
-  // changes. Within the same account+bucket (prefix navigation, manual
-  // refresh) we stale-while-revalidate: previous rows stay visible (dimmed
-  // via `loading`) until the new page lands, so navigation doesn't flash
-  // blank. Across account/bucket switches we hard-reset — stale rows would
-  // belong to another bucket, and acting on them (delete, bulk select) would
-  // target the wrong bucket.
-  let prevIdentity: string | null = null;
+  // changes. Always stale-while-revalidate: previous rows stay visible (with
+  // `loading` true) until the new page lands, so navigation and bucket/account
+  // switches don't flash a blank content area. Bulk selection is reset by the
+  // caller on bucket/account change, so acting on stale rows is safe — per-row
+  // actions use each CachedObjectMeta's own account_id/bucket, not the
+  // component's current props.
   createEffect(() => {
     const key = getKey();
     void key.prefix; void key.refresh;
-    const identity = `${key.accountId} ${key.bucket}`;
-    const sameStore = prevIdentity === identity;
-    prevIdentity = identity;
+    void key.accountId; void key.bucket;
     nextContinuation = null;
-    if (sameStore) {
-      setState({ continuation: null, truncated: false, error: null });
-    } else {
-      setState({
-        objects: [],
-        subprefixes: [],
-        mode: "indexed",
-        continuation: null,
-        truncated: false,
-        last_synced_at: null,
-        loading: false,
-        error: null,
-        initialLoaded: false,
-      });
-    }
+    setState({ continuation: null, truncated: false, error: null });
     setFetchTrigger((n) => n + 1);
   });
 

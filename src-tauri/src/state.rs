@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dashmap::{DashMap, DashSet};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use crate::db::accounts::UpdateAccount;
@@ -62,6 +62,10 @@ pub struct AppState {
     /// browse_prefix call (which is polled every 1.5s during refresh).
     /// Invalidated by settings_patch and restore_backup commands.
     settings_cache: Arc<RwLock<Option<AppSettings>>>,
+    /// Per-(account, bucket) mutex serializing enable/rotate/disable of
+    /// bucket encryption. Prevents two concurrent enables from generating
+    /// two identities and overwriting each other in the keychain.
+    encryption_locks: Arc<DashMap<(String, String), Arc<AsyncMutex<()>>>>,
 }
 
 impl AppState {
@@ -79,7 +83,16 @@ impl AppState {
             prefix_syncs: Arc::new(DashSet::new()),
             prefix_sync_errors: Arc::new(DashMap::new()),
             settings_cache: Arc::new(RwLock::new(None)),
+            encryption_locks: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Serialize encryption enable/rotate/disable on a single bucket.
+    pub fn encryption_lock(&self, account_id: &str, bucket: &str) -> Arc<AsyncMutex<()>> {
+        self.encryption_locks
+            .entry((account_id.to_string(), bucket.to_string()))
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
     }
 
     /// Load settings, using the in-memory cache when warm.
