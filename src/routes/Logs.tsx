@@ -60,9 +60,9 @@ const OP_COLORS: Record<string, string> = {
   abort_multipart_upload:"#f97316",
   head_bucket:           "#6366f1",
   head_object:           "#6366f1",
-  list_buckets:          "#8b5cf6",
+  list_buckets:          "#14b8a6",
   list_objects:          "#8b5cf6",
-  list_object_versions:  "#8b5cf6",
+  list_object_versions:  "#6366f1",
   put_bucket_acl:        "#ec4899",
   put_object_acl:        "#ec4899",
   put_bucket_versioning: "#ec4899",
@@ -192,15 +192,14 @@ function RequestLogs() {
   const today = () => new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   return (
-    <div class="view-container" style="min-height:0">
+    <div class="view-container min-h-0">
       {/* toolbar */}
-      <div class="logs-header" style="flex-shrink:0;gap:10px">
-        <div style="position:relative;flex:1;min-width:0;display:flex;align-items:center">
-          <IconSearch size={13} style="position:absolute;left:9px;pointer-events:none;color:var(--faint)" />
+      <div class="logs-header">
+        <div class="logs-search-wrap">
+          <IconSearch size={13} class="logs-search-icon" />
           <input
-            class="field"
+            class="field logs-search-input"
             placeholder="Search operation, bucket, key…"
-            style="padding-left:30px;height:38px;font-size:12.5px;width:100%"
             value={search()}
             onInput={(e) => onSearch(e.currentTarget.value)}
           />
@@ -211,7 +210,7 @@ function RequestLogs() {
           value={opFilter()}
           placeholder="All operations"
           options={Object.keys(OP_LABELS).map((op) => ({ value: op, label: OP_LABELS[op] }))}
-          style="height:38px;width:220px;flex-shrink:0;font-size:12.5px;padding-top:0;padding-bottom:0"
+          class="logs-select logs-select-op"
           onChange={(v) => { setOpFilter(v); load(); }}
         />
 
@@ -223,13 +222,12 @@ function RequestLogs() {
             { value: "ok", label: "Success" },
             { value: "error", label: "Error" },
           ]}
-          style="height:38px;width:160px;flex-shrink:0;font-size:12.5px;padding-top:0;padding-bottom:0"
+          class="logs-select logs-select-status"
           onChange={(v) => { setStatusFilter(v); load(); }}
         />
         <Show when={logs().length > 0}>
           <button
-            class="btn-ghost"
-            style="font-size:12.5px;border:1px solid var(--border);border-radius:8px;height:38px;padding:0 14px;flex-shrink:0"
+            class="btn-ghost logs-clear-btn"
             onClick={doClear}
           >
             <IconTrash size={13} /> Clear all
@@ -244,7 +242,7 @@ function RequestLogs() {
       <Show when={!loading()}>
         <Show when={fetchError()}>
           <div class="empty-state">
-            <span style="font-size:12px;color:#ef4444;font-family:var(--font-mono);white-space:pre-wrap;word-break:break-all;max-width:480px;text-align:left">
+            <span class="logs-fetch-err">
               Error: {fetchError()}
             </span>
           </div>
@@ -254,14 +252,14 @@ function RequestLogs() {
           fallback={
             <Show when={!fetchError()}>
               <div class="empty-state">
-                <span style="font-size:13px;color:var(--text-faint)">
+                <span class="logs-empty-text">
                   {search() || opFilter() || statusFilter() ? "No results" : "No API requests logged yet"}
                 </span>
               </div>
             </Show>
           }
         >
-          <div class="logs-body" style="flex:1;overflow-y:auto;min-height:0;padding:8px 0" id="req-log-scroll">
+          <div class="logs-body min-h-0" id="req-log-scroll">
             <For each={logs()}>
               {(log) => {
                 const isExpanded = () => expanded() === log.id;
@@ -271,13 +269,13 @@ function RequestLogs() {
                 return (
                   <div
                     class={`req-log-row${isErr ? " req-log-error" : ""}${isExpanded() ? " req-log-open" : ""}`}
-                    style={`border-left: 3px solid ${isErr ? "#ef4444" : color}80`}
+                    style={{ "--row-color": isErr ? "#ef4444" : color }}
                     onClick={() => setExpanded(isExpanded() ? null : log.id)}
                   >
                     {/* ── collapsed row ── */}
                     <div class="req-log-main">
                       {/* colored status dot */}
-                      <span class="req-log-dot" style={`background:${isErr ? "#ef4444" : "#22c55e"}`} />
+                      <span class="req-log-dot" style={{ background: isErr ? "#ef4444" : "#22c55e" }} />
 
                       {/* timestamp */}
                       <span class="req-log-ts">
@@ -290,7 +288,7 @@ function RequestLogs() {
                       {/* operation badge */}
                       <span
                         class="req-log-op"
-                        style={`--op-color:${color}`}
+                        style={{ "--op-color": color }}
                       >
                         {opLabel(log.operation)}
                       </span>
@@ -311,10 +309,10 @@ function RequestLogs() {
                         </Show>
                       </span>
 
-                      <div style="flex:1" />
+                      <div class="flex-1" />
 
-                      {/* duration — color-coded */}
-                      <span class="req-log-duration" style={`color:${durationColor(log.duration_ms)}`}>
+                      {/* duration, color-coded */}
+                      <span class="req-log-duration" style={{ color: durationColor(log.duration_ms) }}>
                         {fmtDuration(log.duration_ms)}
                       </span>
 
@@ -328,15 +326,15 @@ function RequestLogs() {
                           not bubble to the row's collapse toggle */}
                       <div class="req-log-detail" onClick={(e) => e.stopPropagation()}>
                         {/* header strip */}
-                        <div class="req-log-detail-header" style={`border-left:3px solid ${color}`}>
+                        <div class="req-log-detail-header" style={{ "border-left-color": color }}>
                           <Show when={log.http_method}>
                             <span class="req-log-http-method">{log.http_method}</span>
                           </Show>
-                          <span class="req-log-detail-op" style={`color:${color}`}>
+                          <span class="req-log-detail-op" style={{ color }}>
                             {opLabel(log.operation)}
                           </span>
                           <span class="req-log-detail-raw-op">{log.operation}</span>
-                          <div style="flex:1" />
+                          <div class="flex-1" />
                           <Show when={log.response_status}>
                             <span class={`req-log-http-status ${isErr ? "req-log-http-status-err" : "req-log-http-status-ok"}`}>
                               HTTP {log.response_status}
@@ -352,7 +350,7 @@ function RequestLogs() {
                         {/* URL bar */}
                         <Show when={log.request_url}>
                           <div class="req-log-url-bar">
-                            <span class="req-log-chip-label" style="flex-shrink:0;margin-right:4px">URL</span>
+                            <span class="req-log-chip-label req-log-chip-label-url">URL</span>
                             <span class="req-log-url-text">{log.request_url}</span>
                             <button
                               class="req-log-copy-btn"
@@ -376,7 +374,7 @@ function RequestLogs() {
                               {log.bucket}
                             </span>
                           </Show>
-                          <span class="req-log-chip req-log-chip-duration" style={`color:${durationColor(log.duration_ms)}`}>
+                          <span class="req-log-chip req-log-chip-duration" style={{ color: durationColor(log.duration_ms) }}>
                             <span class="req-log-chip-label">duration</span>
                             {log.duration_ms}ms
                           </span>
@@ -389,7 +387,7 @@ function RequestLogs() {
                         {/* object key */}
                         <Show when={log.key}>
                           <div class="req-log-detail-key-row">
-                            <span class="req-log-chip-label" style="flex-shrink:0">key</span>
+                            <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
                             <code class="req-log-detail-key">{log.key}</code>
                           </div>
                         </Show>
@@ -427,7 +425,7 @@ function RequestLogs() {
                               <Show when={log.error_code}>
                                 <span class="req-log-detail-error-code">{log.error_code}</span>
                               </Show>
-                              <span style="color:#fca5a5;font-size:11px;font-weight:600;letter-spacing:.04em">ERROR</span>
+                              <span class="req-log-detail-error-label">ERROR</span>
                             </div>
                             <Show when={log.error_msg}>
                               <p class="req-log-detail-error-msg">{log.error_msg}</p>
@@ -546,14 +544,13 @@ function SystemLog() {
   });
 
   return (
-    <div class="view-container" style="min-height:0">
-      <div class="logs-header" style="flex-shrink:0;gap:10px">
-        <div style="position:relative;flex:1;min-width:0;display:flex;align-items:center">
-          <IconSearch size={13} style="position:absolute;left:9px;pointer-events:none;color:var(--faint)" />
+    <div class="view-container min-h-0">
+      <div class="logs-header">
+        <div class="logs-search-wrap">
+          <IconSearch size={13} class="logs-search-icon" />
           <input
-            class="field"
+            class="field logs-search-input"
             placeholder="Search message, span, field…"
-            style="padding-left:30px;height:38px;font-size:12.5px;width:100%"
             value={search()}
             onInput={(e) => setSearch(e.currentTarget.value)}
           />
@@ -568,17 +565,16 @@ function SystemLog() {
             { value: "INFO", label: "Info" },
             { value: "DEBUG", label: "Debug" },
           ]}
-          style="height:38px;width:140px;flex-shrink:0;font-size:12.5px;padding-top:0;padding-bottom:0"
+          class="logs-select logs-select-level"
           onChange={setLevelFilter}
         />
 
-        <span style="font-size:11.5px;color:var(--muted);font-family:var(--font-mono);display:inline-flex;align-items:center;gap:6px;flex-shrink:0">
+        <span class="logs-tailing-label">
           <span class="logs-tailing-dot" /> tailing
         </span>
         <Show when={lines().length > 0}>
           <button
-            class="btn-ghost"
-            style="font-size:12.5px;border:1px solid var(--border);border-radius:8px;height:38px;padding:0 14px;flex-shrink:0"
+            class="btn-ghost logs-clear-btn"
             onClick={() => { setClearedAt(lines().at(-1)?.ts ?? new Date().toISOString()); setLines([]); }}
           >
             <IconTrash size={13} /> Clear
@@ -593,13 +589,13 @@ function SystemLog() {
           when={filtered().length > 0}
           fallback={
             <div class="empty-state">
-              <span style="font-size:13px;color:var(--text-faint)">
+              <span class="logs-empty-text">
                 {search() || levelFilter() ? "No results" : "No log entries yet"}
               </span>
             </div>
           }
         >
-          <div class="logs-body" style="flex:1;overflow-y:auto;min-height:0">
+          <div class="logs-body min-h-0">
             <For each={filtered()}>{(line) => <LogRow line={line} />}</For>
           </div>
         </Show>
@@ -647,8 +643,8 @@ export default function Logs() {
   return (
     <div class="view-container">
       {/* tab bar */}
-      <div class="logs-header" style="border-bottom:1px solid var(--border);padding:0 16px;gap:0;flex-shrink:0">
-        <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;margin-right:16px">Logs</h2>
+      <div class="logs-header logs-tabbar">
+        <h2 class="logs-tabbar-title">Logs</h2>
         <button
           class={`logs-tab${tab() === "requests" ? " active" : ""}`}
           onClick={() => setTab("requests")}

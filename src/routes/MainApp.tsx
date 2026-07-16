@@ -98,16 +98,16 @@ export default function MainApp() {
       />
 
       <main class="content-area">
-        <div class="view-slot" style={{ display: currentView() === "browse" ? "flex" : "none" }}>
+        <div class="view-slot" classList={{ hidden: currentView() !== "browse" }}>
           <Browse defaultDownloadDir={defaultDownloadDir()} />
         </div>
-        <div class="view-slot" style={{ display: currentView() === "transfers" ? "flex" : "none" }}>
+        <div class="view-slot" classList={{ hidden: currentView() !== "transfers" }}>
           <Transfers />
         </div>
-        <div class="view-slot" style={{ display: currentView() === "settings" ? "flex" : "none" }}>
+        <div class="view-slot" classList={{ hidden: currentView() !== "settings" }}>
           <Settings />
         </div>
-        <div class="view-slot" style={{ display: currentView() === "logs" ? "flex" : "none" }}>
+        <div class="view-slot" classList={{ hidden: currentView() !== "logs" }}>
           <Logs />
         </div>
       </main>

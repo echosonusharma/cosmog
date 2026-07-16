@@ -1,0 +1,87 @@
+/* ── fields ─────────────────────────────────────────────────────────────── */
+
+.fields { display: flex; flex-direction: column; gap: 10px; }
+
+.field {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.field::placeholder { color: var(--text-faint); }
+.field:focus { border-color: var(--accent); background: var(--bg-elev-1); }
+.field:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.select-field {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) center, calc(100% - 9px) center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.select-field option { background: var(--bg-elev-2); color: var(--text); }
+
+/* ── custom themed select ── */
+.custom-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 9px 10px 9px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s;
+  white-space: nowrap;
+}
+.custom-select:hover { border-color: var(--border-hover, var(--accent)); }
+.custom-select.open { border-color: var(--accent); }
+.custom-select.disabled { opacity: 0.45; cursor: not-allowed; }
+.custom-select-value { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.custom-select-chevron { flex-shrink: 0; color: var(--muted); }
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  z-index: 200;
+  padding: 4px;
+}
+.custom-select-item {
+  padding: 8px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.custom-select-item:hover { background: var(--panel-2); }
+.custom-select-item.selected { background: var(--elev); color: var(--accent); }
+.custom-select-item.placeholder { color: var(--muted); }
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px; height: 15px;
+  cursor: pointer;
+}
+

@@ -6,7 +6,7 @@ export function formatBytes(n: number): string {
 }
 
 export function formatDate(ts: number | null): string {
-  if (!ts) return "—";
+  if (!ts) return "-";
   return new Date(ts * 1000).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",

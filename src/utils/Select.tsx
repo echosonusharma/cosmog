@@ -12,6 +12,7 @@ export function Select(props: {
   placeholder?: string;
   disabled?: boolean;
   style?: string | JSX.CSSProperties;
+  class?: string;
   onChange: (v: string) => void;
 }) {
   const [open, setOpen] = createSignal(false);
@@ -28,7 +29,7 @@ export function Select(props: {
     props.placeholder ?? "Select…";
 
   return (
-    <div ref={ref} class={`custom-select${props.disabled ? " disabled" : ""}${open() ? " open" : ""}`}
+    <div ref={ref} class={`custom-select${props.disabled ? " disabled" : ""}${open() ? " open" : ""}${props.class ? ` ${props.class}` : ""}`}
          style={typeof props.style === "string" ? props.style : undefined}
          onClick={() => { if (!props.disabled) setOpen((v) => !v); }}>
       <span class="custom-select-value">{label()}</span>

@@ -8,7 +8,10 @@ import "@fontsource/ibm-plex-mono/600.css";
 import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
-import "./styles.css";
+import { installTooltip } from "./utils/tooltip";
+import "./styles/index.css";
+
+installTooltip();
 
 if (import.meta.env.DEV) {
   // F12 / Ctrl+Shift+I open devtools — dev builds only

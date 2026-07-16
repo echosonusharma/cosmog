@@ -54,6 +54,14 @@ export function isNetworkError(code: string): boolean {
 /** Extract a user-facing string from any Tauri IPC rejection. */
 export function errMsg(raw: unknown): string {
   if (raw == null) return "An unexpected error occurred";
-  if (raw instanceof Error) return raw.message;
+  // parseWireError already unwraps Error objects whose .message holds a JSON
+  // envelope (WebView2 path). Route everything through it so callers don't
+  // have to think about wrapping.
   return parseWireError(raw).message;
+}
+
+/** Extract the wire code from any Tauri IPC rejection, or "" if unknown. */
+export function errCode(raw: unknown): string {
+  if (raw == null) return "";
+  return parseWireError(raw).code;
 }

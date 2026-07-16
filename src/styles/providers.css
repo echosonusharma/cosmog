@@ -1,0 +1,72 @@
+/* ── provider list (onboarding) ─────────────────────────────────────────── */
+
+.provider-list {
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 320px; overflow-y: auto;
+  outline: none;
+}
+.provider-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font: inherit; font-size: 13px;
+  cursor: pointer; text-align: left;
+  transition: all 0.12s;
+  outline: none;
+}
+.provider-row:hover  { border-color: var(--border-focus); background: var(--bg-hover); }
+.provider-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.provider-row-info { flex: 1; min-width: 0; }
+.provider-row-name { font-weight: 500; font-size: 13px; }
+.provider-row-desc { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.provider-row.selected .provider-row-desc { color: var(--accent); opacity: 0.7; }
+.provider-checkmark {
+  width: 16px; height: 16px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* provider icon tile (used in onboarding rows, sidebar, account setup header) */
+.provider-icon-tile {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  overflow: hidden;
+  letter-spacing: -0.02em;
+}
+.provider-icon-tile img {
+  width: 65%; height: 65%;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+.provider-icon-tile.small {
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  font-size: 8.5px;
+}
+.provider-icon-tile.large {
+  width: 40px; height: 40px;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.provider-icon-img {
+  flex-shrink: 0; object-fit: contain;
+  filter: brightness(0) invert(0.75);
+}
+.provider-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--text);
+}
+.provider-badge .provider-sub { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+

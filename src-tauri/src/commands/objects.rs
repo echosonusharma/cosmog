@@ -127,6 +127,7 @@ pub async fn create_folder(
         storage_class: None,
         content_type: Some("application/x-directory".into()),
         version_id: None,
+        user_metadata: Default::default(),
     };
     if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
         expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
@@ -335,6 +336,46 @@ pub async fn put_object_acl(
         .await
 }
 
+/// Encrypt `data` for a bucket via its age recipient, or return as-is when
+/// encryption is not configured. Small in-memory helper used by
+/// `put_object_text` / `put_object_bytes_cmd`; file-based uploads take the
+/// streaming path in `commands/transfers.rs` instead.
+///
+/// Returns `(bytes, user_metadata)`. Callers must forward `user_metadata` to
+/// the store so HEAD-based detection on later downloads/previews works.
+async fn encrypt_for_bucket(
+    state: &AppState,
+    account_id: &str,
+    bucket: &str,
+    data: Vec<u8>,
+) -> AppResult<(Vec<u8>, std::collections::HashMap<String, String>)> {
+    let cfg = match state.db.get_encryption_config(account_id, bucket).await? {
+        Some(c) => c,
+        None => return Ok((data, Default::default())),
+    };
+    // In-memory path: bounded by MAX_INMEMORY_CRYPT_BYTES because we allocate
+    // the ciphertext buffer up front. Large writes should go through the
+    // file-based upload path in `commands/transfers.rs`.
+    if (data.len() as u64) > crate::crypto::MAX_INMEMORY_CRYPT_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "encrypted in-memory write refused: payload is {} bytes, limit is {} bytes",
+            data.len(),
+            crate::crypto::MAX_INMEMORY_CRYPT_BYTES
+        )));
+    }
+    let recipient = crate::crypto::parse_recipient(&cfg.recipient)?;
+    let ciphertext = tokio::task::spawn_blocking(move || {
+        crate::crypto::encrypt_bytes(&recipient, &data)
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))??;
+    let mut md = std::collections::HashMap::new();
+    md.insert("cosmog-encrypted".into(), "1".into());
+    md.insert("cosmog-format".into(), crate::crypto::FORMAT_TAG.into());
+    md.insert("cosmog-recipient".into(), cfg.recipient);
+    Ok((ciphertext, md))
+}
+
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn preview_object(
@@ -345,12 +386,92 @@ pub async fn preview_object(
     max_bytes: Option<u64>,
 ) -> AppResult<ObjectPreview> {
     let max = max_bytes.unwrap_or(1024 * 1024);
-    state
-        .store_for(&account_id)
-        .await?
-        .read_object_range(&bucket, &key, max)
+    let store = state.store_for(&account_id).await?;
+
+    // For encrypted buckets, consult HEAD metadata (`cosmog-encrypted=1`) to
+    // decide whether the specific object is client-encrypted. Objects uploaded
+    // before encryption was enabled won't carry the metadata and are served
+    // as-is; objects marked encrypted go through the whole-object GCM decrypt
+    // path (GCM authentication covers all bytes).
+    if state.db.get_encryption_config(&account_id, &bucket).await?.is_some() {
+        let head = store.head_object(&bucket, &key).await?;
+        let marked = head.user_metadata.get("cosmog-encrypted").map(|s| s.as_str()) == Some("1");
+
+        // Size guard: refuse to buffer whole ciphertext into RAM for absurdly
+        // large previews. See `MAX_PREVIEW_DECRYPT_BYTES` for rationale.
+        if head.size as u64 > MAX_PREVIEW_DECRYPT_BYTES {
+            // Fall back to the standard bounded range read; if it's actually
+            // encrypted we can't decrypt it here anyway and the FE will see
+            // ciphertext bytes (marked as such by the metadata).
+            return store.read_object_range(&bucket, &key, max).await;
+        }
+
+        // Fetch the whole ciphertext. `read_object_full` bypasses the 8 MiB
+        // HARD_CAP that `read_object_range` applies for FE previews; age
+        // streaming decrypt still needs the full stream to authenticate.
+        let ciphertext = store.read_object_full(&bucket, &key).await?;
+        // Trust the payload bytes, not S3 user metadata. An attacker with PUT
+        // rights could otherwise strip or forge `cosmog-encrypted` to confuse
+        // the decrypt decision.
+        let looks_encrypted = crate::crypto::is_age_ciphertext(&ciphertext);
+        if marked && !looks_encrypted {
+            // Metadata says encrypted, bytes disagree. Two cases:
+            //   - Legacy (pre-age) upload from an older cosmog build.
+            //   - Attacker stripped the age header (data-integrity attack).
+            // Either way, do NOT serve raw ciphertext to the FE — a browser
+            // will render it as garbage. Surface a clear error instead.
+            return Err(AppError::InvalidInput(
+                "cannot decrypt: payload is not in the expected age format".into(),
+            ));
+        }
+        if !marked && looks_encrypted {
+            tracing::warn!(
+                bucket = %bucket, key = %key,
+                "age-encrypted payload without cosmog-encrypted marker: attempting decrypt anyway"
+            );
+        }
+        if !looks_encrypted {
+            let content_type = head.content_type.clone();
+            let total_size = Some(ciphertext.len() as i64);
+            let truncated = ciphertext.len() as u64 > max;
+            let bytes = ciphertext.into_iter().take(max as usize).collect();
+            return Ok(ObjectPreview { bytes, content_type, total_size, truncated });
+        }
+        let content_type = head.content_type.clone();
+
+        let aid = account_id.clone();
+        let bkt = bucket.clone();
+        let secret = tokio::task::spawn_blocking(move || crate::secrets::get_enc_identity(&aid, &bkt))
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))??
+            .ok_or_else(|| AppError::EncryptionIdentityMissing(format!(
+                "identity for bucket '{bucket}' not present in the OS keychain. \
+                 Import a previously exported identity file to decrypt this object."
+            )))?;
+        let identity = crate::crypto::parse_identity(&secret)?;
+        let plaintext = tokio::task::spawn_blocking(move || {
+            crate::crypto::decrypt_bytes(&identity, &ciphertext)
+        })
         .await
+        .map_err(|e| AppError::Internal(e.to_string()))??;
+
+        // `total_size` reports plaintext length (what the FE displays and what
+        // `truncated` is compared against). The ciphertext-vs-plaintext delta
+        // is `HEADER_LEN + 16` (nonce+tag); using plaintext keeps FE units
+        // coherent with the returned `bytes`.
+        let total_size = Some(plaintext.len() as i64);
+        let truncated = plaintext.len() as u64 > max;
+        let bytes = plaintext.into_iter().take(max as usize).collect();
+        return Ok(ObjectPreview { bytes, content_type, total_size, truncated });
+    }
+
+    store.read_object_range(&bucket, &key, max).await
 }
+
+/// Maximum ciphertext size we're willing to buffer in RAM for an in-app
+/// preview decrypt. Anything larger returns an error so the user knows to
+/// download the object instead of previewing it.
+const MAX_PREVIEW_DECRYPT_BYTES: u64 = 128 * 1024 * 1024;
 
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
@@ -406,16 +527,30 @@ pub async fn presign_get(
     bucket: String,
     key: String,
     expires_secs: Option<u64>,
+    allow_ciphertext: Option<bool>,
 ) -> AppResult<String> {
     let expires = match expires_secs {
         Some(s) => s,
         None => state.db.settings_load().await?.presign_default_expires_secs,
     };
-    state
-        .store_for(&account_id)
-        .await?
-        .presign_get(&bucket, &key, expires)
-        .await
+    let store = state.store_for(&account_id).await?;
+
+    // If the bucket has client-side encryption configured, any presigned URL
+    // may deliver ciphertext (we can't cheaply prove the specific object is
+    // plaintext without downloading it, and the S3 marker is attacker-
+    // controllable). Refuse across the board unless the caller opts in.
+    if !allow_ciphertext.unwrap_or(false)
+        && state.db.get_encryption_config(&account_id, &bucket).await?.is_some()
+    {
+        return Err(AppError::InvalidInput(
+            "bucket has client-side encryption enabled: a presigned link may deliver \
+             ciphertext. Pass allow_ciphertext=true to opt in and share the key \
+             out-of-band."
+                .into(),
+        ));
+    }
+
+    store.presign_get(&bucket, &key, expires).await
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -429,8 +564,9 @@ pub async fn put_object_text(
     content_type: String,
 ) -> AppResult<()> {
     let store = state.store_for(&account_id).await?;
-    let data = content.into_bytes();
-    let res = store.put_object_bytes(&bucket, &key, &content_type, data).await;
+    let plaintext = content.into_bytes();
+    let (data, md) = encrypt_for_bucket(&state, &account_id, &bucket, plaintext).await?;
+    let res = store.put_object_bytes(&bucket, &key, &content_type, data, md).await;
     record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
     res?;
     // Refresh cache entry with updated size/metadata.
@@ -456,7 +592,8 @@ pub async fn put_object_bytes_cmd(
     content_type: String,
 ) -> AppResult<()> {
     let store = state.store_for(&account_id).await?;
-    let res = store.put_object_bytes(&bucket, &key, &content_type, bytes).await;
+    let (data, md) = encrypt_for_bucket(&state, &account_id, &bucket, bytes).await?;
+    let res = store.put_object_bytes(&bucket, &key, &content_type, data, md).await;
     record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
     res?;
     match store.head_object(&bucket, &key).await {

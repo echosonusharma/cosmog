@@ -312,8 +312,21 @@ impl TransferManager {
                 // tampered DB rows between the original enqueue and this call.
                 let local_path = crate::validate::validate_download_dest(&row.local_path)
                     .map_err(|e| AppError::InvalidInput(format!("retry: invalid local_path: {e}")))?;
-                // Resume from where the partial file left off.
-                if let Ok(meta) = std::fs::metadata(&local_path) {
+                // Encrypted buckets cannot be range-resumed: age needs the full
+                // ciphertext to authenticate the stream. Overwrite any partial
+                // file from a previous attempt and always restart from byte 0.
+                let bucket_encrypted = self
+                    .db
+                    .get_encryption_config(&row.account_id, &row.bucket)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if bucket_encrypted {
+                    let _ = std::fs::remove_file(&local_path);
+                    opts.range_start = None;
+                } else if let Ok(meta) = std::fs::metadata(&local_path) {
+                    // Resume from where the partial file left off.
                     let existing = meta.len();
                     if existing > 0 {
                         opts.range_start = Some(existing);
@@ -447,6 +460,10 @@ impl TransferManager {
                             }
                         }
                     }
+                    // Delete encrypted temp file regardless of outcome.
+                    if let Some(p) = &opts.cleanup_path {
+                        let _ = std::fs::remove_file(p);
+                    }
                     match outcome {
                         Some(v) => Ok(v),
                         None => Err(last_err.expect("loop always sets last_err before None outcome")),
@@ -461,6 +478,16 @@ impl TransferManager {
                     let mut last_err: Option<AppError> = None;
                     let mut outcome: Option<()> = None;
                     let mut retry_opts = opts.clone();
+                    // Encrypted buckets cannot be range-resumed: whole-object GCM
+                    // authentication requires the full ciphertext to be present.
+                    // Suppress range-resume on retries for any download from a
+                    // bucket with encryption configured.
+                    let bucket_encrypted = db
+                        .get_encryption_config(&account_id_for_cache, &bucket)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
                     for attempt in 0..MAX_ATTEMPTS {
                         if ctx.cancel.is_cancelled() {
                             last_err = Some(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
@@ -468,12 +495,12 @@ impl TransferManager {
                         }
                         if attempt > 0 {
                             tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
-                            // Resume from the end of any partial file so we don't
-                            // truncate and re-download bytes we already have.
-                            if let Ok(meta) = std::fs::metadata(&local_path) {
-                                let existing = meta.len();
-                                if existing > 0 {
-                                    retry_opts.range_start = Some(existing);
+                            if !bucket_encrypted {
+                                if let Ok(meta) = std::fs::metadata(&local_path) {
+                                    let existing = meta.len();
+                                    if existing > 0 {
+                                        retry_opts.range_start = Some(existing);
+                                    }
                                 }
                             }
                         }
@@ -481,7 +508,78 @@ impl TransferManager {
                             .get_object(&bucket, &key, local_path.clone(), retry_opts.clone(), ctx.clone())
                             .await
                         {
-                            Ok(_) => { outcome = Some(()); break; }
+                            Ok(_) => {
+                                // Post-download decryption: only decrypt when the server
+                                // metadata explicitly marks the object as Cosmog-encrypted.
+                                // Streaming path: age reads ciphertext chunk-by-chunk and
+                                // writes plaintext to a sibling temp file, then swaps it
+                                // into `local_path` on success. Constant RAM.
+                                let dec_result: AppResult<()> = async {
+                                    if db.get_encryption_config(&account_id_for_cache, &bucket).await?.is_none() {
+                                        return Ok(());
+                                    }
+                                    // Trust the file bytes, not S3 metadata.
+                                    // Read the header magic; if the downloaded
+                                    // file is not an age payload, skip decrypt
+                                    // regardless of what user_metadata claims.
+                                    let magic_len = crate::crypto::AGE_MAGIC.len();
+                                    let mut header = vec![0u8; magic_len];
+                                    let is_age = match tokio::fs::File::open(&local_path).await {
+                                        Ok(mut f) => {
+                                            use tokio::io::AsyncReadExt;
+                                            match f.read_exact(&mut header).await {
+                                                Ok(_) => crate::crypto::is_age_ciphertext(&header),
+                                                Err(_) => false,
+                                            }
+                                        }
+                                        Err(_) => false,
+                                    };
+                                    if !is_age {
+                                        return Ok(());
+                                    }
+                                    let aid = account_id_for_cache.clone();
+                                    let bkt = bucket.clone();
+                                    let secret = tokio::task::spawn_blocking(move || {
+                                        crate::secrets::get_enc_identity(&aid, &bkt)
+                                    })
+                                    .await
+                                    .map_err(|e| AppError::Internal(e.to_string()))??
+                                    .ok_or_else(|| AppError::EncryptionIdentityMissing(format!(
+                                        "identity for bucket '{bucket}' not present in the OS keychain. \
+                                         Import a previously exported identity file to decrypt this object."
+                                    )))?;
+                                    let identity = crate::crypto::parse_identity(&secret)?;
+                                    let mut plaintext_path = local_path.clone();
+                                    let mut fname = plaintext_path.file_name().unwrap_or_default().to_os_string();
+                                    fname.push(".dec");
+                                    plaintext_path.set_file_name(&fname);
+                                    crate::crypto::decrypt_file(&local_path, &plaintext_path, identity).await?;
+                                    // Atomic swap: rename decrypted temp over the ciphertext file.
+                                    tokio::fs::rename(&plaintext_path, &local_path).await?;
+                                    Ok(())
+                                }
+                                .await;
+                                if let Err(e) = dec_result {
+                                    // Decrypt failed: the file at local_path
+                                    // still holds raw ciphertext under the
+                                    // user-facing plaintext filename. Delete
+                                    // it so shell handlers (auto-open,
+                                    // thumbnailer, Spotlight) don't index or
+                                    // launch a ciphertext blob as if it were
+                                    // the real file. Also nuke the .dec temp
+                                    // if a partial write happened.
+                                    let _ = tokio::fs::remove_file(&local_path).await;
+                                    let mut dec_tmp = local_path.clone();
+                                    let mut fname = dec_tmp.file_name().unwrap_or_default().to_os_string();
+                                    fname.push(".dec");
+                                    dec_tmp.set_file_name(&fname);
+                                    let _ = tokio::fs::remove_file(&dec_tmp).await;
+                                    last_err = Some(e);
+                                    break;
+                                }
+                                outcome = Some(());
+                                break;
+                            }
                             Err(e) => {
                                 if is_retriable(&e) && attempt + 1 < MAX_ATTEMPTS {
                                     last_err = Some(e);

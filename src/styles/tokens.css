@@ -1,0 +1,133 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   cosmog ui — clean dark file-explorer aesthetic
+   ─────────────────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root, :root[data-theme="dark"] {
+  /* surfaces */
+  --bg:           #0c0d12;
+  --bg-elev-1:   #13141b;
+  --bg-elev-2:   #191b24;
+  --bg-hover:    #1a1d27;
+  --bg-active:   #1e212b;
+  --surface:     #13141b;
+
+  /* design aliases — matches Cosmog.dc.html */
+  --panel:        #13141b;
+  --panel-2:      #191b24;
+  --elev:         #1e212b;
+  --chk:          #1a1d27;
+  --shadow:       0 14px 44px rgba(0,0,0,.55);
+
+  /* borders */
+  --border:        rgba(255,255,255,0.07);
+  --border-2:      rgba(255,255,255,0.13);
+  --border-strong: rgba(255,255,255,0.13);
+  --border-focus:  rgba(164,92,240,0.5);
+
+  /* text */
+  --text:         #e9eaf0;
+  --text-soft:    #c4c6d2;
+  --text-muted:   #959aab;
+  --text-faint:   #636878;
+  --muted:        #959aab;
+  --faint:        #636878;
+
+  /* accents */
+  --accent:       #a45cf0;
+  --accent-soft:  rgba(164,92,240,0.16);
+  --accent-line:  #a45cf0;
+  --ok:           #4ade80;
+  --warn:         #f59e0b;
+  --err:          #f87171;
+  --info:         #60a5fa;
+  --green:        #46b964;
+  --red:          #f0616d;
+  --amber:        #e0a526;
+  --blue:         #5b9bf5;
+
+  /* type-icon colors */
+  --c-folder:    #e9c46a;
+  --c-image:     #61bef0;
+  --c-video:     #e76f51;
+  --c-audio:     #a4b3ff;
+  --c-doc:       #b0c4de;
+  --c-archive:   #b08d5a;
+  --c-code:      #84e1bc;
+  --c-generic:   #8a8a96;
+
+  /* sizing */
+  --radius:      8px;
+  --radius-sm:   5px;
+  --sidebar-w:   254px;
+  --sidebar-c:   56px;
+
+  /* fonts */
+  --font-ui:   "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
+}
+
+:root[data-theme="light"] {
+  --bg:           #e8e9f0;
+  --bg-elev-1:   #f4f4f8;
+  --bg-elev-2:   #ffffff;
+  --bg-hover:    #e0e0ea;
+  --bg-active:   #d8d4ee;
+  --surface:     #ffffff;
+
+  --panel:        #f4f4f8;
+  --panel-2:      #ededf3;
+  --elev:         #ffffff;
+  --chk:          #e4e2ef;
+  --shadow:       0 14px 44px rgba(40,20,80,.16);
+
+  --border:        rgba(20,10,40,0.11);
+  --border-2:      rgba(20,10,40,0.18);
+  --border-strong: rgba(20,10,40,0.20);
+  --border-focus:  rgba(139,63,240,0.4);
+
+  --text:         #17131f;
+  --text-soft:    #3d3548;
+  --text-muted:   #615a70;
+  --text-faint:   #938da3;
+  --muted:        #615a70;
+  --faint:        #938da3;
+
+  --accent:       #8b3ff0;
+  --accent-soft:  rgba(139,63,240,0.10);
+  --accent-line:  #8b3ff0;
+  --ok:           #16a34a;
+  --warn:         #d97706;
+  --err:          #dc2626;
+  --info:         #2563eb;
+  --green:        #1a7f37;
+  --red:          #cf222e;
+  --amber:        #9a6700;
+  --blue:         #0969da;
+
+  --c-folder:    #d4a017;
+  --c-image:     #2563eb;
+  --c-video:     #dc2626;
+  --c-audio:     #7c3aed;
+  --c-doc:       #475569;
+  --c-archive:   #92400e;
+  --c-code:      #059669;
+  --c-generic:   #64748b;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.003em;
+}
+

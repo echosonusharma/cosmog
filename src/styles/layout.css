@@ -1,0 +1,19 @@
+/* ── root layout with custom titlebar ───────────────────────────────────── */
+
+.cosmog-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.cosmog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+

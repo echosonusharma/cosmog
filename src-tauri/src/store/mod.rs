@@ -33,6 +33,11 @@ pub struct ObjectMeta {
     pub storage_class: Option<String>,
     pub content_type: Option<String>,
     pub version_id: Option<String>,
+    /// User-defined metadata as returned by HEAD. Keys are the raw metadata
+    /// name (without the `x-amz-meta-` prefix). Only populated by
+    /// `head_object`; `list_objects` leaves this empty.
+    #[serde(default)]
+    pub user_metadata: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +104,10 @@ pub struct PutOptions {
     /// `If-None-Match` header: typically `"*"` to mean "only if key does not
     /// exist".
     pub if_none_match: Option<String>,
+    /// Path to delete after a successful upload. Used internally when the source
+    /// file is an encrypted temp copy; not serialized to DB or sent over IPC.
+    #[serde(skip)]
+    pub cleanup_path: Option<std::path::PathBuf>,
     /// Server-side encryption mode. `None` = provider default; `Some(Sse::S3)`
     /// = SSE-S3 (AES256); `Some(Sse::Kms { key_id })` = SSE-KMS. SSE-C
     /// (customer-provided key) is deliberately not exposed — it requires
@@ -231,14 +240,21 @@ pub trait ObjectStore: Send + Sync {
     async fn presign_get(&self, bucket: &str, key: &str, expires_secs: u64) -> AppResult<String>;
 
     /// Read up to `max_bytes` of an object directly into memory. Intended for
-    /// FE previews of small text/image objects — refuses to read more than a
-    /// few MiB.
+    /// FE previews of small text/image objects. Implementations enforce their
+    /// own upper bound; call `read_object_full` when a higher bound is needed
+    /// (encrypted-object decrypt path).
     async fn read_object_range(
         &self,
         bucket: &str,
         key: &str,
         max_bytes: u64,
     ) -> AppResult<ObjectPreview>;
+
+    /// Read the entire object into memory, bypassing the preview cap. Used by
+    /// the encrypted-preview decrypt path where partial ciphertext cannot be
+    /// authenticated by AES-GCM. Callers must enforce their own size guard
+    /// via HEAD before invoking this (see `MAX_PREVIEW_DECRYPT_BYTES`).
+    async fn read_object_full(&self, bucket: &str, key: &str) -> AppResult<Vec<u8>>;
 
     /// S3-only feature. Implementations that don't support tagging (Backblaze
     /// B2) should return [`AppError::InvalidInput`] with a clear message so
@@ -267,12 +283,14 @@ pub trait ObjectStore: Send + Sync {
     ) -> AppResult<UploadResult>;
 
     /// Upload raw bytes directly without a local file (used for in-app text editing).
+    /// `user_metadata` keys are sent as `x-amz-meta-<key>` (do NOT include the prefix).
     async fn put_object_bytes(
         &self,
         bucket: &str,
         key: &str,
         content_type: &str,
         data: Vec<u8>,
+        user_metadata: std::collections::HashMap<String, String>,
     ) -> AppResult<()>;
 
     async fn get_object(

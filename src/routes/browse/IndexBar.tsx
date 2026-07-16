@@ -16,30 +16,30 @@ export function IndexBar(props: {
   return (
     <div class="index-bar">
       <Show when={props.indexStatus.loading}>
-        <span class="muted" style="font-size:12px">Checking index…</span>
+        <span class="muted index-bar-item">Checking index…</span>
       </Show>
       <Show when={!props.indexStatus.loading && props.indexStatus()}>
         {(st) => (
           <>
             <span class={`index-dot ${st().enabled ? "enabled" : "disabled"}`} />
-            <span style="font-size:12px">{st().enabled ? "Indexed" : "Not indexed"}</span>
+            <span class="index-bar-item">{st().enabled ? "Indexed" : "Not indexed"}</span>
             <Show when={st().object_count > 0}>
               <span class="dot-sep">·</span>
-              <span style="font-size:12px">{st().object_count.toLocaleString()} objects</span>
+              <span class="index-bar-item">{st().object_count.toLocaleString()} objects</span>
             </Show>
             <Show when={st().last_full_sync_at}>
               <span class="dot-sep">·</span>
-              <span style="font-size:12px;color:var(--faint)">synced {formatRelative(st().last_full_sync_at!)}</span>
+              <span class="index-bar-item faint">synced {formatRelative(st().last_full_sync_at!)}</span>
             </Show>
             <Show when={st().scan_continuation}>
               <span class="dot-sep">·</span>
-              <span class="muted" style="font-size:12px">scanning…</span>
-              <button class="btn-ghost" style="font-size:12px" onClick={() => cancelBucketScan(props.accountId, props.bucket).then(props.refetchIndex)}>Cancel</button>
+              <span class="muted index-bar-item">scanning…</span>
+              <button class="btn-ghost index-bar-btn" onClick={() => cancelBucketScan(props.accountId, props.bucket).then(props.refetchIndex)}>Cancel</button>
             </Show>
           </>
         )}
       </Show>
-      <div style="flex:1" />
+      <div class="index-bar-spacer" />
       <Show when={props.indexStatus()?.enabled}>
         <button class="icon-btn" title="Re-index" disabled={props.indexBusy} onClick={props.onReindex}>
           <IconRefresh size={14} />

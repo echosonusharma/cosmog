@@ -6,15 +6,15 @@ import { JSX } from "solid-js";
 
 type IconProps = { size?: number; class?: string; style?: string };
 
-function maskStyle(name: string, size: number, extra?: string) {
-  const url = `url(/icons/ui/${name}.svg)`;
-  return `width:${size}px;height:${size}px;mask-image:${url};-webkit-mask-image:${url};${extra ?? ""}`;
-}
-
 function I(name: string) {
-  return (p: IconProps): JSX.Element => (
-    <span class={`icon ${p.class ?? ""}`} style={maskStyle(name, p.size ?? 18, p.style)} />
-  );
+  return (p: IconProps): JSX.Element => {
+    const size = p.size ?? 18;
+    const url = `url(/icons/ui/${name}.svg)`;
+    const base = `--sz:${size}px;--mask:${url};`;
+    return (
+      <span class={`icon ${p.class ?? ""}`} style={p.style ? `${base}${p.style}` : base} />
+    );
+  };
 }
 
 export const IconFolder       = I("folder");
@@ -55,6 +55,9 @@ export const IconColumns      = I("columns-2");
 export const IconList         = I("list");
 export const IconTable        = I("table-2");
 export const IconBug          = I("bug");
+export const IconLock         = I("lock");
+export const IconLockOpen     = I("lock-open");
+export const IconKey          = I("key");
 
 // ── file type mapping ─────────────────────────────────────────────────────────
 
@@ -104,11 +107,7 @@ export function FileIcon(props: { name: string; folder?: boolean; size?: number 
     }
   };
   return (
-    <span class={cls()} style={{
-      width: `${size}px`, height: `${size}px`,
-      "mask-image": `url(${url()})`,
-      "-webkit-mask-image": `url(${url()})`,
-    }} />
+    <span class={cls()} style={`--sz:${size}px;--mask:url(${url()});`} />
   );
 }
 
@@ -126,7 +125,7 @@ export function ProviderIcon(props: {
   return (
     <span
       class={`provider-tile ${def().monochrome_icon ? "mono" : ""}`}
-      style={{ width: `${sz}px`, height: `${sz}px` }}
+      style={`--sz:${sz}px`}
     >
       <img src={def().iconUrl} alt={def().label} class="provider-tile-img" />
     </span>

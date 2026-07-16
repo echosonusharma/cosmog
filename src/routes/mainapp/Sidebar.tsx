@@ -11,8 +11,9 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock,
 } from "../../utils/icons";
+import { listEncryptedBuckets } from "../../api/encryption";
 import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
@@ -136,6 +137,12 @@ export function Sidebar(props: {
     if (!q) return all;
     return all.filter((b) => b.name.toLowerCase().includes(q));
   });
+  // Encrypted bucket names for the active account. Refetches when the account
+  // switches. Errors swallowed so a keychain hiccup can never crash the sidebar.
+  const [encSet] = createResource<Set<string>, string | null>(
+    () => props.activeAccount?.id ?? null,
+    async (id) => (id ? new Set(await listEncryptedBuckets(id).catch(() => [] as string[])) : new Set<string>()),
+  );
   return (
     <aside class={`sidebar ${props.collapsed ? "collapsed" : ""}`}>
 
@@ -167,7 +174,6 @@ export function Sidebar(props: {
         <Show when={props.collapsed}>
           <button
             class="sidebar-account-pill collapsed-expand"
-            style="justify-content:center;border:none;background:transparent;cursor:pointer;width:100%"
             onClick={props.onExpand}
             title="Expand sidebar"
           >
@@ -188,7 +194,8 @@ export function Sidebar(props: {
             <button
               class={`sidebar-item ${currentView() === item.view ? "active" : ""}`}
               onClick={() => setCurrentView(item.view)}
-              title={props.collapsed ? item.label : undefined}
+              data-tt={props.collapsed ? item.label : undefined}
+              aria-label={item.label}
             >
               <span class="sidebar-item-icon">{item.icon()}</span>
               <Show when={!props.collapsed}>
@@ -231,10 +238,13 @@ export function Sidebar(props: {
                       const id = browseState.accountId;
                       if (id) navigateToBucket(id, b.name);
                     }}
-                    title={b.name}
+                    aria-label={b.name}
+                    data-tt={b.name}
                   >
-                    <span class="sidebar-bucket-icon">
-                      <IconBucket size={13} />
+                    <span class="sidebar-bucket-icon" classList={{ "is-encrypted": !!encSet()?.has(b.name) }}>
+                      <Show when={encSet()?.has(b.name)} fallback={<IconBucket size={13} />}>
+                        <IconLock size={13} />
+                      </Show>
                     </span>
                     <span class="sidebar-bucket-name">{b.name}</span>
                   </button>
@@ -256,7 +266,8 @@ export function Sidebar(props: {
                 <button
                   class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
                   onClick={() => selectAccount(a.id)}
-                  title={a.name}
+                  aria-label={a.name}
+                  data-tt={a.name}
                 >
                   <ProviderTile account={a} size="small" />
                   <span class="sidebar-account-item-name">{a.name}</span>

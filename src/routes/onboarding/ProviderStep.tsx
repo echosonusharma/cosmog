@@ -43,7 +43,7 @@ export function ProviderStep(props: {
     <form class="card" onSubmit={submit}>
       <div>
         <div class="card-title">Choose a provider</div>
-        <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">Connect any S3-compatible storage backend.</div>
+        <div class="card-subtitle">Connect any S3-compatible storage backend.</div>
       </div>
       <div
         class="provider-list"

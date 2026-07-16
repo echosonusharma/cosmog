@@ -385,6 +385,7 @@ impl ObjectStore for S3Store {
                 storage_class: o.storage_class().map(|s| s.as_str().to_string()),
                 content_type: None,
                 version_id: None,
+                user_metadata: Default::default(),
             })
             .collect();
 
@@ -411,6 +412,12 @@ impl ObjectStore for S3Store {
             .send()
             .await
             .map_err(|e| classify_aws("head_object", e))?;
+        // Copy user metadata off HEAD. Keys are already stripped of the
+        // `x-amz-meta-` prefix by the AWS SDK.
+        let user_metadata = resp
+            .metadata()
+            .map(|m| m.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+            .unwrap_or_default();
         Ok(ObjectMeta {
             key: key.to_string(),
             size: resp.content_length().unwrap_or_default(),
@@ -419,6 +426,7 @@ impl ObjectStore for S3Store {
             storage_class: resp.storage_class().map(|s| s.as_str().to_string()),
             content_type: resp.content_type().map(|s| s.to_string()),
             version_id: resp.version_id().map(|s| s.to_string()),
+            user_metadata,
         })
     }
 
@@ -428,14 +436,19 @@ impl ObjectStore for S3Store {
         key: &str,
         content_type: &str,
         data: Vec<u8>,
+        user_metadata: std::collections::HashMap<String, String>,
     ) -> AppResult<()> {
         let len = data.len() as i64;
-        self.client
+        let mut req = self.client
             .put_object()
             .bucket(bucket)
             .key(key)
             .content_type(content_type)
-            .content_length(len)
+            .content_length(len);
+        for (k, v) in user_metadata {
+            req = req.metadata(k, v);
+        }
+        req
             .body(ByteStream::from(data))
             .send()
             .await
@@ -764,6 +777,23 @@ impl ObjectStore for S3Store {
             total_size: total,
             truncated,
         })
+    }
+
+    async fn read_object_full(&self, bucket: &str, key: &str) -> AppResult<Vec<u8>> {
+        let resp = self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| classify_aws("get_object", e))?;
+        let body = resp
+            .body
+            .collect()
+            .await
+            .map_err(|e| s3_err("get_object full body", e))?;
+        Ok(body.to_vec())
     }
 
     async fn abort_multipart_upload(

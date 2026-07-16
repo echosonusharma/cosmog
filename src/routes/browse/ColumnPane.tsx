@@ -39,8 +39,8 @@ function ColumnPaneVirtual(props: {
   return (
     <div
       ref={scrollEl}
-      class={`col-pane ${props.active ? "col-pane-active" : ""}`}
-      style={{ "overflow-y": "auto", opacity: props.loading ? "0.45" : "1", transition: "opacity 0.12s" }}
+      class={`col-pane col-pane-scroll ${props.active ? "col-pane-active" : ""}`}
+      classList={{ loading: props.loading }}
       onContextMenu={(e) => {
         if (e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); props.onCtxPane?.(e); }
       }}
@@ -61,8 +61,7 @@ function ColumnPaneVirtual(props: {
                 }}>
                   <Show when={item().kind === "folder"}>
                     <button
-                      class={`col-pane-item ${props.selectedKey === (item() as { kind: "folder"; key: string }).key ? "selected" : ""}`}
-                      style="height:100%;width:100%"
+                      class={`col-pane-item fill-cell ${props.selectedKey === (item() as { kind: "folder"; key: string }).key ? "selected" : ""}`}
                       onClick={() => props.onSelectFolder((item() as { kind: "folder"; key: string }).key)}
                       onContextMenu={(e) => props.onCtxFolder?.(e, (item() as { kind: "folder"; key: string }).key)}
                     >
@@ -73,8 +72,7 @@ function ColumnPaneVirtual(props: {
                   </Show>
                   <Show when={item().kind === "file"}>
                     <button
-                      class={`col-pane-item ${props.selectedKey === (item() as { kind: "file"; obj: CachedObjectMeta }).obj.key ? "selected" : ""}`}
-                      style="height:100%;width:100%"
+                      class={`col-pane-item fill-cell ${props.selectedKey === (item() as { kind: "file"; obj: CachedObjectMeta }).obj.key ? "selected" : ""}`}
                       onClick={() => props.onSelectFile((item() as { kind: "file"; obj: CachedObjectMeta }).obj)}
                       onContextMenu={(e) => props.onCtxFile?.(e, (item() as { kind: "file"; obj: CachedObjectMeta }).obj)}
                     >
@@ -84,8 +82,7 @@ function ColumnPaneVirtual(props: {
                   </Show>
                   <Show when={item().kind === "loadmore"}>
                     <button
-                      class="col-pane-item col-pane-loadmore"
-                      style="height:100%;width:100%;justify-content:center;color:var(--muted)"
+                      class="col-pane-item col-pane-loadmore fill-cell"
                       onClick={props.onLoadMore}
                       disabled={props.loading}
                     >
@@ -137,21 +134,21 @@ export function ColumnPane(props: {
 
   return (
     <Show when={hasData()} fallback={
-      <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto">
+      <div class={`col-pane col-pane-scroll ${props.active ? "col-pane-active" : ""}`}>
         <Show when={state.loading && !state.error}>
-          <div style="padding:12px;display:flex;justify-content:center"><span class="spinner" /></div>
+          <div class="col-pane-inline-spinner"><span class="spinner" /></div>
         </Show>
         <Show when={state.error}>
-          <div style="padding:8px;font-size:11px;color:var(--red)">{errMsg(state.error)}</div>
+          <div class="col-pane-inline-err">{errMsg(state.error)}</div>
         </Show>
       </div>
     }>
       <Show when={items().length > 0} fallback={
-        <div class={`col-pane ${props.active ? "col-pane-active" : ""}`} style="overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding-top:12px">
+        <div class={`col-pane col-pane-empty ${props.active ? "col-pane-active" : ""}`}>
           <Show when={!state.loading} fallback={
-            <div style="padding:12px;display:flex;justify-content:center"><span class="spinner" /></div>
+            <div class="col-pane-inline-spinner"><span class="spinner" /></div>
           }>
-            <span style="color:var(--faint);font-size:12px">Empty folder</span>
+            <span class="col-pane-empty-text">Empty folder</span>
           </Show>
         </div>
       }>

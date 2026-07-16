@@ -3,6 +3,7 @@ import type { Resource } from "solid-js";
 import {
   IconBack, IconRefresh, IconUpload,
   IconPlus, IconX, IconColumns, IconList, IconSearch,
+  IconLock, IconLockOpen,
 } from "../../utils/icons";
 import { setBrowseState, goUpPrefix } from "../../state/app";
 import { PathBar } from "./PathBar";
@@ -15,6 +16,8 @@ export function Toolbar(props: {
   indexStatus: Resource<BucketIndexStatus | undefined>;
   indexBusy: boolean;
   onToggleIndex: () => void;
+  encryptionEnabled: boolean;
+  onOpenEncryption: () => void;
   searchQuery: string;
   onSearchInput: (v: string) => void;
   onClearSearch: () => void;
@@ -43,13 +46,13 @@ export function Toolbar(props: {
       </div>
 
       {/* search — center, takes flex space */}
-      <div class={`toolbar-search ${!props.indexStatus()?.enabled ? "toolbar-search-disabled" : ""}`}>
+      <div class={`toolbar-search ${!(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "toolbar-search-disabled" : ""}`}>
         <IconSearch size={13} class="toolbar-search-icon" />
         <input
           class="toolbar-search-input"
-          placeholder={props.indexStatus()?.enabled ? "Search bucket…" : "Search (index required)"}
+          placeholder={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Search bucket…" : "Search (index required)"}
           value={props.searchQuery}
-          disabled={!props.indexStatus()?.enabled}
+          disabled={!(props.indexStatus.latest ?? props.indexStatus())?.enabled}
           onInput={(e) => props.onSearchInput(e.currentTarget.value)}
         />
         <Show when={props.searchQuery}>
@@ -59,16 +62,16 @@ export function Toolbar(props: {
 
       {/* index toggle */}
       <button
-        class={`index-toggle-btn ${props.indexStatus()?.enabled ? "on" : "off"}`}
-        title={props.indexStatus()?.enabled ? "Indexing enabled — click to disable" : "Indexing disabled — click to enable"}
+        class={`index-toggle-btn ${(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "on" : "off"}`}
+        title={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Indexing enabled. Click to disable" : "Indexing disabled. Click to enable"}
         disabled={props.indexBusy}
         onClick={props.onToggleIndex}
       >
         <span class="index-toggle-dot" />
-        <Show when={props.indexStatus()?.enabled}>
+        <Show when={(props.indexStatus.latest ?? props.indexStatus())?.enabled}>
           <span class="index-toggle-label">Indexed</span>
         </Show>
-        <Show when={!props.indexStatus()?.enabled}>
+        <Show when={!(props.indexStatus.latest ?? props.indexStatus())?.enabled}>
           <span class="index-toggle-label">Not indexed</span>
         </Show>
       </button>
@@ -78,8 +81,18 @@ export function Toolbar(props: {
           <span class="sync-badge"><span class="spinner" /> syncing</span>
         </Show>
         <Show when={!props.showSyncing && props.mode === "live"}>
-          <span class="mode-badge live" title="Live mode — pages fetched on demand. Enable indexing for search.">live</span>
+          <span class="mode-badge live" title="Live mode. Pages fetched on demand. Enable indexing for search.">live</span>
         </Show>
+        <button
+          class="icon-btn"
+          style={props.encryptionEnabled ? "color:var(--accent)" : ""}
+          title={props.encryptionEnabled ? "Encryption enabled. Click to manage" : "Enable bucket encryption"}
+          onClick={props.onOpenEncryption}
+        >
+          <Show when={props.encryptionEnabled} fallback={<IconLockOpen size={15} />}>
+            <IconLock size={15} />
+          </Show>
+        </button>
         <div class="view-mode-toggle">
           <button class={`view-mode-btn ${props.viewMode === "columns" ? "active" : ""}`} onClick={() => props.onViewMode("columns")} title="Columns"><IconColumns size={14} /></button>
           <button class={`view-mode-btn ${props.viewMode === "list" ? "active" : ""}`} onClick={() => props.onViewMode("list")} title="List"><IconList size={14} /></button>

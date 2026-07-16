@@ -1,12 +1,12 @@
 # Cosmog Project Documentation
 
-Desktop app for managing S3-compatible object storage. Version 0.1.7.
+Desktop app for managing S3-compatible object storage. Version 0.1.9.
 
 ---
 
 ## What It Does
 
-Cosmog lets you manage files across S3-compatible object storage from a desktop app. Browse buckets, upload and download files, search, preview content, manage versions, and configure multiple accounts. Credentials are stored securely in the OS keychain.
+Cosmog lets you manage files across S3-compatible object storage from a desktop app. Browse buckets, upload and download files, search, preview content, manage versions, configure multiple accounts, and optionally client-side encrypt entire buckets with per-bucket keys. Credentials and encryption keys are stored securely in the OS keychain.
 
 **Supported providers:** AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, any S3-compatible API.
 
@@ -50,6 +50,8 @@ Cosmog lets you manage files across S3-compatible object storage from a desktop 
 | tokio-util | IO utilities |
 | futures | Async combinators |
 | urlencoding | Key encoding |
+| age 0.11 (armor) | Client-side file encryption (X25519 + ChaCha20-Poly1305, streaming AEAD) |
+| zeroize | Best-effort scrubbing of key material in memory |
 
 **Tauri plugins:** `tauri-plugin-notification`, `tauri-plugin-opener`, `tauri-plugin-dialog`
 
@@ -73,9 +75,12 @@ AppState
   |        |
   |        +-- S3Store (store/s3) -- aws-sdk-s3 -- S3 API
   |
-  +-- Db (SQLite) -- accounts, transfers, cache, settings, capabilities
+  +-- Db (SQLite) -- accounts, transfers, cache, settings, capabilities, bucket_encryption
   |
-  Secrets: OS Keyring (not in DB)
+  |   crypto::{encrypt_file, decrypt_file, encrypt_bytes, decrypt_bytes}
+  |         streams age v1 payload during upload/download; magic-probe on read
+  |
+  Secrets: OS Keyring (S3 credentials + per-bucket encryption identities)
 ```
 
 **Key design rules:**
@@ -85,6 +90,7 @@ AppState
 - Schema evolves via append-only migrations (never edit or reorder existing entries)
 - `ObjectStore` trait is the only abstraction over providers; commands are protocol-agnostic
 - Transfer workers emit `TransferEvent` via `ProgressSink` (type-erased, fan-out capable)
+- Client-side encryption is per-bucket, transparent to upload/download flows, and enforced only when a config row exists in `bucket_encryption` for that (account, bucket)
 
 ---
 
@@ -97,6 +103,7 @@ cosmog/
 |   |   +-- accounts.ts
 |   |   +-- browse.ts
 |   |   +-- buckets.ts
+|   |   +-- encryption.ts         # enable/disable/export/import bucket key
 |   |   +-- logs.ts
 |   |   +-- objects.ts
 |   |   +-- search.ts
@@ -125,6 +132,7 @@ cosmog/
         |   +-- buckets.rs
         |   +-- bulk.rs
         |   +-- capabilities.rs
+        |   +-- encryption.rs     # enable/disable/rotate/export/import per-bucket key
         |   +-- logs.rs
         |   +-- objects.rs
         |   +-- portable.rs
@@ -135,6 +143,7 @@ cosmog/
         |   +-- accounts.rs
         |   +-- cache.rs
         |   +-- capabilities.rs
+        |   +-- encryption.rs     # bucket_encryption row (recipient) storage
         |   +-- settings.rs
         |   +-- transfers.rs
         +-- store/                # Object store abstraction
@@ -143,6 +152,7 @@ cosmog/
         +-- transfer/             # Upload/download engine
         |   +-- manager.rs        # TransferManager and worker pool
         +-- bulk.rs               # Batch ops (folder delete/upload/download)
+        +-- crypto.rs             # age v1 streaming encrypt/decrypt + magic probe
         +-- error.rs              # AppError and AppResult
         +-- lib.rs                # App init and command registration
         +-- main.rs               # Tauri entry point
@@ -285,6 +295,19 @@ cosmog/
 |---------|-------------|
 | `browse_prefix` | Cached children and sub-prefixes with background-refresh if stale |
 
+### Encryption (per-bucket, client-side)
+
+| Command | Description |
+|---------|-------------|
+| `enable_bucket_encryption` | Generate a fresh X25519 identity, store secret in the OS keychain, record public recipient in DB; requires `confirm_previous_key_saved=true` when `allow_rotate=true` |
+| `disable_bucket_encryption` | Remove identity from keychain and config row from DB (existing encrypted objects stay encrypted) |
+| `get_bucket_encryption_status` | Return `{ enabled, public_recipient }` |
+| `export_encryption_key` | Return `KeyExport` payload (raw bech32 secret + recipient + external decrypt hint) |
+| `save_encryption_key_export` | Write the identity to a caller-chosen path with 0600 permissions on Unix |
+| `import_encryption_identity` | Load an identity from pasted text; validates parseability + cross-checks recipient against DB |
+| `import_encryption_identity_from_file` | Read a saved key file (bounded 64 KiB) then delegate to `import_encryption_identity` |
+| `has_encryption_identity` | Preflight for FE: returns `true` iff the keychain has an entry for this bucket |
+
 ---
 
 ## Transfer System
@@ -309,6 +332,56 @@ TransferEvent::Canceled       { transfer_id }
 - Orphan transfers left Active or Pending by a crash are reaped at startup
 - `CancellationToken` per transfer for cooperative cancel
 - `ProgressSink` is type-erased (`Arc<dyn Fn(TransferEvent)>`) and supports fan-out to FE channel and DB simultaneously
+- Encrypted buckets: uploads stream through `crypto::encrypt_file` to a temp `.age` file under `<app_data>/enc_tmp/` (cleaned via `opts.cleanup_path` after the worker settles, and swept unconditionally at next startup). Downloads probe age v1 magic on the fetched bytes, then stream through `crypto::decrypt_file` to a sibling `.dec` temp and atomic-rename over the ciphertext. Retries on encrypted buckets never resume from a partial range (age requires the full stream to authenticate).
+
+---
+
+## Client-side Encryption
+
+Optional per-bucket transparent encryption using the [age file format](https://age-encryption.org) (X25519 recipients + streaming ChaCha20-Poly1305 with 64 KiB chunks and last-chunk marker).
+
+**Model:**
+
+- Each encrypted bucket has one age identity. Secret string (`AGE-SECRET-KEY-…`) lives in the OS keychain under `enc:<account_id>:<bucket>`. Public recipient (`age1…`) is stored in the SQLite `bucket_encryption` table.
+- Enable/rotate/disable is serialized per `(account, bucket)` via an async mutex in `AppState::encryption_lock` so two concurrent Enable calls cannot generate two identities that overwrite each other.
+- Rotate destroys the previous keychain entry irreversibly — the FE must call `enable_bucket_encryption` with both `allow_rotate=true` and `confirm_previous_key_saved=true`, and is expected to walk the user through `export_encryption_key` first.
+- All secret-flow strings go through `zeroize::Zeroizing<String>` on the Rust side. The FE clears `freshSecret` on any modal close path. Serialization across the Tauri IPC boundary unavoidably copies; treat the FE-side value as sensitive.
+
+**Upload flow (`commands/transfers.rs::enqueue_upload`):**
+
+1. Look up `bucket_encryption` row for `(account, bucket)`.
+2. If present, parse the recipient, stream-encrypt the source file into `<app_data>/enc_tmp/<uuid>.age` via `crypto::encrypt_file` (runs on `spawn_blocking`; constant ~80 KiB RAM).
+3. Attach S3 user metadata: `cosmog-encrypted=1`, `cosmog-format=age-v1`, `cosmog-recipient=<age1…>`.
+4. Hand off to `TransferManager` with `opts.cleanup_path = tmp_path` (worker deletes it on success or failure).
+
+**Download flow (`transfer/manager.rs`):**
+
+1. Ranged/multipart GET writes bytes to `local_path`. For encrypted buckets, `range_start` is suppressed on retries so the whole authenticated stream is refetched.
+2. After the GET succeeds, if a `bucket_encryption` row exists, read the first `AGE_MAGIC.len()` bytes of the downloaded file. If the magic matches (`age-encryption.org/v1\n`), fetch the identity from the keychain and stream-decrypt via `crypto::decrypt_file` to a `.dec` sibling temp, then `tokio::fs::rename` over the ciphertext file.
+3. Decrypt failure deletes both `local_path` (was ciphertext) and the `.dec` temp so shell integrations don't index a garbage file at the plaintext filename.
+4. Missing keychain entry returns `AppError::EncryptionIdentityMissing` (wire code `encryption_identity_missing`).
+
+**Preview flow (`commands/objects.rs::preview_object`):**
+
+- HEAD → size cap 128 MiB → `read_object_full` → probe age magic on payload bytes (not on S3 metadata, which is attacker-controllable).
+- If marker says encrypted but the payload lacks the age header, refuse (`invalid_input: cannot decrypt: payload is not in the expected age format`) rather than serving raw ciphertext.
+- Otherwise decrypt in memory via `crypto::decrypt_bytes` and return plaintext bytes plus the original `content_type`.
+
+**Presign refusal:** `presign_get` refuses any URL on an encryption-enabled bucket unless the caller passes `allow_ciphertext=true`, since the recipient of a link would otherwise download ciphertext with no way to open it.
+
+**Export file format:** plain text compatible with `age -i`. First line comment header, then the bech32 secret. Written with `OpenOptions::mode(0o600)` on Unix.
+
+**External decryption:** the exported key file is directly usable with `age -d -i keyfile.txt <ciphertext>` or with the `pyrage` Python library. See the "External decryption guide" section inside `EncryptionModal.tsx` for copy-pasteable snippets.
+
+**Startup sweep:** `<app_data>/enc_tmp/` is unconditionally emptied before `AppState::new` runs. Files there are always ciphertext staged for uploads that never completed and are safe to delete.
+
+**Limits:**
+
+- Streaming file paths: no explicit size cap; bounded only by local disk (source + `.age` temp during encrypt).
+- In-memory helpers (`put_object_text`, `put_object_bytes_cmd`): `MAX_INMEMORY_CRYPT_BYTES = 512 MiB`.
+- Preview: `MAX_PREVIEW_DECRYPT_BYTES = 128 MiB`.
+
+**Cross-machine access:** the exported identity file is the only durable backup. Keychain contents are not synced between machines. Import via `import_encryption_identity` / `import_encryption_identity_from_file` on the second machine to restore access.
 
 ---
 
@@ -320,9 +393,10 @@ SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode and foreign keys enabled.
 |--------|--------|
 | `db/accounts.rs` | Account credentials metadata |
 | `db/transfers.rs` | Transfer queue and history |
-| `db/cache.rs` | Object metadata cache with FTS5 search index |
+| `db/cache.rs` | Object metadata cache with FTS5 trigram + BM25 search index |
 | `db/settings.rs` | App settings |
 | `db/capabilities.rs` | Cached provider capability probe results |
+| `db/encryption.rs` | `bucket_encryption` row per encrypted bucket (recipient string; legacy column name `salt_hex`) |
 
 **Migration rules:**
 
@@ -341,10 +415,13 @@ SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode and foreign keys enabled.
 
 ## Secrets and Security
 
-- Credentials (secret access key) are stored in the OS keyring only, never in SQLite
-- `keyring` crate uses: Apple Keychain, Windows Credential Manager, Linux Secret Service
+- S3 credentials (secret access key) and per-bucket encryption identities are stored in the OS keyring only, never in SQLite
+- `keyring` crate uses: Apple Keychain, Windows Credential Manager, Linux Secret Service (GNOME Keyring / KWallet / KeePassXC)
 - Keyring reads run via `spawn_blocking` to avoid blocking the Tokio executor
 - Config export explicitly excludes secrets
+- Per-bucket encryption uses the `age` file format; the encryption engine hand-rolls no crypto
+- Exported key files are written with `0600` permissions on Unix
+- The Rust side holds secret material in `zeroize::Zeroizing<String>` best-effort; the FE clears the secret signal on every modal close path
 
 ---
 
@@ -361,11 +438,14 @@ SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode and foreign keys enabled.
 
 ## Settings
 
-Configurable options stored in the SQLite `settings` table:
+Configurable options stored in the SQLite `settings` table include:
 
-- `transfer_concurrency` — parallel transfer count (requires restart)
+- `transfer_concurrency` — parallel transfer count (resizable at runtime via `set_transfer_concurrency`)
+- `part_size_bytes`, `multipart_parallelism`, `multipart_threshold_bytes` — multipart upload tunables
 - `http_proxy` — sets `HTTPS_PROXY` and `HTTP_PROXY` env at startup
 - `custom_ca_path` — sets `SSL_CERT_FILE` env at startup (for self-signed certs)
+- `request_log_ttl_days` — how long request logs are retained
+- `presign_default_expires_secs` — default expiry for `presign_get`
 
 Network env vars are applied once at boot before any SDK client is constructed.
 
@@ -401,6 +481,8 @@ npm run tauri <cmd>    # uses cross-env NO_STRIP=1
 
 **Rust test deps:** `tempfile`, `serial_test`, `rand`
 
+**Test surface:** unit + integration tests under `src-tauri/tests/` (buckets, bulk, capabilities, objects, settings, sync/search, transfers, crypto). Crypto tests cover identity roundtrip, encrypt/decrypt bytes, wrong-identity rejection, tamper detection, magic detector, and 5 MiB streaming file roundtrip. S3-touching tests are gated behind a MinIO probe (`require_minio!()`).
+
 ---
 
 ## App Startup Sequence
@@ -412,11 +494,13 @@ npm run tauri <cmd>    # uses cross-env NO_STRIP=1
 5. Open SQLite and apply pending migrations
 6. Reap orphan transfers from crashed session
 7. Load settings and apply `http_proxy` and `custom_ca_path` to env
-8. Build `AppState` with configured concurrency semaphore
-9. Spawn background scheduler (auto-reindex loop)
-10. Register `AppState` with Tauri via `manage()`
-11. Register all ~60 Tauri commands
-12. Run Tauri event loop
+8. Prune request logs older than `request_log_ttl_days`
+9. Sweep `<app_data>/enc_tmp/` (leftover encryption temp files from a previous crash)
+10. Build `AppState` with configured concurrency semaphore
+11. Spawn background scheduler (auto-reindex loop)
+12. Register `AppState` with Tauri via `manage()`
+13. Register all Tauri commands (~70 including the encryption surface)
+14. Run Tauri event loop
 
 ---
 
@@ -436,4 +520,4 @@ App data persists across reinstalls by default. To remove all local data:
 | Windows | `%APPDATA%\com.sonus.cosmog` |
 | Linux | `~/.local/share/com.sonus.cosmog` |
 
-Keyring entries are keyed by account ID under the service name `com.sonus.cosmog`. On Linux these live in the Secret Service (GNOME Keyring, KWallet, or KeePassXC). On macOS they are in Keychain Access. On Windows they are in Credential Manager.
+Keyring entries are keyed by account ID under the service name `com.sonus.cosmog`. Per-bucket encryption identities use the entry name `enc:<account_id>:<bucket>` under the same service. On Linux these live in the Secret Service (GNOME Keyring, KWallet, or KeePassXC). On macOS they are in Keychain Access. On Windows they are in Credential Manager.

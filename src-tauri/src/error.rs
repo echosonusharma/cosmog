@@ -85,6 +85,12 @@ pub enum AppError {
     #[error("network unreachable: {0}")]
     NetworkUnreachable(String),
 
+    /// Bucket has encryption configured but no identity is present in the OS
+    /// keychain (keychain wiped, new machine, different OS user). FE should
+    /// prompt the user to import a previously exported identity file.
+    #[error("encryption identity missing: {0}")]
+    EncryptionIdentityMissing(String),
+
     /// Catch-all for unexpected internal failures.
     #[error("internal: {0}")]
     Internal(String),
@@ -108,6 +114,7 @@ impl AppError {
             AppError::Canceled(_) => "canceled",
             AppError::RegionRedirect(_) => "region_redirect",
             AppError::NetworkUnreachable(_) => "network_unreachable",
+            AppError::EncryptionIdentityMissing(_) => "encryption_identity_missing",
             AppError::Internal(_) => "internal",
         }
     }

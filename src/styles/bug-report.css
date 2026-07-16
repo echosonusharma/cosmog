@@ -1,0 +1,146 @@
+/* ── bug report modal ──────────────────────────────────────────────────────── */
+.bug-modal {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 20px 60px -20px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bug-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bug-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.bug-modal-icon-wrap { color: var(--red); display: flex; align-items: center; }
+.bug-modal-body { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.bug-modal-desc { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+.bug-info-section {
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bug-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-1);
+}
+.bug-info-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bug-copy-btn {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.bug-copy-btn:hover { background: var(--bg-hover); }
+.bug-info-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0;
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.bug-info-grid dt {
+  color: var(--muted);
+  padding-right: 16px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.bug-info-grid dd {
+  color: var(--text-soft);
+  margin: 0;
+  word-break: break-all;
+}
+.bug-info-loading { font-size: 11px; color: var(--muted); padding: 10px 12px; }
+.bug-steps { font-size: 12.5px; color: var(--muted); }
+.bug-steps-title { font-weight: 600; color: var(--text-soft); margin-bottom: 6px; font-size: 12px; }
+.bug-steps-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.5; }
+.bug-open-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 9px 16px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  outline: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.bug-open-btn:hover { background: color-mix(in srgb, var(--red) 80%, #000); }
+
+.account-rows { display: flex; flex-direction: column; gap: 6px; }
+.account-row-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.account-row-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.add-account-form {
+  padding: 14px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.provider-picker {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+
+.provider-picker-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  min-width: 72px;
+}
+.provider-picker-tile:hover { border-color: var(--border-2); background: var(--bg-hover); }
+.provider-picker-tile.selected { border-color: var(--accent); background: var(--accent-soft); }
+.provider-picker-tile:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.provider-picker-tile-icon {
+  width: 32px; height: 32px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.provider-picker-tile-label {
+  font-size: 11px; color: var(--text-muted);
+  white-space: nowrap;
+}
+

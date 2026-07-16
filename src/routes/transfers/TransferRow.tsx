@@ -11,8 +11,17 @@ export function TransferRow(props: {
   onCancel: () => void;
   onClear: () => void;
   onRetry: () => void;
+  onLoadKey?: (accountId: string, bucket: string) => void;
 }) {
   const t = () => props.t;
+  // Backend surfaces missing-key failures via a stable message prefix
+  // matching AppError::EncryptionIdentityMissing's Display impl. Detecting
+  // the prefix lets the row show a "Load key" shortcut without a schema
+  // change to persist the error code.
+  const isKeyMissing = () => {
+    const e = t().error;
+    return !!e && (e.startsWith("encryption identity missing:") || e.includes("identity for bucket"));
+  };
   const isActive = () => t().status === "active" || t().status === "pending";
   const isTerminal = () =>
     t().status === "done" || t().status === "failed" || t().status === "canceled";
@@ -70,13 +79,13 @@ export function TransferRow(props: {
         {/* progress bar only while in-flight */}
         <Show when={isActive() && (t().bytes_total || t().bytes_done > 0)}>
           <div class="progress-track">
-            <div class="progress-fill" style={`width:${pct(t())}%`} />
+            <div class="progress-fill" style={{ width: `${pct(t())}%` }} />
           </div>
           <div class="transfer-stats-row">
             <Show when={pctLabel()}>
               <span class="transfer-pct">{pctLabel()}</span>
             </Show>
-            <span style="flex:1" />
+            <span class="flex-1" />
             <Show when={sizeLabel()}>
               <span class="transfer-stat-size">{sizeLabel()}</span>
             </Show>
@@ -95,13 +104,22 @@ export function TransferRow(props: {
             <Show when={sizeLabel()}>
               <span class="transfer-stat-size">{sizeLabel()}</span>
             </Show>
-            <span style="flex:1" />
+            <span class="flex-1" />
             <span class="transfer-stat-time">{formatRelative(t().updated_at)}</span>
           </div>
         </Show>
 
         <Show when={t().error}>
-          <div class="transfer-error">{t().error!}</div>
+          <Show when={isKeyMissing()} fallback={<div class="transfer-error">{t().error!}</div>}>
+            <div class="transfer-error transfer-error-keyload">
+              <span class="transfer-error-keyload-text">Encryption key for this bucket is not on this device. Load it to decrypt this download.</span>
+              <Show when={props.onLoadKey}>
+                <button class="btn-primary transfer-error-keyload-btn" onClick={() => props.onLoadKey!(t().account_id, t().bucket)}>
+                  Load key
+                </button>
+              </Show>
+            </div>
+          </Show>
         </Show>
       </div>
     </div>

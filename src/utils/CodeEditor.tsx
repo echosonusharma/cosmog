@@ -223,7 +223,7 @@ export function CodeEditor(props: {
 
   onCleanup(() => { destroyed = true; view?.destroy(); view = null; });
 
-  return <div ref={container} style="height:100%;overflow:auto;border-radius:6px" />;
+  return <div ref={container} class="code-editor-host" />;
 }
 
 // ── format helpers ────────────────────────────────────────────────────────────
@@ -309,14 +309,14 @@ export function EditorModal(props: {
       <div class="editor-modal" onClick={(e) => e.stopPropagation()}>
         <div class="editor-modal-header">
           <span class="editor-modal-title">{props.filename}</span>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+          <div class="editor-modal-actions">
             <Show when={canFormat}>
-              <button class="btn-ghost" style="font-size:12px" disabled={formatting()} onClick={handleFormat}>
+              <button class="btn-ghost text-xs" disabled={formatting()} onClick={handleFormat}>
                 {formatting() ? "Formatting…" : "Format"}
               </button>
             </Show>
-            <button class="btn-secondary" style="font-size:12px;padding:5px 14px" onClick={requestClose}>Cancel</button>
-            <button class="btn-primary" style="font-size:12px;padding:5px 14px" disabled={saving()} onClick={handleSave}>
+            <button class="btn-secondary text-xs editor-modal-btn" onClick={requestClose}>Cancel</button>
+            <button class="btn-primary text-xs editor-modal-btn" disabled={saving()} onClick={handleSave}>
               {saving() ? "Saving…" : "Save"}
             </button>
           </div>
@@ -332,7 +332,7 @@ export function EditorModal(props: {
           />
         </div>
         <div class="editor-modal-footer">
-          <span class="muted" style="font-size:11px">Ctrl+S to save · Esc to close</span>
+          <span class="muted text-xxs">Ctrl+S to save · Esc to close</span>
         </div>
       </div>
     </div>

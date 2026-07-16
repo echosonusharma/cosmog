@@ -147,12 +147,12 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
 
   return (
     <>
-      <div class="preview-img-area" style="flex-direction:column;gap:8px">
+      <div class="preview-img-area sheet-preview-col">
         <Show when={sheetTooBig()}>
-          <span class="muted" style="font-size:12px">File too large to preview ({formatBytes(props.obj.size)} · max {formatBytes(SHEET_CAP)})</span>
+          <span class="muted sheet-preview-hint">File too large to preview ({formatBytes(props.obj.size)} · max {formatBytes(SHEET_CAP)})</span>
         </Show>
         <Show when={!sheetTooBig()}>
-          <button class="btn-secondary" style="display:flex;align-items:center;gap:8px" onClick={openSheet}>
+          <button class="btn-secondary preview-btn-inline" onClick={openSheet}>
             <IconEye size={15} /> View spreadsheet
           </button>
         </Show>
@@ -174,19 +174,19 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
                   </For>
                 </div>
               </Show>
-              <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+              <div class="sheet-modal-actions">
                 <Show when={!sheetEditMode()}>
-                  <button class="btn-secondary" style="height:30px;padding:0 14px;font-size:12px"
+                  <button class="btn-secondary sheet-modal-btn"
                           onClick={() => setSheetEditMode(true)}>
                     Edit
                   </button>
                 </Show>
                 <Show when={sheetEditMode()}>
-                  <button class="btn-ghost" style="height:30px;padding:0 14px;font-size:12px"
+                  <button class="btn-ghost sheet-modal-btn"
                           onClick={discardSheet}>
                     Discard
                   </button>
-                  <button class="btn-primary" style="height:30px;padding:0 14px;font-size:12px"
+                  <button class="btn-primary sheet-modal-btn"
                           disabled={sheetSaving()} onClick={saveSheet}>
                     {sheetSaving() ? "Saving…" : "Save"}
                   </button>
@@ -195,10 +195,10 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
               </div>
             </div>
             <Show when={sheetLoading()}>
-              <div class="loading-row" style="flex:1;justify-content:center"><span class="spinner" /> Loading…</div>
+              <div class="loading-row sheet-modal-loading"><span class="spinner" /> Loading…</div>
             </Show>
             <Show when={sheetErr()}>
-              <div class="status-msg err" style="margin:16px">{sheetErr()}</div>
+              <div class="status-msg err sheet-modal-err">{sheetErr()}</div>
             </Show>
             <Show when={sheetWb()}>
               <div class="sheet-table-wrap sheet-table-full">

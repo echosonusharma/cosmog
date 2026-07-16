@@ -9,16 +9,34 @@ import { IconArrowUpLine, IconX, IconTransfer } from "../utils/icons";
 import type { Transfer } from "../types";
 import { STATUS_ORDER, recordAndComputeSpeed } from "./transfers/helpers";
 import { TransferRow } from "./transfers/TransferRow";
+import { EncryptionModal } from "./browse/EncryptionModal";
+import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
-type Filter = "all" | "active" | "done" | "failed";
+type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
 export default function Transfers() {
   const [transfers, setTransfers] = createSignal<Transfer[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [err, setErr] = createSignal("");
   const [filter, setFilter] = createSignal<Filter>("all");
+  // Load-key flow: opened from a failed transfer row whose error indicates
+  // the encryption key is not present locally. We fetch enable status +
+  // identity presence for the target bucket before rendering the modal so
+  // it lands directly in the import branch.
+  const [keyModal, setKeyModal] = createSignal<
+    { accountId: string; bucket: string; enabled: boolean; identityPresent: boolean } | null
+  >(null);
+  async function openKeyModal(accountId: string, bucket: string) {
+    try {
+      const [status, present] = await Promise.all([
+        getBucketEncryptionStatus(accountId, bucket),
+        hasEncryptionIdentity(accountId, bucket),
+      ]);
+      setKeyModal({ accountId, bucket, enabled: status.enabled, identityPresent: present });
+    } catch (e) { toast.err(errMsg(e)); }
+  }
 
   async function load() {
     setErr("");
@@ -88,17 +106,19 @@ export default function Transfers() {
     let list = transfers();
     switch (filter()) {
       case "active": list = list.filter((t) => t.status === "active" || t.status === "pending"); break;
-      case "done":   list = list.filter((t) => t.status === "done"); break;
-      case "failed": list = list.filter((t) => t.status === "failed" || t.status === "canceled"); break;
+      case "done":     list = list.filter((t) => t.status === "done"); break;
+      case "failed":   list = list.filter((t) => t.status === "failed"); break;
+      case "canceled": list = list.filter((t) => t.status === "canceled"); break;
     }
     return list;
   };
 
   const counts = () => ({
-    all:    transfers().length,
-    active: transfers().filter((t) => t.status === "active" || t.status === "pending").length,
-    done:   transfers().filter((t) => t.status === "done").length,
-    failed: transfers().filter((t) => t.status === "failed" || t.status === "canceled").length,
+    all:      transfers().length,
+    active:   transfers().filter((t) => t.status === "active" || t.status === "pending").length,
+    done:     transfers().filter((t) => t.status === "done").length,
+    failed:   transfers().filter((t) => t.status === "failed").length,
+    canceled: transfers().filter((t) => t.status === "canceled").length,
   });
 
   const hasDone = () =>
@@ -112,7 +132,7 @@ export default function Transfers() {
   return (
     <div class="view-container">
       <div class="transfer-filterbar">
-        <h2 style="margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em">Transfers</h2>
+        <h2 class="transfer-filterbar-title">Transfers</h2>
         <div class="filter-chips">
           <button class={`chip ${filter() === "all"    ? "active" : ""}`} onClick={() => setFilter("all")}>
             All <span class="chip-count">{counts().all}</span>
@@ -126,16 +146,19 @@ export default function Transfers() {
           <button class={`chip ${filter() === "failed" ? "active" : ""}`} onClick={() => setFilter("failed")}>
             Failed <span class="chip-count">{counts().failed}</span>
           </button>
+          <button class={`chip ${filter() === "canceled" ? "active" : ""}`} onClick={() => setFilter("canceled")}>
+            Canceled <span class="chip-count">{counts().canceled}</span>
+          </button>
         </div>
-        <div style="flex:1" />
+        <div class="flex-1" />
         <Show when={hasDone()}>
-          <button class="btn-ghost" style="font-size:12px;padding:6px 11px;border:1px solid var(--border);border-radius:8px" onClick={clearAll}>
+          <button class="btn-ghost transfer-clear-btn" onClick={clearAll}>
             <IconX size={13} /> Clear completed
           </button>
         </Show>
       </div>
 
-      <Show when={err()}><div class="status-msg err" style="margin:12px 20px">{err()}</div></Show>
+      <Show when={err()}><div class="status-msg err transfer-err-msg">{err()}</div></Show>
       <Show when={loading()}>
         <div class="loading-row"><span class="spinner" /> Loading…</div>
       </Show>
@@ -156,6 +179,7 @@ export default function Transfers() {
                   onCancel={() => cancel(t.id)}
                   onClear={() => clearOne(t.id)}
                   onRetry={() => retry(t.id)}
+                  onLoadKey={openKeyModal}
                 />
               )}
             </For>
@@ -165,20 +189,35 @@ export default function Transfers() {
 
       <div class="transfer-footer-bar">
         <Show when={counts().active > 0}>
-          <span style="display:flex;align-items:center;gap:4px">
+          <span class="transfer-footer-speed">
             <IconArrowUpLine size={12} /> {formatBytes(activeSpeedTotal())}/s
           </span>
         </Show>
-        <div style="flex:1" />
-        <span style="color:var(--faint)">
+        <div class="flex-1" />
+        <span class="faint">
           {counts().active > 0 && `${counts().active} active`}
           {counts().active > 0 && (counts().done > 0 || counts().failed > 0) && " · "}
           {counts().done > 0 && `${counts().done} done`}
           {counts().done > 0 && counts().failed > 0 && " · "}
           {counts().failed > 0 && `${counts().failed} failed`}
+          {(counts().done > 0 || counts().failed > 0) && counts().canceled > 0 && " · "}
+          {counts().canceled > 0 && `${counts().canceled} canceled`}
           {counts().all === 0 && "No transfers"}
         </span>
       </div>
+
+      <Show when={keyModal()}>
+        {(m) => (
+          <EncryptionModal
+            accountId={m().accountId}
+            bucket={m().bucket}
+            enabled={m().enabled}
+            identityPresent={m().identityPresent}
+            onClose={() => setKeyModal(null)}
+            onChanged={() => { setKeyModal(null); load(); }}
+          />
+        )}
+      </Show>
     </div>
   );
 }

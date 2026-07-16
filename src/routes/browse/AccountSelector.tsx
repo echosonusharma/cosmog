@@ -7,7 +7,7 @@ import { ProviderIcon, providerLabel } from "../../utils/icons";
 export function AccountSelector() {
   return (
     <div class="account-selector">
-      <div class="section-title" style="margin-bottom:12px">Select account</div>
+      <div class="section-title mb-3">Select account</div>
       <div class="account-list">
         <For each={accounts()}>
           {(acct) => (

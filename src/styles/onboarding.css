@@ -1,0 +1,133 @@
+/* ── onboarding ─────────────────────────────────────────────────────────── */
+
+.onboarding {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(ellipse 70% 55% at 50% -8%, var(--accent-soft), transparent 72%);
+  gap: 24px;
+}
+
+.onboarding-stepper {
+  display: flex; align-items: center; gap: 0;
+}
+.step-item {
+  display: flex; align-items: center; gap: 8px;
+}
+.step-circle {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600;
+  border: 1.5px solid var(--border-strong);
+  color: var(--text-muted);
+  background: var(--bg-elev-2);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.step-circle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.step-circle.done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.step-label {
+  font-size: 12.5px; font-weight: 500;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+.step-label.active { color: var(--text); }
+.step-label.done   { color: var(--text-soft); }
+.step-connector {
+  width: 40px; height: 1px;
+  background: var(--border-strong);
+  margin: 0 10px;
+  flex-shrink: 0;
+}
+.step-connector.done { background: var(--accent); opacity: 0.5; }
+
+.onboarding-footer {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: center;
+}
+.onboarding-footer span { margin: 0 6px; opacity: 0.4; }
+
+.card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 32px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 40px 80px -30px rgba(0,0,0,0.6), 0 0 0 1px rgba(164,92,240,0.06);
+}
+
+.card-welcome-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.card-welcome-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.card-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.provider-badge-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.field-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.field-label .field-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  margin-left: 4px;
+}
+
+.btn-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none;
+  color: var(--text-muted);
+  font-size: 12px; cursor: pointer; padding: 0;
+  width: fit-content;
+  transition: color 0.15s;
+}
+.btn-back:hover { color: var(--text); }
+

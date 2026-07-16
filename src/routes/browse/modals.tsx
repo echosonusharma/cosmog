@@ -6,6 +6,7 @@ import { enqueueUpload, enqueueDownload } from "../../api/transfers";
 import { notify } from "../../utils/notify";
 import { toast, errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
+import { IconLock } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import { pathFromDialog } from "./helpers";
 
@@ -50,8 +51,8 @@ export function DownloadModal(props: {
         </div>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary" style="flex:1" disabled={!dest().trim() || busy()} onClick={submit}>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={!dest().trim() || busy()} onClick={submit}>
             {busy() ? "Queuing…" : "Download"}
           </button>
         </div>
@@ -65,6 +66,7 @@ export function UploadModal(props: {
   bucket: string;
   prefix: string;
   initialFiles?: string[];
+  encrypted?: boolean;
   onClose: () => void;
   onQueued?: () => void;
 }) {
@@ -72,6 +74,11 @@ export function UploadModal(props: {
   const [keyPrefix, setKeyPrefix] = createSignal(props.prefix);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
+  // Which file we're currently encrypting (encrypted buckets stream through
+  // crypto::encrypt_file synchronously before enqueue returns, so a 3 GB file
+  // can spend minutes here with the button stuck on "Queuing…"). Surface the
+  // file name so the user knows something is happening.
+  const [currentIdx, setCurrentIdx] = createSignal(0);
 
   async function browse() {
     const sel = await openDialog({ multiple: true, directory: false });
@@ -83,9 +90,11 @@ export function UploadModal(props: {
   async function submit() {
     const list = files();
     if (!list.length) return;
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setCurrentIdx(0);
     try {
-      for (const path of list) {
+      for (let i = 0; i < list.length; i++) {
+        setCurrentIdx(i);
+        const path = list[i];
         const key = keyPrefix().trim()
           ? keyPrefix().trim().replace(/\/?$/, "/") + basename(path)
           : basename(path);
@@ -99,12 +108,23 @@ export function UploadModal(props: {
     } finally { setBusy(false); }
   }
 
+  function submitLabel() {
+    if (!busy()) return `Upload${files().length > 1 ? ` (${files().length})` : ""}`;
+    if (props.encrypted) {
+      const idx = currentIdx();
+      const name = files()[idx];
+      const suffix = files().length > 1 ? ` (${idx + 1}/${files().length})` : "";
+      return name ? `Encrypting${suffix}…` : "Encrypting…";
+    }
+    return "Queuing…";
+  }
+
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-title">Upload files</div>
         <div class="file-picker-row">
-          <span class="field truncate" style="display:flex;align-items:center;color:var(--text-muted)">
+          <span class="field truncate field-static">
             {files().length === 0 ? "No files selected"
               : files().length === 1 ? basename(files()[0])
               : `${files().length} files selected`}
@@ -119,11 +139,25 @@ export function UploadModal(props: {
         <label class="modal-label">Key prefix (optional)</label>
         <input class="field" placeholder={props.prefix || "folder/"} value={keyPrefix()}
                onInput={(e) => setKeyPrefix(e.currentTarget.value)} disabled={busy()} />
+        <Show when={props.encrypted}>
+          <div class="upload-encrypted-note">
+            <span class="upload-encrypted-note-icon"><IconLock size={18} /></span>
+            <span class="upload-encrypted-note-text">Encrypted bucket. Files lock on this device before upload; large files may take a moment.</span>
+          </div>
+        </Show>
+        <Show when={busy() && props.encrypted && files().length > 0}>
+          <div class="upload-encrypting-progress">
+            <span class="spinner" />
+            <span class="upload-encrypting-progress-label">
+              Encrypting <code>{basename(files()[currentIdx()] ?? "")}</code>
+            </span>
+          </div>
+        </Show>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary" style="flex:1" disabled={!files().length || busy()} onClick={submit}>
-            {busy() ? "Queuing…" : `Upload${files().length > 1 ? ` (${files().length})` : ""}`}
+          <button class="btn-secondary btn-half" onClick={props.onClose} disabled={busy()}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={!files().length || busy()} onClick={submit}>
+            {submitLabel()}
           </button>
         </div>
       </div>
@@ -155,8 +189,8 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary" style="flex:1" disabled={!name().trim() || busy()} onClick={submit}>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={!name().trim() || busy()} onClick={submit}>
             {busy() ? "Creating…" : "Create"}
           </button>
         </div>
@@ -184,15 +218,15 @@ export function NewFolderModal(props: {
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-title">New folder</div>
-        <div class="modal-sub" style="font-size:11px;color:var(--muted);margin-bottom:4px">Path</div>
+        <div class="modal-sub modal-sub-path-label">Path</div>
         <input class="field" placeholder="path/to/folder-name"
                value={path()}
                onInput={(e) => setPath(e.currentTarget.value.trim())}
                onKeyDown={(e) => e.key === "Enter" && submit()}
                ref={(el) => setTimeout(() => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 0)} />
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary" style="flex:1" disabled={!path().trim().replace(/\//g, "")} onClick={submit}>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={!path().trim().replace(/\//g, "")} onClick={submit}>
             Create
           </button>
         </div>
@@ -231,8 +265,8 @@ export function RenameModal(props: {
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary" style="flex:1" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary" style="flex:1" disabled={busy()} onClick={submit}>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={busy()} onClick={submit}>
             {busy() ? "Working…" : "Rename"}
           </button>
         </div>
