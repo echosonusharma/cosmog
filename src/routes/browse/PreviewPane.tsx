@@ -89,9 +89,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         const r = await previewObject(a, b, k, maxBytes);
         const mimeType = r.content_type || (x === "svg" ? "image/svg+xml" : `image/${x}`);
         const blob = new Blob([new Uint8Array(r.bytes)], { type: mimeType });
-        return URL.createObjectURL(blob);
+        return { url: URL.createObjectURL(blob), key: k };
       }
-      return presignGet(a, b, k);
+      return { url: await presignGet(a, b, k), key: k };
     },
   );
   // Latch: keep displaying the previous URL while the next one is fetching in
@@ -102,14 +102,14 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const [displayKey, setDisplayKey] = createSignal<string | null>(null);
   let priorBlob: string | null = null;
   createEffect(() => {
-    const u = imgUrl();
-    if (!u) return;
-    if (priorBlob && priorBlob !== u && priorBlob.startsWith("blob:")) {
+    const r = imgUrl();
+    if (!r) return;
+    if (priorBlob && priorBlob !== r.url && priorBlob.startsWith("blob:")) {
       URL.revokeObjectURL(priorBlob);
     }
-    priorBlob = u.startsWith("blob:") ? u : null;
-    setDisplayUrl(u);
-    setDisplayKey(props.obj.key);
+    priorBlob = r.url.startsWith("blob:") ? r.url : null;
+    setDisplayUrl(r.url);
+    setDisplayKey(r.key);
   });
   // Reset latch when the preview target changes to a non-image (so we don't
   // keep showing an old image over a text/binary preview).
@@ -144,7 +144,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     const d = displayText();
     return d && d.key === props.obj.key ? d : null;
   };
-  const textSwitching = () => preview.loading && !!displayText() && displayText()!.key !== props.obj.key;
   function textContent() {
     const d = displayText(); if (!d) return "";
     try { return new TextDecoder().decode(new Uint8Array(d.bytes)); }
@@ -152,10 +151,47 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   }
 
   const imgSrc = () => displayUrl() ?? "";
-  // True while a NEW image is being fetched for the current target (previous
-  // URL is still on-screen). Drives an unobtrusive spinner overlay instead of
-  // an unmount/blank flash.
-  const imgSwitching = () => imgUrl.loading && displayKey() !== null && displayKey() !== props.obj.key;
+  // Min-duration switching flag: turns on the moment a switch begins (target
+  // key differs from displayed key) and stays on until the new content lands
+  // AND a floor delay has elapsed, so fast fetches still show the overlay.
+  const SWITCH_MIN_MS = 350;
+  const [imgSwitching, setImgSwitching] = createSignal(false);
+  let imgSwitchTimer: number | null = null;
+  createEffect(() => {
+    const targetKey = props.obj.key;
+    const shown = displayKey();
+    if (isImage() && shown !== null && shown !== targetKey) {
+      setImgSwitching(true);
+      if (imgSwitchTimer !== null) { clearTimeout(imgSwitchTimer); imgSwitchTimer = null; }
+      imgSwitchTimer = window.setTimeout(() => {
+        imgSwitchTimer = null;
+        if (displayKey() === props.obj.key) setImgSwitching(false);
+      }, SWITCH_MIN_MS);
+    } else if (shown === targetKey && imgSwitchTimer === null) {
+      setImgSwitching(false);
+    }
+  });
+  onCleanup(() => { if (imgSwitchTimer !== null) clearTimeout(imgSwitchTimer); });
+
+  const [textSwitching, setTextSwitchingLatched] = createSignal(false);
+  let textSwitchTimer: number | null = null;
+  createEffect(() => {
+    const targetKey = props.obj.key;
+    const d = displayText();
+    const shown = d?.key ?? null;
+    if (isText() && !isImage() && shown !== null && shown !== targetKey) {
+      setTextSwitchingLatched(true);
+      if (textSwitchTimer !== null) { clearTimeout(textSwitchTimer); textSwitchTimer = null; }
+      textSwitchTimer = window.setTimeout(() => {
+        textSwitchTimer = null;
+        const cur = displayText();
+        if ((cur?.key ?? null) === props.obj.key) setTextSwitchingLatched(false);
+      }, SWITCH_MIN_MS);
+    } else if (shown === targetKey && textSwitchTimer === null) {
+      setTextSwitchingLatched(false);
+    }
+  });
+  onCleanup(() => { if (textSwitchTimer !== null) clearTimeout(textSwitchTimer); });
 
   async function saveEdit(content: string) {
     const ct = props.obj.content_type || `text/${ext() || "plain"}`;
@@ -208,10 +244,16 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <PreviewErrorCard err={imgUrl.error} />
               </Show>
               <Show when={displayUrl()}>
-                <img class="preview-thumb preview-img-thumb-zoom" src={imgSrc()}
-                     onClick={() => setExpanded(true)} />
+                <img
+                  class="preview-thumb preview-img-thumb-zoom"
+                  classList={{ "preview-thumb-switching": imgSwitching() }}
+                  src={imgSrc()}
+                  onClick={() => setExpanded(true)}
+                />
                 <Show when={imgSwitching()}>
-                  <span class="spinner preview-corner-spinner" />
+                  <div class="preview-switching-overlay">
+                    <span class="spinner spinner-lg" />
+                  </div>
                 </Show>
               </Show>
             </div>
@@ -226,7 +268,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <div class="preview-editor rel">
                   <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
                   <Show when={textSwitching()}>
-                    <span class="spinner preview-corner-spinner" />
+                    <div class="preview-switching-overlay">
+                      <span class="spinner spinner-lg" />
+                    </div>
                   </Show>
                 </div>
               </Show>
@@ -248,7 +292,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                   <div class="preview-editor full">
                     <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
                     <Show when={textSwitching()}>
-                      <span class="spinner preview-corner-spinner" />
+                      <div class="preview-switching-overlay">
+                        <span class="spinner spinner-lg" />
+                      </div>
                     </Show>
                   </div>
                 </Show>

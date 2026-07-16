@@ -243,7 +243,21 @@
 .preview-editor.rel { position: relative; }
 .preview-editor.full { width: 100%; position: relative; }
 .preview-img-thumb-zoom { cursor: zoom-in; }
-.preview-corner-spinner { position: absolute; top: 8px; right: 8px; }
+.preview-switching-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border-radius: inherit;
+  animation: preview-overlay-in 0.12s ease;
+  z-index: 2;
+}
+@keyframes preview-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.preview-thumb-switching { opacity: 0.5; transition: opacity 0.15s ease; }
 
 .preview-load-hint {
   display: flex; flex-direction: column; align-items: center;
