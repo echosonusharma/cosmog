@@ -90,7 +90,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       <div class="app-toolbar">
         <div class="toolbar-left">
           <div class="toolbar-nav">
-            <button class="icon-btn" title="Refresh" onClick={() => setRefresh((n) => n + 1)}><IconRefresh size={16} /></button>
+            <button class="icon-btn" onClick={() => setRefresh((n) => n + 1)}><IconRefresh size={16} /><span class="btn-label-mobile">Refresh</span></button>
           </div>
           <div class="path-bar">
             <span class="path-icon"><IconHome size={14} /></span>
@@ -111,7 +111,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
         </div>
         <div class="toolbar-actions">
           <button class="btn-secondary toolbar-btn" onClick={() => setShowNew(true)}>
-            <IconPlus size={14} /> New bucket
+            <IconPlus size={14} /> <span class="btn-label-desktop">New bucket</span><span class="btn-label-mobile">Add Bucket</span>
           </button>
         </div>
       </div>
@@ -147,13 +147,13 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                     <button class="bucket-name"
                             onClick={() => setBrowseState({ bucket: b.name, prefix: "" })}>
                       <Show when={encSet()?.has(b.name)} fallback={<span class="bucket-icon"><IconBucket size={18} /></span>}>
-                        <span class="bucket-icon encrypted" title="Encrypted bucket">
+                        <span class="bucket-icon encrypted">
                           <IconLock size={16} />
                         </span>
                       </Show>
                       <span class="truncate">{b.name}</span>
                     </button>
-                    <button class="icon-btn danger bucket-del" title="Delete bucket"
+                    <button class="icon-btn danger bucket-del"
                             onClick={() => handleDelete(b.name)}><IconTrash size={15} /></button>
                   </div>
                 )}

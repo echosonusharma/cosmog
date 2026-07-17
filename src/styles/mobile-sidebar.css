@@ -1,0 +1,127 @@
+/* mobile: sidebar drawer + top header. */
+
+.mobile-header {
+  display: none;
+}
+
+.sidebar-drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  html, body, #root {
+    height: 100dvh;
+  }
+  .cosmog-root {
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    background: #13141b;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: env(safe-area-inset-top);
+    left: 0;
+    height: calc(100dvh - env(safe-area-inset-top));
+    width: 280px;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    padding-bottom: 0;
+  }
+
+  /* bug report sits flush to bottom, padding accounts for gesture bar */
+  .sidebar-bug-btn {
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+  }
+
+  .sidebar-drawer-backdrop {
+    top: env(safe-area-inset-top);
+    bottom: env(safe-area-inset-bottom);
+  }
+
+  .sidebar-drawer.open .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 999;
+  }
+
+  .mobile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    padding: 0 6px;
+    background: #13141b;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    color: #e9eaf0;
+  }
+
+  .mobile-header-btn {
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #959aab;
+    cursor: pointer;
+    border-radius: 7px;
+    flex-shrink: 0;
+  }
+  .mobile-header-btn:hover { background: #191b24; color: #e9eaf0; }
+
+  .mobile-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mobile-header-logo {
+    border-radius: 6px;
+    display: block;
+    box-shadow: 0 1px 5px rgba(0,0,0,.3);
+  }
+  .mobile-header-appname {
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: .2px;
+    color: #e9eaf0;
+  }
+
+  .mobile-header-section {
+    flex: 1;
+    text-align: right;
+    padding-right: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #959aab;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* sidebar account header stays dark regardless of theme */
+  .sidebar-account-header {
+    background: #13141b;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .sidebar-account-pill {
+    background: #191b24;
+    border-color: rgba(255,255,255,0.08);
+  }
+  .sidebar-account-name { color: #e9eaf0; }
+  .sidebar-account-provider { color: #959aab; }
+  .collapse-btn { color: #959aab; }
+  .collapse-btn:hover { color: #e9eaf0; background: #22242f; }
+}

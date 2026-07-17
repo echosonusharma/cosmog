@@ -38,24 +38,3 @@
 
 .truncate   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
-/* themed tooltip: JS attaches on [data-tt="..."] elements */
-.app-tooltip {
-  position: fixed;
-  transform: translateY(-50%);
-  background: var(--accent);
-  color: #fff;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 11.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  z-index: 10000;
-  pointer-events: none;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-  opacity: 0;
-  transition: opacity 0.12s;
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.app-tooltip.visible { opacity: 1; }

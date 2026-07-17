@@ -51,12 +51,39 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+/// Native notification command. Uses tauri-plugin-notification's builder so we
+/// can pass an Android drawable name for the icon and a stable id so subsequent
+/// calls with the same id REPLACE the existing notification instead of stacking.
+#[tauri::command]
+fn notify_ex(
+    app: tauri::AppHandle,
+    id: i32,
+    title: String,
+    body: Option<String>,
+    icon: Option<String>,
+    ongoing: Option<bool>,
+    auto_cancel: Option<bool>,
+    silent: Option<bool>,
+    channel_id: Option<String>,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let mut b = app.notification().builder().id(id).title(title);
+    if let Some(v) = body { b = b.body(v); }
+    if let Some(v) = icon { b = b.icon(v); }
+    if let Some(v) = channel_id { b = b.channel_id(v); }
+    if ongoing.unwrap_or(false) { b = b.ongoing(); }
+    if auto_cancel.unwrap_or(false) { b = b.auto_cancel(); }
+    if silent.unwrap_or(false) { b = b.silent(); }
+    b.show().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             use tracing_subscriber::layer::SubscriberExt;
             use tracing_subscriber::util::SubscriberInitExt;
@@ -333,6 +360,9 @@ pub fn run() {
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale
+
+            // -------- notifications: native builder with icon + stable id --------
+            notify_ex,
 
             // -------- dev: debug helpers --------
             #[cfg(debug_assertions)]

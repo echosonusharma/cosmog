@@ -207,12 +207,12 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           <FileIcon name={props.obj.basename} size={20} />
           <span class="preview-title">{props.obj.basename}</span>
           <Show when={isImage() && displayUrl()}>
-            <button class="icon-btn" title="Expand" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
+            <button class="icon-btn" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
           </Show>
           <Show when={isText() && cur()}>
-            <button class="icon-btn" title="Edit" onClick={() => setEditOpen(true)}><IconEdit size={15} /></button>
+            <button class="icon-btn" onClick={() => setEditOpen(true)}><IconEdit size={15} /></button>
           </Show>
-          <button class="icon-btn" onClick={props.onClose} title="Close"><IconX size={16} /></button>
+          <button class="icon-btn" onClick={props.onClose}><IconX size={16} /></button>
         </div>
         <div class="preview-body">
           <Show when={preview.error}>

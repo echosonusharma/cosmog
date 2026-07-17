@@ -67,9 +67,9 @@ export function AccountsList() {
                     {a.endpoint ? ` · ${a.endpoint}` : ""}
                   </span>
                 </div>
-                <button class="icon-btn" title="Edit"
+                <button class="icon-btn"
                         onClick={() => { setEditing(a); setShowAdd(true); }}><IconEdit size={15} /></button>
-                <button class="icon-btn danger" title="Remove"
+                <button class="icon-btn danger"
                         onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
               </div>
             )}
