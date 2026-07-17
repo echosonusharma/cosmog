@@ -33,8 +33,8 @@ export function Toolbar(props: {
     <div class="app-toolbar">
       <div class="toolbar-left">
         <div class="toolbar-nav">
-          <button class="icon-btn" title="Back" onClick={goUpPrefix}><IconBack size={16} /></button>
-          <button class="icon-btn" title="Refresh" onClick={props.onRefresh}><IconRefresh size={16} /></button>
+          <button class="icon-btn" onClick={goUpPrefix}><IconBack size={16} /></button>
+          <button class="icon-btn" onClick={props.onRefresh}><IconRefresh size={16} /></button>
         </div>
         <PathBar
           accountName={props.accountName}
@@ -63,7 +63,7 @@ export function Toolbar(props: {
       {/* index toggle */}
       <button
         class={`index-toggle-btn ${(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "on" : "off"}`}
-        title={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Indexing enabled. Click to disable" : "Indexing disabled. Click to enable"}
+
         disabled={props.indexBusy}
         onClick={props.onToggleIndex}
       >
@@ -81,12 +81,12 @@ export function Toolbar(props: {
           <span class="sync-badge"><span class="spinner" /> syncing</span>
         </Show>
         <Show when={!props.showSyncing && props.mode === "live"}>
-          <span class="mode-badge live" title="Live mode. Pages fetched on demand. Enable indexing for search.">live</span>
+          <span class="mode-badge live">live</span>
         </Show>
         <button
           class="icon-btn"
           style={props.encryptionEnabled ? "color:var(--accent)" : ""}
-          title={props.encryptionEnabled ? "Encryption enabled. Click to manage" : "Enable bucket encryption"}
+
           onClick={props.onOpenEncryption}
         >
           <Show when={props.encryptionEnabled} fallback={<IconLockOpen size={15} />}>
@@ -94,11 +94,11 @@ export function Toolbar(props: {
           </Show>
         </button>
         <div class="view-mode-toggle">
-          <button class={`view-mode-btn ${props.viewMode === "columns" ? "active" : ""}`} onClick={() => props.onViewMode("columns")} title="Columns"><IconColumns size={14} /></button>
-          <button class={`view-mode-btn ${props.viewMode === "list" ? "active" : ""}`} onClick={() => props.onViewMode("list")} title="List"><IconList size={14} /></button>
+          <button class={`view-mode-btn ${props.viewMode === "columns" ? "active" : ""}`} onClick={() => props.onViewMode("columns")}><IconColumns size={14} /></button>
+          <button class={`view-mode-btn ${props.viewMode === "list" ? "active" : ""}`} onClick={() => props.onViewMode("list")}><IconList size={14} /></button>
         </div>
         <button class="btn-secondary toolbar-btn" onClick={props.onNewFolder}>
-          <IconPlus size={14} /> New folder
+          <IconPlus size={14} /> <span class="btn-label-desktop">New folder</span><span class="btn-label-mobile">Add</span>
         </button>
         <button class="btn-primary toolbar-btn" onClick={props.onUpload}>
           <IconUpload size={14} /> Upload

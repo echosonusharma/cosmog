@@ -25,7 +25,7 @@ export function ProviderIconTile(props: { provider: ProviderDef; size?: number }
     <span
       class="provider-icon-tile"
       style={{ background: color, width: `${sz}px`, height: `${sz}px`, "border-radius": `${Math.round(sz * 0.22)}px` }}
-      title={props.provider.label}
+
     >
       <img src={props.provider.iconUrl} alt={props.provider.label} />
     </span>

@@ -55,24 +55,24 @@ export function TransferRow(props: {
 
       <div class="transfer-info">
         <div class="transfer-line-1">
-          <span class="transfer-filename" title={`${t().bucket}/${t().key}`}>{basename(t().key)}</span>
+          <span class="transfer-filename">{basename(t().key)}</span>
           <span class={`transfer-action-badge ${t().status.toLowerCase()}`}>
             {actionVerb(t())}
           </span>
           <div class="transfer-btns">
             <Show when={isActive()}>
-              <button class="icon-btn danger" title="Cancel" onClick={props.onCancel}><IconX size={13} /></button>
+              <button class="icon-btn danger" onClick={props.onCancel}><IconX size={13} /></button>
             </Show>
             <Show when={t().status === "failed"}>
-              <button class="icon-btn" title="Retry" onClick={props.onRetry}><IconRefresh size={13} /></button>
+              <button class="icon-btn" onClick={props.onRetry}><IconRefresh size={13} /></button>
             </Show>
             <Show when={isTerminal()}>
-              <button class="icon-btn" title="Remove" onClick={props.onClear}><IconX size={13} /></button>
+              <button class="icon-btn" onClick={props.onClear}><IconX size={13} /></button>
             </Show>
           </div>
         </div>
 
-        <div class="transfer-line-2" title={`${t().bucket}/${t().key}`}>
+        <div class="transfer-line-2">
           {shortPath(t())}
         </div>
 

@@ -12,7 +12,7 @@ export function ProviderTile(props: {
     <span
       class={`provider-icon-tile${sz === "small" ? " small" : sz === "large" ? " large" : ""}`}
       style={{ background: def().color }}
-      title={def().label}
+
     >
       <img src={def().iconUrl} alt={def().label} />
     </span>

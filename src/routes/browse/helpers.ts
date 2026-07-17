@@ -1,4 +1,6 @@
 import ExcelJS from "exceljs";
+import { readFile, writeFile, mkdir, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { appCacheDir, join } from "@tauri-apps/api/path";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -12,6 +14,48 @@ export function pathFromDialog(sel: unknown): string {
   // Tauri on Linux/Wayland may return file:// URIs — unwrap to a plain path.
   if (s.startsWith("file://")) s = decodeURIComponent(s.replace(/^file:\/\//, ""));
   return s;
+}
+
+/** Android SAF returns content:// URIs. Rust upload path requires absolute
+ *  filesystem path — copy the URI into app cache dir and return that path.
+ *  Non-URI paths pass through unchanged. */
+export async function resolveUploadPath(pathOrUri: string): Promise<string> {
+  if (!pathOrUri) return "";
+  if (!pathOrUri.startsWith("content://") && !pathOrUri.startsWith("file://")) return pathOrUri;
+
+  const nameRaw = pathOrUri.split("/").pop() || "upload";
+  const name = (() => { try { return decodeURIComponent(nameRaw); } catch { return nameRaw; } })();
+  const uploadsRel = "uploads";
+  if (!(await exists(uploadsRel, { baseDir: BaseDirectory.AppCache }))) {
+    await mkdir(uploadsRel, { baseDir: BaseDirectory.AppCache, recursive: true });
+  }
+  const rel = `${uploadsRel}/${Date.now()}-${name}`;
+  const bytes = await readFile(pathOrUri);
+  await writeFile(rel, bytes, { baseDir: BaseDirectory.AppCache });
+  const cache = await appCacheDir();
+  return await join(cache, rel);
+}
+
+/** Android SAF returns content:// URIs. Rust download requires absolute
+ *  filesystem path — redirect any URI target to $APPCACHE/downloads/<name>. */
+export async function resolveDownloadPath(pathOrUri: string, fallbackName?: string): Promise<string> {
+  if (!pathOrUri) return "";
+  const isUri = pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://");
+  const isMobileLike = typeof window !== "undefined" && window.matchMedia?.("(max-width: 768px)").matches;
+  const isAbsolute = pathOrUri.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(pathOrUri);
+  // desktop: absolute filesystem path — pass through unchanged.
+  if (!isUri && !isMobileLike && isAbsolute) return pathOrUri;
+  // desktop with non-absolute path — return as-is; Rust will surface the error.
+  if (!isUri && !isMobileLike) return pathOrUri;
+
+  const tailRaw = pathOrUri.split("/").pop() || fallbackName || "download";
+  const name = (() => { try { return decodeURIComponent(tailRaw); } catch { return tailRaw; } })();
+  const downloadsRel = "downloads";
+  if (!(await exists(downloadsRel, { baseDir: BaseDirectory.AppCache }))) {
+    await mkdir(downloadsRel, { baseDir: BaseDirectory.AppCache, recursive: true });
+  }
+  const cache = await appCacheDir();
+  return await join(cache, downloadsRel, name);
 }
 
 export const IMAGE_EXTS  = new Set(["jpg","jpeg","png","gif","webp","svg","bmp","ico","avif","tiff","tif"]);

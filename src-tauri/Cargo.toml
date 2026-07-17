@@ -51,6 +51,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 urlencoding = "2"
 tauri-plugin-notification = "2.3.3"
+tauri-plugin-fs = "2"
 age = { version = "0.11", features = ["armor"] }
 rand = "0.8"
 zeroize = { version = "1", features = ["zeroize_derive"] }

@@ -1,5 +1,6 @@
 import { createResource, Show } from "solid-js";
 import { resolvedTheme, setTheme } from "../state/theme";
+import { isMobile } from "../utils/breakpoint";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -43,22 +44,24 @@ export default function Titlebar() {
         <span class="titlebar-version">v{version()}</span>
       </div>
       <div class="titlebar-controls">
-        <button class="titlebar-btn" onClick={toggleTheme} title="Toggle theme">
+        <button class="titlebar-btn" onClick={toggleTheme}>
           {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
         </button>
-        <div class="titlebar-sep" />
-        <Show when={isTauri}>
-          <button class="titlebar-btn" onClick={() => win?.minimize()} title="Minimize">
+        <Show when={!isMobile()}>
+          <div class="titlebar-sep" />
+        </Show>
+        <Show when={isTauri && !isMobile()}>
+          <button class="titlebar-btn" onClick={() => win?.minimize()}>
             <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
               <path d="M5 12h14"/>
             </svg>
           </button>
-          <button class="titlebar-btn" onClick={() => win?.toggleMaximize()} title="Maximize">
+          <button class="titlebar-btn" onClick={() => win?.toggleMaximize()}>
             <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.9" fill="none">
               <rect x="4" y="4" width="16" height="16" rx="2.5"/>
             </svg>
           </button>
-          <button class="titlebar-btn close" onClick={() => win?.close()} title="Close">
+          <button class="titlebar-btn close" onClick={() => win?.close()}>
             <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
               <path d="M6 6l12 12M18 6L6 18"/>
             </svg>

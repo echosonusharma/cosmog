@@ -1,0 +1,273 @@
+/* mobile: browse view. miller columns, list, preview, toolbar. */
+
+.btn-label-mobile { display: none; }
+.btn-label-desktop { display: inline; }
+@media (max-width: 768px) { .btn-label-desktop { display: none; } }
+
+@media (max-width: 768px) {
+  /* ── miller columns: swipe-snap, one column per viewport ────────────── */
+  .columns-scroll {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: auto;
+  }
+  .col-pane {
+    flex: 0 0 100%;
+    width: 100%;
+    scroll-snap-align: start;
+    border-right: none;
+    padding: 6px 6px;
+  }
+
+  /* ── toolbar: 2-row on mobile. row1 nav+actions, row2 full-width path ── */
+  .app-toolbar {
+    padding: 6px 8px;
+    gap: 6px;
+    row-gap: 6px;
+    height: auto;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .toolbar-left,
+  .toolbar-nav,
+  .toolbar-actions {
+    display: contents;
+  }
+  .path-bar {
+    order: 10;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    padding: 0 8px;
+    gap: 6px;
+    height: 34px;
+  }
+  /* row 1: every action button share width evenly */
+  .app-toolbar > .toolbar-left > .toolbar-nav > button,
+  .app-toolbar > .toolbar-left > .toolbar-nav > .icon-btn,
+  .app-toolbar > .toolbar-actions > button,
+  .app-toolbar > .toolbar-actions > .icon-btn,
+  .app-toolbar > .toolbar-actions > .toolbar-btn {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    height: 34px !important;
+  }
+  .toolbar-btn {
+    padding: 0 8px !important;
+    gap: 4px;
+  }
+  .breadcrumb {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    font-size: 12.5px;
+  }
+  .breadcrumb::-webkit-scrollbar { display: none; }
+  .breadcrumb-link,
+  .breadcrumb-current {
+    font-size: 12.5px;
+    padding: 2px 4px;
+  }
+  .toolbar-actions {
+    gap: 4px;
+  }
+
+  /* ── toolbar: hide non-essential controls, keep breadcrumb + primary actions ── */
+  .toolbar-search,
+  .index-toggle-btn,
+  .view-mode-toggle,
+  .sync-badge,
+  .mode-badge {
+    display: none !important;
+  }
+  .toolbar-btn {
+    font-size: 12px !important;
+    padding: 0 6px !important;
+    min-width: 36px;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1;
+  }
+  .toolbar-btn svg { flex-shrink: 0; }
+
+  /* icon-btn: center icon+label horizontally when stretched */
+  .app-toolbar .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .app-toolbar .icon-btn svg { flex-shrink: 0; }
+  .btn-label-mobile { display: inline; font-size: 12px; line-height: 1; }
+
+  /* ── bucket grid: single column ──────────────────────────────────────── */
+  .bucket-grid-view {
+    padding: 0;
+  }
+  .bucket-grid {
+    grid-template-columns: 1fr !important;
+    gap: 6px;
+  }
+  .bucket-grid-body {
+    padding: 8px 0;
+  }
+  .bucket-card,
+  .bucket-tile,
+  .bucket-item {
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+  }
+  .bucket-name {
+    padding: 14px 16px;
+    font-size: 14px;
+  }
+
+  /* ── list view / table view: compact rows, hide non-essential cols ───── */
+  .col-header {
+    grid-template-columns: 1fr 90px;
+    gap: 8px;
+    padding: 8px 8px;
+    font-size: 10px;
+  }
+  .col-header > *:nth-child(n+3) {
+    display: none;
+  }
+  .obj-row {
+    grid-template-columns: 1fr 90px;
+    gap: 8px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    height: 40px;
+  }
+  .obj-row > *:nth-child(n+3) {
+    display: none;
+  }
+  .obj-type,
+  .obj-date {
+    display: none;
+  }
+  .obj-size {
+    font-size: 11.5px;
+  }
+
+  /* table-view variant */
+  .table-header {
+    grid-template-columns: 1fr 70px;
+    column-gap: 8px;
+    padding: 0 8px;
+  }
+  .table-header .th-type,
+  .table-header .th-date,
+  .table-header .th-class,
+  .table-header .th-actions {
+    display: none;
+  }
+  .table-row {
+    grid-template-columns: 1fr 70px;
+    column-gap: 8px;
+    padding: 0 8px;
+    height: 40px;
+    font-size: 12.5px;
+  }
+  .table-row .td-type,
+  .table-row .td-date,
+  .table-row .td-class,
+  .table-row .td-actions {
+    display: none;
+  }
+
+  /* ── bulk-bar: pinned to bottom (respect gesture bar) ────────────────── */
+  .bulk-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 800;
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--accent-soft);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+  }
+  .bulk-bar .bulk-actions {
+    gap: 4px;
+  }
+
+  /* ── preview pane: full-screen overlay (respect status bar) ──────────── */
+  .preview-pane {
+    position: fixed;
+    left: env(safe-area-inset-left);
+    right: env(safe-area-inset-right);
+    top: calc(env(safe-area-inset-top) + 48px);
+    bottom: env(safe-area-inset-bottom);
+    width: auto;
+    height: auto;
+    z-index: 900;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .preview-header {
+    padding: 10px 12px;
+  }
+  .preview-body {
+    padding: 12px;
+    gap: 12px;
+  }
+  .preview-thumb {
+    max-height: 40dvh;
+  }
+  .preview-text {
+    max-height: 40dvh;
+  }
+  .preview-editor {
+    max-height: 50dvh;
+  }
+  .preview-meta {
+    grid-template-columns: 80px 1fr;
+    font-size: 11.5px;
+  }
+
+  /* ── search results / index bar: compact, allow horizontal scroll ────── */
+  .search-controls {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .index-bar {
+    padding: 6px 10px;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .index-bar::-webkit-scrollbar { display: none; }
+  .results-header {
+    padding: 8px 10px;
+  }
+
+  /* ── view-header: tighter padding ────────────────────────────────────── */
+  .view-header {
+    padding: 10px 12px 8px;
+  }
+
+  /* ── enc identity banner ─────────────────────────────────────────────── */
+  .enc-identity-banner {
+    margin: 6px 8px;
+    padding: 8px 10px;
+    font-size: 11.5px;
+  }
+}

@@ -3,12 +3,11 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { createBucket } from "../../api/buckets";
 import { moveObject } from "../../api/objects";
 import { enqueueUpload, enqueueDownload } from "../../api/transfers";
-import { notify } from "../../utils/notify";
 import { toast, errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
 import { IconLock } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
-import { pathFromDialog } from "./helpers";
+import { pathFromDialog, resolveUploadPath, resolveDownloadPath } from "./helpers";
 
 // ── modals ────────────────────────────────────────────────────────────────────
 
@@ -22,18 +21,26 @@ export function DownloadModal(props: {
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
 
+  // On mobile the default (like ~/Downloads/foo) is not a valid absolute path.
+  // Resolve to $APPCACHE/downloads/<name> on mount so user sees the real target.
+  resolveDownloadPath(defaultPath, props.obj.basename).then((p) => {
+    if (dest() === defaultPath) setDest(p);
+  });
+
   async function browse() {
     const sel = await saveDialog({ defaultPath: dest() });
-    if (sel) setDest(pathFromDialog(sel));
+    if (!sel) return;
+    const clean = await resolveDownloadPath(pathFromDialog(sel), props.obj.basename);
+    setDest(clean);
   }
 
   async function submit() {
     if (!dest().trim()) return;
     setBusy(true); setErr("");
     try {
-      await enqueueDownload(props.obj.account_id, props.obj.bucket, props.obj.key, dest().trim());
+      const target = await resolveDownloadPath(dest().trim(), props.obj.basename);
+      await enqueueDownload(props.obj.account_id, props.obj.bucket, props.obj.key, target);
       props.onClose();
-      notify("Download started", props.obj.basename);
     } catch (e) {
       setErr(errMsg(e));
     } finally { setBusy(false); }
@@ -94,15 +101,15 @@ export function UploadModal(props: {
     try {
       for (let i = 0; i < list.length; i++) {
         setCurrentIdx(i);
-        const path = list[i];
+        const rawPath = list[i];
+        const path = await resolveUploadPath(rawPath);
         const key = keyPrefix().trim()
-          ? keyPrefix().trim().replace(/\/?$/, "/") + basename(path)
-          : basename(path);
+          ? keyPrefix().trim().replace(/\/?$/, "/") + basename(rawPath)
+          : basename(rawPath);
         await enqueueUpload(props.accountId, props.bucket, key, path);
       }
       props.onClose();
       props.onQueued?.();
-      notify("Upload queued", `${list.length} file${list.length > 1 ? "s" : ""} queued for upload`);
     } catch (e) {
       setErr(errMsg(e));
     } finally { setBusy(false); }
