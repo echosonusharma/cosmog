@@ -3,7 +3,7 @@
 
   # Cosmog
 
-  Desktop app for managing S3-compatible object storage.  
+  Desktop and Android app for managing S3-compatible object storage.  
   Browse, upload, download, and organize files across any S3 provider.
 </div>
 
@@ -33,6 +33,7 @@
 - **Secure credentials** secrets stored in the OS keychain, never written to disk
 - **Backup and restore** export and import accounts and settings as JSON (secrets excluded)
 - **Themes** light, dark, or follow system
+- **Android** native OS notifications, background transfers via foreground service, SAF-based file picker for saving downloads anywhere on device
 
 ## Supported Providers
 
@@ -55,18 +56,22 @@
 | Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 | Linux (.deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Android (APK) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
 
-> Credentials are stored in the native OS secret store: Keychain on macOS,
+> **Android:** requires Android 7.0 (API 24) or newer. Sideload the APK or install via a release
+> channel. Credentials are stored in EncryptedSharedPreferences backed by the Android Keystore.
+
+> **Desktop:** credentials are stored in the native OS secret store: Keychain on macOS,
 > Credential Manager on Windows, and the D-Bus Secret Service on Linux.
 > A compatible provider such as GNOME Keyring, KWallet, or KeePassXC must be running on Linux.
 
-> Cosmog is built with [Tauri](https://tauri.app) and renders using each platform's native WebView
-> (WKWebView on macOS, WebView2 on Windows, WebKit2GTK on Linux). Visual appearance may vary
-> slightly between operating systems.
+> Cosmog is built with [Tauri](https://tauri.app). On desktop it renders using the platform's
+> native WebView (WKWebView on macOS, WebView2 on Windows, WebKit2GTK on Linux). On Android it
+> uses the system WebView.
 
 ## Development
 
-**Prerequisites**
+**Prerequisites (desktop)**
 - [Rust](https://rustup.rs) (stable toolchain)
 - Node 22+
 - Linux only: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`
@@ -75,6 +80,21 @@
 npm install
 npm run tauri dev     # run with hot reload
 npm run tauri build   # production bundles
+```
+
+**Prerequisites (Android)**
+- Android Studio with SDK 36 and NDK 27
+- Rust Android targets:
+  ```sh
+  rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+  ```
+- [Tauri Android environment setup](https://v2.tauri.app/start/prerequisites/#android)
+
+```sh
+npm install
+npx tauri android build --debug --apk --target aarch64   # arm64 device
+npx tauri android build --debug --apk --target x86_64    # emulator
+adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
 Architecture, module layout, and internals are documented in [DOCS.md](DOCS.md).

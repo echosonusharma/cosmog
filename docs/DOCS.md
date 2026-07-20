@@ -1,12 +1,12 @@
 # Cosmog Project Documentation
 
-Desktop app for managing S3-compatible object storage. Version 0.1.9.
+Desktop and Android app for managing S3-compatible object storage. Version 0.1.10.
 
 ---
 
 ## What It Does
 
-Cosmog lets you manage files across S3-compatible object storage from a desktop app. Browse buckets, upload and download files, search, preview content, manage versions, configure multiple accounts, and optionally client-side encrypt entire buckets with per-bucket keys. Credentials and encryption keys are stored securely in the OS keychain.
+Cosmog lets you manage files across S3-compatible object storage from a desktop or Android app. Browse buckets, upload and download files, search, preview content, manage versions, configure multiple accounts, and optionally client-side encrypt entire buckets with per-bucket keys. Credentials and encryption keys are stored securely in the OS keychain (desktop) or Android Keystore-backed EncryptedSharedPreferences (Android).
 
 **Supported providers:** AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, any S3-compatible API.
 
@@ -55,6 +55,15 @@ Cosmog lets you manage files across S3-compatible object storage from a desktop 
 
 **Tauri plugins:** `tauri-plugin-notification`, `tauri-plugin-opener`, `tauri-plugin-dialog`
 
+### Android (Kotlin / JNI)
+
+| Component | Purpose |
+|-----------|---------|
+| `TransferService.kt` | Foreground service (dataSync type) that keeps transfers alive when the app is backgrounded; NOT_STICKY, stops on task removal |
+| `SecretStore.kt` | EncryptedSharedPreferences wrapper for S3 credentials; recovers automatically from keystore/prefs desync by wiping and recreating both |
+| `saf.rs` | JNI bridge for Android Storage Access Framework: stage uploads to cache, finalize downloads to SAF URI, delete placeholder documents |
+| `jni` 0.21 | Rust JNI bindings; every fallible call checks and clears pending Java exceptions before returning |
+
 ---
 
 ## Architecture
@@ -86,11 +95,12 @@ AppState
 **Key design rules:**
 
 - `AppState` is `Arc`-shared across all commands (cheap clone)
-- Secrets are never stored in SQLite, only in the OS keyring
+- Secrets are never stored in SQLite, only in the OS keyring (desktop) or EncryptedSharedPreferences (Android)
 - Schema evolves via append-only migrations (never edit or reorder existing entries)
 - `ObjectStore` trait is the only abstraction over providers; commands are protocol-agnostic
 - Transfer workers emit `TransferEvent` via `ProgressSink` (type-erased, fan-out capable)
 - Client-side encryption is per-bucket, transparent to upload/download flows, and enforced only when a config row exists in `bucket_encryption` for that (account, bucket)
+- On Android, every JNI call that can throw checks/clears pending exceptions before returning; ART aborts the process otherwise
 
 ---
 
@@ -157,11 +167,20 @@ cosmog/
         +-- lib.rs                # App init and command registration
         +-- main.rs               # Tauri entry point
         +-- providers.rs          # Protocol enum and build_store factory
+        +-- saf.rs                # Android only: JNI bridge for SAF + foreground service
         +-- scheduler.rs          # Background auto-reindex loop
         +-- secrets.rs            # OS keyring read/write
         +-- state.rs              # AppState struct
         +-- sync.rs               # Cache synchronization
         +-- validate.rs           # Account credential validation
+    +-- gen/android/              # Generated Android project (committed)
+        +-- app/src/main/
+            +-- AndroidManifest.xml
+            +-- java/com/sonus/cosmog/
+            |   +-- MainActivity.kt
+            |   +-- TransferService.kt  # Foreground service + wakelock
+            |   +-- SecretStore.kt      # EncryptedSharedPreferences with recovery
+            +-- res/                    # Icons, strings, themes
 ```
 
 ---
@@ -295,6 +314,17 @@ cosmog/
 |---------|-------------|
 | `browse_prefix` | Cached children and sub-prefixes with background-refresh if stale |
 
+### Android (mobile only)
+
+| Command | Description |
+|---------|-------------|
+| `notify_ex` | Post a rich OS notification: title, body, expanded BigTextStyle, summary, channel, action type, ongoing flag |
+| `set_transfer_service` | Start or stop the Android foreground service that keeps transfers alive in the background |
+| `stage_saf_upload` | Copy a file chosen via SAF picker into the app cache dir and return a stable path the transfer engine can read |
+| `finalize_saf_download` | Copy a completed download from the cache path to the SAF URI the user picked; called after the transfer worker reports Done |
+| `delete_saf_document` | Delete a SAF document URI (used to remove 0-byte placeholder files on cancel, re-pick, or abandoned picker) |
+| `query_display_name` | Resolve a SAF URI to its provider-supplied display name for use in notifications and the UI |
+
 ### Encryption (per-bucket, client-side)
 
 | Command | Description |
@@ -333,6 +363,13 @@ TransferEvent::Canceled       { transfer_id }
 - `CancellationToken` per transfer for cooperative cancel
 - `ProgressSink` is type-erased (`Arc<dyn Fn(TransferEvent)>`) and supports fan-out to FE channel and DB simultaneously
 - Encrypted buckets: uploads stream through `crypto::encrypt_file` to a temp `.age` file under `<app_data>/enc_tmp/` (cleaned via `opts.cleanup_path` after the worker settles, and swept unconditionally at next startup). Downloads probe age v1 magic on the fetched bytes, then stream through `crypto::decrypt_file` to a sibling `.dec` temp and atomic-rename over the ciphertext. Retries on encrypted buckets never resume from a partial range (age requires the full stream to authenticate).
+
+**Android specifics:**
+
+- `TransferService` (foreground service, `dataSync` type) is started when any transfer becomes active and stopped when none remain. `START_NOT_STICKY` prevents the OS from restarting the service after the app is killed; `onTaskRemoved` calls `stopSelf()` so the service dies with the task. A wakelock without timeout is held for the service lifetime (bounded by the FGS lifecycle).
+- SAF download flow: the frontend registers a `(transfer_id, SAF URI)` entry before enqueuing. After the worker emits `Done`, `MainApp.tsx` calls `finalize_saf_download` which copies the cache file to the SAF URI via JNI, then deletes the cache file. On failure an alert notification is posted and the transfer is marked done (not failed) since the S3 download itself succeeded. On cancel the 0-byte SAF placeholder is deleted via `delete_saf_document`.
+- SAF retry: `moveSafFinalize` re-keys the pending finalize entry from the old transfer ID to the new one returned by `retry_transfer`, so the user's chosen location survives retry.
+- Completed upload and canceled upload cache files under `<cache>/uploads/` are deleted by the transfer manager after the worker settles. Failed upload cache files are kept so retry can reuse them without re-staging.
 
 ---
 
@@ -423,6 +460,12 @@ SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode and foreign keys enabled.
 - Exported key files are written with `0600` permissions on Unix
 - The Rust side holds secret material in `zeroize::Zeroizing<String>` best-effort; the FE clears the secret signal on every modal close path
 
+**Android:**
+
+- Credentials are stored in `EncryptedSharedPreferences` backed by the Android Keystore (`AES256_GCM` master key, `AES256_SIV` key encryption, `AES256_GCM` value encryption)
+- If the keystore and preferences file become desynchronized (backup restore, keystore rotation, corrupt file), `SecretStore` catches the exception, wipes both the preferences file and the `MasterKey.DEFAULT_MASTER_KEY_ALIAS` keystore entry, and recreates fresh prefs. Stored secrets are lost in this case; the user must re-add accounts.
+- The `saf.rs` JNI bridge never holds secret material; it only handles file paths and SAF URIs
+
 ---
 
 ## Logging
@@ -477,6 +520,30 @@ npm run build          # tsc + vite build + tauri compile
 npm run tauri <cmd>    # uses cross-env NO_STRIP=1
 ```
 
+**Android:**
+
+Prerequisites: Android Studio, SDK 36, NDK 27, Java 17. Rust Android targets:
+
+```bash
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+```
+
+```bash
+# Debug APK for arm64 phone
+npx tauri android build --debug --apk --target aarch64
+
+# Debug APK for emulator (x86_64)
+npx tauri android build --debug --apk --target x86_64
+
+# Release APK (all ABIs, requires keystore.properties in gen/android/)
+npx tauri android build --apk
+
+# Install on connected device / emulator
+adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+All single-target builds output to the same path regardless of `--target`. The universal (no `--target`) release APK bundles all 4 ABIs.
+
 **Vite config:** Solid.js plugin, ES2022 target, optimized deps for CodeMirror and ExcelJS.
 
 **Rust test deps:** `tempfile`, `serial_test`, `rand`
@@ -502,6 +569,11 @@ npm run tauri <cmd>    # uses cross-env NO_STRIP=1
 13. Register all Tauri commands (~70 including the encryption surface)
 14. Run Tauri event loop
 
+**Android additions (before step 1, in Kotlin/JVM layer):**
+
+- `SecretStore.prefs()` is called lazily on first credential access; if `EncryptedSharedPreferences` throws (keystore desync), both the prefs file and the Keystore master key entry are wiped and recreated (stored secrets are lost)
+- After the WebView loads, `MainApp.tsx` calls `ensureNotificationPermission()` which fires the system notification permission dialog (Android 13+) on first launch and creates the three notification channels (progress, events, alerts)
+
 ---
 
 ## Uninstall and Data Removal
@@ -521,3 +593,13 @@ App data persists across reinstalls by default. To remove all local data:
 | Linux | `~/.local/share/com.sonus.cosmog` |
 
 Keyring entries are keyed by account ID under the service name `com.sonus.cosmog`. Per-bucket encryption identities use the entry name `enc:<account_id>:<bucket>` under the same service. On Linux these live in the Secret Service (GNOME Keyring, KWallet, or KeePassXC). On macOS they are in Keychain Access. On Windows they are in Credential Manager.
+
+**Android data removal:**
+
+| What | Where |
+|------|-------|
+| App data (SQLite, cache, logs) | Settings > Danger zone > Clear all data, or Android Settings > Apps > Cosmog > Clear data |
+| Credentials | Stored in `EncryptedSharedPreferences` inside the app data sandbox; cleared by either of the above |
+| App data path | `/data/data/com.sonus.cosmog/` (not user-accessible without root) |
+
+There is no separate keyring on Android; all secrets live inside the app sandbox backed by the Android Keystore hardware.
