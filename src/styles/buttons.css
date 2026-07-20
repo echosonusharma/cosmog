@@ -47,6 +47,8 @@
 }
 .btn-secondary:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.btn-block { display: block; width: 100%; }
+
 .btn-row { display: flex; gap: 10px; }
 
 .btn-ghost {

@@ -11,6 +11,19 @@ object SecretStore {
     @Volatile
     private var cached: SharedPreferences? = null
 
+    private fun createPrefs(app: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(app)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            app,
+            PREF_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
     private fun prefs(ctx: Context): SharedPreferences {
         val existing = cached
         if (existing != null) return existing
@@ -18,16 +31,22 @@ object SecretStore {
             val again = cached
             if (again != null) return again
             val app = ctx.applicationContext
-            val masterKey = MasterKey.Builder(app)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            val prefs = EncryptedSharedPreferences.create(
-                app,
-                PREF_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
+            val prefs = try {
+                createPrefs(app)
+            } catch (t: Throwable) {
+                // Keystore master key and the encrypted prefs blob are out of
+                // sync (backup restore, keystore rotation, corrupt file). The
+                // stored secrets are unrecoverable at this point; wipe both
+                // and start fresh rather than crash-looping at startup.
+                android.util.Log.w("SecretStore", "encrypted prefs unreadable, resetting: $t")
+                app.deleteSharedPreferences(PREF_NAME)
+                try {
+                    java.security.KeyStore.getInstance("AndroidKeyStore")
+                        .apply { load(null) }
+                        .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                } catch (_: Throwable) {}
+                createPrefs(app)
+            }
             cached = prefs
             return prefs
         }

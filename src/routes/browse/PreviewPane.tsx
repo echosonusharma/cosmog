@@ -197,7 +197,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     const ct = props.obj.content_type || `text/${ext() || "plain"}`;
     await putObjectText(props.obj.account_id, props.obj.bucket, props.obj.key, content, ct);
     refetchPreview();
-    notify("Saved", props.obj.basename);
+    notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
+      largeBody: `Saved changes to "${props.obj.key}" in "${props.obj.bucket}"`,
+    });
   }
 
   return (

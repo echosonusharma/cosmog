@@ -270,4 +270,93 @@
     padding: 8px 10px;
     font-size: 11.5px;
   }
+
+  /* ── text editor modal: true fullscreen (respect notch + gesture bar) ── */
+  .editor-modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .editor-modal {
+    max-width: none;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .editor-modal-header {
+    min-height: 52px;
+    padding: 8px 12px;
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    background: var(--panel);
+  }
+  .editor-modal-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .editor-modal-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+  }
+  /* CodeMirror theme pins 12.5px + radius on .cm-editor; flat + readable here */
+  .editor-modal .code-editor-host .cm-editor {
+    font-size: 14px;
+    border-radius: 0;
+  }
+  .editor-modal .code-editor-host {
+    border-radius: 0;
+  }
+  /* fold arrows are too fiddly for touch; line numbers alone keep gutter slim */
+  .editor-modal .cm-foldGutter {
+    display: none;
+  }
+  /* Ctrl+S / Esc hint is keyboard-only guidance */
+  .editor-modal-footer {
+    display: none;
+  }
+
+  /* ── spreadsheet modal: same fullscreen treatment ────────────────────── */
+  .sheet-modal-overlay {
+    align-items: stretch;
+  }
+  .sheet-modal-inner {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sheet-modal-header {
+    min-height: 52px;
+    padding: 8px 12px;
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    background: var(--panel);
+    gap: 8px;
+  }
+  .sheet-modal-title {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .sheet-modal-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+  }
+  .sheet-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .sheet-tabs::-webkit-scrollbar { display: none; }
+  .sheet-tab {
+    padding: 6px 12px;
+  }
 }

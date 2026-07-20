@@ -7,7 +7,14 @@ import { toast, errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
 import { IconLock } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
-import { pathFromDialog, resolveUploadPath, resolveDownloadPath } from "./helpers";
+import { pathFromDialog, resolveUploadPath, resolveDownloadPath, displayNameFromUri, registerSafFinalize, withTimestamp } from "./helpers";
+import { isMobile } from "../../utils/breakpoint";
+import { invoke } from "@tauri-apps/api/core";
+
+function displayName(p: string): string {
+  if (p.startsWith("content://") || p.startsWith("file://")) return displayNameFromUri(p, "file");
+  return basename(p);
+}
 
 // ── modals ────────────────────────────────────────────────────────────────────
 
@@ -16,50 +23,100 @@ export function DownloadModal(props: {
   defaultDir: string;
   onClose: () => void;
 }) {
+  const mobile = isMobile();
   const defaultPath = `${props.defaultDir}/${props.obj.basename}`.replace(/\/+/g, "/");
-  const [dest, setDest] = createSignal(defaultPath);
+  // Desktop: writable text path input. Mobile: file must come from SAF picker
+  // (a text path lands in app cache and is invisible to the user).
+  const [dest, setDest] = createSignal(mobile ? "" : defaultPath);
+  const [safUri, setSafUri] = createSignal<string | null>(null);
+  // Human label shown to the user on mobile after they pick a location.
+  const [pickedLabel, setPickedLabel] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
 
-  // On mobile the default (like ~/Downloads/foo) is not a valid absolute path.
-  // Resolve to $APPCACHE/downloads/<name> on mount so user sees the real target.
-  resolveDownloadPath(defaultPath, props.obj.basename).then((p) => {
-    if (dest() === defaultPath) setDest(p);
-  });
+  // The save dialog pre-creates a 0-byte placeholder the moment a location is
+  // picked. Until the download is actually queued, an abandoned pick (modal
+  // canceled, or a re-pick replacing it) must delete that placeholder or the
+  // user finds an empty file at the old location.
+  let queued = false;
+  function dropPlaceholder(uri: string | null) {
+    if (uri) invoke("delete_saf_document", { uri }).catch(() => {});
+  }
+  function close() {
+    if (!queued) dropPlaceholder(safUri());
+    props.onClose();
+  }
 
   async function browse() {
-    const sel = await saveDialog({ defaultPath: dest() });
+    // Pre-fill the picker with a timestamped name so the extension stays
+    // intact and repeated downloads never collide on the same filename.
+    const suggested = mobile ? withTimestamp(props.obj.basename) : dest() || defaultPath;
+    const sel = await saveDialog({ defaultPath: suggested });
     if (!sel) return;
-    const clean = await resolveDownloadPath(pathFromDialog(sel), props.obj.basename);
-    setDest(clean);
+    const raw = pathFromDialog(sel);
+    const { path, safUri: uri } = await resolveDownloadPath(raw, props.obj.basename);
+    const prev = safUri();
+    if (prev && prev !== uri) dropPlaceholder(prev);
+    setDest(path);
+    setSafUri(uri);
+    setPickedLabel(uri ? displayNameFromUri(uri, props.obj.basename) : path);
   }
 
   async function submit() {
     if (!dest().trim()) return;
     setBusy(true); setErr("");
     try {
-      const target = await resolveDownloadPath(dest().trim(), props.obj.basename);
-      await enqueueDownload(props.obj.account_id, props.obj.bucket, props.obj.key, target);
+      const { path: target, safUri: resolvedUri } = await resolveDownloadPath(dest().trim(), props.obj.basename);
+      const finalUri = safUri() ?? resolvedUri;
+      const res = await enqueueDownload(props.obj.account_id, props.obj.bucket, props.obj.key, target);
+      if (finalUri && res?.transfer_id) {
+        registerSafFinalize(res.transfer_id, target, finalUri);
+      }
+      queued = true;
       props.onClose();
     } catch (e) {
       setErr(errMsg(e));
     } finally { setBusy(false); }
   }
 
+  const canSubmit = () => !busy() && (mobile ? !!safUri() : !!dest().trim());
+
   return (
-    <div class="modal-backdrop" onClick={props.onClose}>
+    <div class="modal-backdrop" onClick={close}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-title">Download</div>
         <div class="modal-sub">{props.obj.key}</div>
-        <label class="modal-label">Save to</label>
-        <div class="file-picker-row">
-          <input class="field" value={dest()} onInput={(e) => setDest(e.currentTarget.value.trim())} disabled={busy()} />
-          <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
-        </div>
+        <Show
+          when={mobile}
+          fallback={
+            <>
+              <label class="modal-label">Save to</label>
+              <div class="file-picker-row">
+                <input class="field" value={dest()} onInput={(e) => setDest(e.currentTarget.value.trim())} disabled={busy()} />
+                <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
+              </div>
+            </>
+          }
+        >
+          <Show
+            when={safUri()}
+            fallback={
+              <button type="button" class="btn-secondary btn-block mt-2" disabled={busy()} onClick={browse}>
+                Choose location
+              </button>
+            }
+          >
+            <label class="modal-label">Saving to</label>
+            <div class="file-picker-row">
+              <span class="field truncate field-static">{pickedLabel()}</span>
+              <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Change</button>
+            </div>
+          </Show>
+        </Show>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
-          <button class="btn-primary btn-half" disabled={!dest().trim() || busy()} onClick={submit}>
+          <button class="btn-secondary btn-half" onClick={close}>Cancel</button>
+          <button class="btn-primary btn-half" disabled={!canSubmit()} onClick={submit}>
             {busy() ? "Queuing…" : "Download"}
           </button>
         </div>
@@ -102,10 +159,10 @@ export function UploadModal(props: {
       for (let i = 0; i < list.length; i++) {
         setCurrentIdx(i);
         const rawPath = list[i];
-        const path = await resolveUploadPath(rawPath);
+        const { path, name } = await resolveUploadPath(rawPath);
         const key = keyPrefix().trim()
-          ? keyPrefix().trim().replace(/\/?$/, "/") + basename(rawPath)
-          : basename(rawPath);
+          ? keyPrefix().trim().replace(/\/?$/, "/") + name
+          : name;
         await enqueueUpload(props.accountId, props.bucket, key, path);
       }
       props.onClose();
@@ -133,14 +190,14 @@ export function UploadModal(props: {
         <div class="file-picker-row">
           <span class="field truncate field-static">
             {files().length === 0 ? "No files selected"
-              : files().length === 1 ? basename(files()[0])
+              : files().length === 1 ? displayName(files()[0])
               : `${files().length} files selected`}
           </span>
           <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
         </div>
         <Show when={files().length > 1}>
           <div class="upload-file-list">
-            <For each={files()}>{(f) => <div class="upload-file-item">{basename(f)}</div>}</For>
+            <For each={files()}>{(f) => <div class="upload-file-item">{displayName(f)}</div>}</For>
           </div>
         </Show>
         <label class="modal-label">Key prefix (optional)</label>
@@ -156,7 +213,7 @@ export function UploadModal(props: {
           <div class="upload-encrypting-progress">
             <span class="spinner" />
             <span class="upload-encrypting-progress-label">
-              Encrypting <code>{basename(files()[currentIdx()] ?? "")}</code>
+              Encrypting <code>{displayName(files()[currentIdx()] ?? "")}</code>
             </span>
           </div>
         </Show>
@@ -183,7 +240,7 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
     try {
       await createBucket(props.accountId, name().trim());
       props.onDone(); props.onClose();
-      toast.ok(`Bucket "${name().trim()}" created`);
+      toast.ok("Bucket created", `"${name().trim()}" is ready to use`);
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 
@@ -258,7 +315,7 @@ export function RenameModal(props: {
     try {
       await moveObject(props.obj.account_id, props.obj.bucket, props.obj.key, props.obj.bucket, target);
       props.onDone(); props.onClose();
-      toast.ok("Renamed");
+      toast.ok(`Renamed ${props.obj.key.split("/").pop() || props.obj.key}`, `Now at "${target}" in "${props.obj.bucket}"`);
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 

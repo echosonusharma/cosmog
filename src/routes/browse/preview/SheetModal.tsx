@@ -140,7 +140,9 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
       }
       await putObjectBytes(props.obj.account_id, props.obj.bucket, props.obj.key, bytes, ct);
       setSheetDirty(false);
-      notify("Saved", props.obj.basename);
+      notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
+        largeBody: `Saved changes to "${props.obj.key}" in "${props.obj.bucket}"`,
+      });
     } catch (e) { toast.err(e); }
     finally { setSheetSaving(false); }
   }
