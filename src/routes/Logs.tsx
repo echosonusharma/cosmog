@@ -183,7 +183,7 @@ function RequestLogs() {
     try {
       await clearRequestLogs();
       setLogs([]);
-      toast.ok("Request logs cleared");
+      toast.ok("Request logs cleared", "All recorded S3 request history was deleted");
     } catch (e) {
       toast.err(e);
     }

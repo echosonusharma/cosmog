@@ -33,6 +33,7 @@ pub mod db;
 pub mod error;
 pub mod providers;
 pub mod scheduler;
+pub mod saf;
 pub mod secrets;
 pub mod state;
 pub mod store;
@@ -65,16 +66,61 @@ fn notify_ex(
     auto_cancel: Option<bool>,
     silent: Option<bool>,
     channel_id: Option<String>,
+    action_type_id: Option<String>,
+    summary: Option<String>,
+    large_body: Option<String>,
+    extra: Option<std::collections::HashMap<String, serde_json::Value>>,
 ) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
     let mut b = app.notification().builder().id(id).title(title);
     if let Some(v) = body { b = b.body(v); }
+    if let Some(v) = summary { b = b.summary(v); }
+    if let Some(v) = large_body { b = b.large_body(v); }
     if let Some(v) = icon { b = b.icon(v); }
     if let Some(v) = channel_id { b = b.channel_id(v); }
+    if let Some(v) = action_type_id { b = b.action_type_id(v); }
+    if let Some(map) = extra {
+        for (k, v) in map { b = b.extra(k, v); }
+    }
     if ongoing.unwrap_or(false) { b = b.ongoing(); }
     if auto_cancel.unwrap_or(false) { b = b.auto_cancel(); }
     if silent.unwrap_or(false) { b = b.silent(); }
     b.show().map_err(|e| e.to_string())
+}
+
+/// Stream a completed download from an absolute cache path into a SAF
+/// content:// URI. Chunked so multi-GB files never load fully into memory.
+/// See `saf.rs` for the JNI implementation.
+#[tauri::command]
+async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u64, String> {
+    crate::saf::finalize_saf_download(cache_path, uri).await
+}
+
+/// Delete the SAF placeholder document created by the save dialog. Called
+/// when a download is canceled or fails so no 0-byte file is left at the
+/// user's chosen destination.
+#[tauri::command]
+async fn delete_saf_document(uri: String) -> Result<bool, String> {
+    crate::saf::delete_saf_document(uri).await
+}
+
+/// Stream a SAF `content://` URI into the app cache and return a filesystem
+/// path the uploader can use. Also returns the human display name (from
+/// ContentResolver's OpenableColumns.DISPLAY_NAME) for use as the S3 key.
+#[tauri::command]
+async fn stage_saf_upload(
+    uri: String,
+    dest_dir: String,
+) -> Result<crate::saf::SafStagedUpload, String> {
+    crate::saf::stage_saf_upload(uri, dest_dir).await
+}
+
+/// Toggle the Android foreground TransferService. FE polling calls this with
+/// `active=true` when there is at least one in-flight transfer, and
+/// `active=false` when the queue drains. No-op on non-Android platforms.
+#[tauri::command]
+fn set_transfer_service(active: bool) -> Result<(), String> {
+    crate::saf::set_transfer_service(active)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -363,6 +409,12 @@ pub fn run() {
 
             // -------- notifications: native builder with icon + stable id --------
             notify_ex,
+
+            // -------- Android SAF: stream SAF URIs into/out of app cache without loading files into JS --------
+            finalize_saf_download,
+            delete_saf_document,
+            stage_saf_upload,
+            set_transfer_service,
 
             // -------- dev: debug helpers --------
             #[cfg(debug_assertions)]

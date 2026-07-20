@@ -51,7 +51,9 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       await deleteBucket(props.accountId, name);
       setRefresh((n) => n + 1);
       bumpBucketsRefresh();
-      notify("Bucket deleted", name);
+      notify("Bucket deleted", `"${name}" was removed`, {
+        largeBody: `Bucket "${name}" was deleted`,
+      });
     } catch (e) {
       // S3 refuses DeleteBucket on non-empty buckets — guide the user.
       if (parseWireError(e).code === "conflict") {
@@ -66,7 +68,9 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
           await emptyAndDeleteBucket(props.accountId, name);
           setRefresh((n) => n + 1);
           bumpBucketsRefresh();
-          notify("Bucket deleted", `${name} emptied and deleted`);
+          notify("Bucket deleted", `"${name}" emptied and deleted`, {
+            largeBody: `All objects in "${name}" were deleted, then the bucket itself was removed`,
+          });
         } catch (e2) {
           toast.err(e2);
         }

@@ -30,9 +30,9 @@
 @import "./modals.css";
 @import "./logs.css";
 
-@import "./toast.css";
 @import "./context-menu.css";
 @import "./misc.css";
+@import "./active-transfers.css";
 
 /* mobile overrides — loaded last so media queries win */
 @import "./mobile-sidebar.css";

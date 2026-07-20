@@ -3,7 +3,6 @@ import { listAccounts } from "./api/accounts";
 import Onboarding from "./routes/Onboarding";
 import MainApp from "./routes/MainApp";
 import Titlebar from "./routes/Titlebar";
-import { ToastStack } from "./state/toast";
 import { ConfirmHost } from "./state/confirm";
 import { setBrowseState, setCurrentView, type View } from "./state/app";
 import { parseWireError, isCredentialError, isNetworkError } from "./utils/errors";
@@ -80,7 +79,6 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </div>
-      <ToastStack />
       <ConfirmHost />
     </div>
   );

@@ -1,5 +1,6 @@
 import { onMount, onCleanup, createEffect, createSignal, Show } from "solid-js";
 import { confirmDialog } from "../state/confirm";
+import { toast } from "../state/toast";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -271,7 +272,8 @@ export function EditorModal(props: {
         dismissLabel: "Keep editing",
       });
       if (action === null) return;
-      if (action === true) await doSave();
+      // Failed save keeps the modal open so the edits are not lost.
+      if (action === true && !(await doSave())) return;
     }
     props.onClose();
   }
@@ -283,17 +285,17 @@ export function EditorModal(props: {
     setFormatting(false);
   }
 
-  async function doSave() {
+  async function doSave(): Promise<boolean> {
     setSaving(true);
-    try { await props.onSave(content()); }
+    try { await props.onSave(content()); return true; }
+    catch (e) { toast.err(e); return false; }
     finally { setSaving(false); }
   }
 
   async function handleSave() {
     const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.filename}?`, confirmLabel: "Save", cancelLabel: "Cancel" });
     if (!ok) return;
-    await doSave();
-    props.onClose();
+    if (await doSave()) props.onClose();
   }
 
   function onKeyDown(e: KeyboardEvent) {

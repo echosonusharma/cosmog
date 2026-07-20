@@ -32,7 +32,7 @@ export function AccountsList() {
       danger: true,
     });
     if (!ok) return;
-    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed"); }
+    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed", `"${name}" and its cached data were deleted`); }
     catch (e) { toast.err(e); }
   }
 
