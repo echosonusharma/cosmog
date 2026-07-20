@@ -35,6 +35,24 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            BODY=$(git log --pretty=format:"- %s" "${PREV}..HEAD")
+          else
+            BODY=$(git log --pretty=format:"- %s")
+          fi
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-24.04'
@@ -76,7 +94,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Cosmog ${{ github.ref_name }}'
-          releaseBody: 'See assets below to download and install.'
+          releaseBody: "${{ steps.changelog.outputs.body }}"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
