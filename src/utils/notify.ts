@@ -108,6 +108,18 @@ export interface NotifyOpts {
   extra?: Record<string, unknown>;
 }
 
+/** Call once at app startup to request notification permission and create
+ *  channels before the first transfer. Mobile only; no-ops on desktop. */
+export async function ensureNotificationPermission(): Promise<void> {
+  if (!IS_MOBILE_OS) return;
+  try {
+    await permitted();
+    await ensureChannels();
+  } catch (e) {
+    console.warn("[notify] startup permission request failed:", e);
+  }
+}
+
 export async function notify(title: string, body?: string, opts: NotifyOpts = {}) {
   // Notifications are best-effort UX; callers fire-and-forget, so a rejection
   // here would surface as an unhandled promise rejection. Never throw.
