@@ -1,6 +1,6 @@
 [package]
 name = "cosmog"
-version = "0.1.11"
+version = "0.1.12"
 description = "Desktop S3-compatible object storage manager"
 authors = ["Sonu Sharma <sonu.s@eclateng.com>"]
 homepage = "https://github.com/sonusharma/cosmog"
