@@ -183,7 +183,7 @@ function RequestLogs() {
     try {
       await clearRequestLogs();
       setLogs([]);
-      toast.ok("Request logs cleared");
+      toast.ok("Request logs cleared", "All recorded S3 request history was deleted");
     } catch (e) {
       toast.err(e);
     }
@@ -354,7 +354,7 @@ function RequestLogs() {
                             <span class="req-log-url-text">{log.request_url}</span>
                             <button
                               class="req-log-copy-btn"
-                              title="Copy URL"
+
                               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(log.request_url!); }}
                             >⎘</button>
                           </div>

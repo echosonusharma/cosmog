@@ -89,6 +89,11 @@ impl S3Store {
         };
         builder = builder.force_path_style(force_path);
 
+        #[cfg(target_os = "android")]
+        {
+            builder = builder.http_client(crate::store::android_tls::http_client());
+        }
+
         let client = Client::from_conf(builder.build());
         Ok(S3Store { client })
     }

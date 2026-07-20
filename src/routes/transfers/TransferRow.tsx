@@ -1,8 +1,8 @@
-import { createMemo, Show } from "solid-js";
+import { Show } from "solid-js";
 import { formatBytes, formatRelative, basename } from "../../utils/fmt";
 import { IconArrowUpLine, IconArrowDownLine, IconRefresh, IconX } from "../../utils/icons";
 import type { Transfer } from "../../types";
-import { actionVerb, pct, fmtSecs, recordAndComputeSpeed, shortPath } from "./helpers";
+import { actionVerb, pct, shortPath } from "./helpers";
 
 // ── row (card style) ─────────────────────────────────────────────────────────
 
@@ -26,16 +26,6 @@ export function TransferRow(props: {
   const isTerminal = () =>
     t().status === "done" || t().status === "failed" || t().status === "canceled";
 
-  const speed = createMemo(() =>
-    t().status === "active" ? recordAndComputeSpeed(t()) : 0,
-  );
-
-  const eta = () => {
-    const sp = speed();
-    if (!sp || !t().bytes_total) return null;
-    return (t().bytes_total! - t().bytes_done) / sp;
-  };
-
   const sizeLabel = () => {
     if (t().bytes_total) return `${formatBytes(t().bytes_done)} / ${formatBytes(t().bytes_total!)}`;
     if (t().bytes_done > 0) return formatBytes(t().bytes_done);
@@ -55,24 +45,24 @@ export function TransferRow(props: {
 
       <div class="transfer-info">
         <div class="transfer-line-1">
-          <span class="transfer-filename" title={`${t().bucket}/${t().key}`}>{basename(t().key)}</span>
+          <span class="transfer-filename">{basename(t().key)}</span>
           <span class={`transfer-action-badge ${t().status.toLowerCase()}`}>
             {actionVerb(t())}
           </span>
           <div class="transfer-btns">
             <Show when={isActive()}>
-              <button class="icon-btn danger" title="Cancel" onClick={props.onCancel}><IconX size={13} /></button>
+              <button class="icon-btn danger" onClick={props.onCancel}><IconX size={13} /></button>
             </Show>
             <Show when={t().status === "failed"}>
-              <button class="icon-btn" title="Retry" onClick={props.onRetry}><IconRefresh size={13} /></button>
+              <button class="icon-btn" onClick={props.onRetry}><IconRefresh size={13} /></button>
             </Show>
             <Show when={isTerminal()}>
-              <button class="icon-btn" title="Remove" onClick={props.onClear}><IconX size={13} /></button>
+              <button class="icon-btn" onClick={props.onClear}><IconX size={13} /></button>
             </Show>
           </div>
         </div>
 
-        <div class="transfer-line-2" title={`${t().bucket}/${t().key}`}>
+        <div class="transfer-line-2">
           {shortPath(t())}
         </div>
 
@@ -88,12 +78,6 @@ export function TransferRow(props: {
             <span class="flex-1" />
             <Show when={sizeLabel()}>
               <span class="transfer-stat-size">{sizeLabel()}</span>
-            </Show>
-            <Show when={t().status === "active" && speed() > 0}>
-              <span class="transfer-stat-speed">
-                · {formatBytes(speed())}/s
-                <Show when={eta()}> · {fmtSecs(eta()!)}</Show>
-              </span>
             </Show>
           </div>
         </Show>

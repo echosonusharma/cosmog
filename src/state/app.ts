@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
-import type { Account, Bucket, CachedObjectMeta } from "../types";
+import type { Account, Bucket, CachedObjectMeta, Transfer } from "../types";
 
 export type View = "browse" | "transfers" | "settings" | "logs";
 
@@ -32,6 +32,11 @@ export function bumpAccountsRefresh() { setAccountsRefreshTick((n) => n + 1); }
 export const [pendingPreview, setPendingPreview] = createSignal<CachedObjectMeta | null>(null);
 
 export const [openAddAccount, setOpenAddAccount] = createSignal(false);
+
+/** Full list of in-flight transfers, kept fresh by MainApp's poll. Consumed
+ *  by the sticky ActiveTransfersBar so every view can show live speed and
+ *  bytes remaining without spinning up its own polling loop. */
+export const [activeTransfers, setActiveTransfers] = createSignal<Transfer[]>([]);
 
 export function navigateToBucket(accountId: string, bucket: string) {
   setBrowseState({ accountId, bucket, prefix: "" });

@@ -128,6 +128,8 @@ export function Sidebar(props: {
   onExpand: () => void;
   activeAccount: Account | null;
   activeCount: number;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }) {
   const [bucketFilter, setBucketFilter] = createSignal("");
   const [showBugModal, setShowBugModal] = createSignal(false);
@@ -166,7 +168,7 @@ export function Sidebar(props: {
                 </div>
               </Show>
             </div>
-            <button class="collapse-btn" onClick={props.onCollapse} title="Collapse sidebar">
+            <button class="collapse-btn" onClick={props.onCollapse}>
               <IconSidebar size={15} />
             </button>
           </div>
@@ -175,7 +177,7 @@ export function Sidebar(props: {
           <button
             class="sidebar-account-pill collapsed-expand"
             onClick={props.onExpand}
-            title="Expand sidebar"
+
           >
             <Show when={props.activeAccount}
                   fallback={
@@ -193,8 +195,8 @@ export function Sidebar(props: {
           {(item) => (
             <button
               class={`sidebar-item ${currentView() === item.view ? "active" : ""}`}
-              onClick={() => setCurrentView(item.view)}
-              data-tt={props.collapsed ? item.label : undefined}
+              onClick={() => { setCurrentView(item.view); props.onCloseMobile?.(); }}
+
               aria-label={item.label}
             >
               <span class="sidebar-item-icon">{item.icon()}</span>
@@ -237,9 +239,10 @@ export function Sidebar(props: {
                     onClick={() => {
                       const id = browseState.accountId;
                       if (id) navigateToBucket(id, b.name);
+                      props.onCloseMobile?.();
                     }}
                     aria-label={b.name}
-                    data-tt={b.name}
+
                   >
                     <span class="sidebar-bucket-icon" classList={{ "is-encrypted": !!encSet()?.has(b.name) }}>
                       <Show when={encSet()?.has(b.name)} fallback={<IconBucket size={13} />}>
@@ -267,7 +270,7 @@ export function Sidebar(props: {
                   class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
                   onClick={() => selectAccount(a.id)}
                   aria-label={a.name}
-                  data-tt={a.name}
+
                 >
                   <ProviderTile account={a} size="small" />
                   <span class="sidebar-account-item-name">{a.name}</span>
@@ -288,7 +291,7 @@ export function Sidebar(props: {
       {/* bug report button */}
       <button
         class="sidebar-bug-btn"
-        title="Report a bug"
+
         onClick={() => setShowBugModal(true)}
       >
         <span class="sidebar-bug-icon"><IconBug size={14} /></span>
@@ -301,7 +304,7 @@ export function Sidebar(props: {
       <Show when={import.meta.env.DEV}>
         <button
           class="sidebar-devtools-btn"
-          title="Open DevTools (F12)"
+
           onClick={() => invoke("open_devtools").catch(() => {})}
         >
           {"{ }"}

@@ -1,0 +1,12 @@
+package com.sonus.cosmog
+
+import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
+
+class MainActivity : TauriActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    enableEdgeToEdge()
+    NativeBridge.initNdkContext(applicationContext)
+    super.onCreate(savedInstanceState)
+  }
+}

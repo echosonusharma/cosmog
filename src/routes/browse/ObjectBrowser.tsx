@@ -98,10 +98,10 @@ export function ObjectBrowser(props: {
         });
         if (!ok) { setIndexBusy(false); return; }
         await disableBucketIndex(props.accountId, props.bucket);
-        toast.ok("Index disabled");
+        toast.ok("Index disabled", `Cached metadata for "${props.bucket}" was cleared`);
       } else {
         await enableBucketIndex(props.accountId, props.bucket);
-        toast.ok("Indexing started");
+        toast.ok("Indexing started", `Building the metadata index for "${props.bucket}"`);
       }
       refetchIndex();
     } catch (e) { toast.err(e); }
@@ -112,7 +112,7 @@ export function ObjectBrowser(props: {
     setIndexBusy(true);
     try {
       await reindexBucket(props.accountId, props.bucket);
-      toast.ok("Re-indexed");
+      toast.ok("Re-indexed", `Metadata for "${props.bucket}" was refreshed`);
       refetchIndex();
     } catch (e) { toast.err(e); }
     finally { setIndexBusy(false); }
@@ -198,7 +198,9 @@ export function ObjectBrowser(props: {
           await deleteObjects(props.accountId, props.bucket, keys.slice(i, i + 1000));
       }
       setRefresh((n) => n + 1);
-      notify("Folder deleted", sub);
+      notify("Folder deleted", `${sub} · ${props.bucket}`, {
+        largeBody: `Deleted folder "${sub}" and its contents from "${props.bucket}"`,
+      });
     } catch (e) { toast.err(e); }
   }
 
@@ -214,7 +216,9 @@ export function ObjectBrowser(props: {
       await deleteObject(obj.account_id, obj.bucket, obj.key);
       if (previewTarget()?.key === obj.key) setPreviewTarget(null);
       setRefresh((n) => n + 1);
-      notify("Deleted", obj.key);
+      notify(`Deleted ${obj.key.split("/").pop() || obj.key}`, obj.bucket, {
+        largeBody: `Deleted "${obj.key}" from "${obj.bucket}"`,
+      });
     } catch (e) { toast.err(e); }
   }
 
@@ -234,10 +238,15 @@ export function ObjectBrowser(props: {
       setSelected(new Set<string>());
       setRefresh((n) => n + 1);
       if (res.errors.length) {
-        toast.warn(`Deleted ${res.deleted.length}, ${res.errors.length} failed`);
-        notify("Partial delete", `${res.deleted.length} deleted, ${res.errors.length} failed`);
+        toast.warn(
+          `${res.deleted.length} deleted, ${res.errors.length} failed in "${props.bucket}"`,
+          "Partial delete",
+        );
       } else {
-        notify("Deleted", `${res.deleted.length} object${res.deleted.length > 1 ? "s" : ""} deleted`);
+        const n = res.deleted.length;
+        notify(`Deleted ${n} object${n > 1 ? "s" : ""}`, props.bucket, {
+          largeBody: `Deleted ${n} object${n > 1 ? "s" : ""} from "${props.bucket}"`,
+        });
       }
     } catch (e) { toast.err(e); }
   }
@@ -259,10 +268,14 @@ export function ObjectBrowser(props: {
       }
       const url = await presignGet(obj.account_id, obj.bucket, obj.key, undefined, allowCiphertext);
       await navigator.clipboard.writeText(url);
+      const linkName = obj.key.split("/").pop() || obj.key;
       if (allowCiphertext) {
-        toast.warn("Link copied. The recipient gets the locked file, share your key file separately so they can open it");
+        toast.warn(
+          `Link for "${linkName}" is on the clipboard. The recipient gets the locked file, share your key file separately so they can open it.`,
+          "Encrypted link copied",
+        );
       } else {
-        toast.ok("Link copied");
+        toast.ok("Link copied", `Shareable link for "${linkName}" is on the clipboard`);
       }
     } catch (e) { toast.err(e); }
   }

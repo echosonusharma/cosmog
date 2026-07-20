@@ -77,7 +77,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
           secret_access_key: f.secret_access_key ? f.secret_access_key : undefined,
         });
         await testAccount(props.editing!.id);
-        toast.ok(`Account "${f.name}" updated`);
+        toast.ok("Account updated", `"${f.name}" saved and connection verified`);
         bumpAccountsRefresh();
         bumpBucketsRefresh();
         props.onDone();
@@ -98,9 +98,9 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       // If the test fails the user can fix credentials via Edit.
       try {
         await testAccount(acct.id);
-        toast.ok(`Account "${acct.name}" added`);
+        toast.ok("Account added", `"${acct.name}" connected successfully`);
       } catch {
-        toast.warn(`Account "${acct.name}" saved. Connection test failed. Check credentials in Settings.`);
+        toast.warn(`"${acct.name}" was saved but the connection test failed. Check credentials in Settings.`, "Account saved");
       }
     } catch (e) {
       toast.err(e);
@@ -119,7 +119,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
               class={`provider-picker-tile ${provider().id === p.id ? "selected" : ""}`}
               onClick={() => applyProvider(p)}
               disabled={busy()}
-              title={p.label}
+
             >
               <span class="provider-picker-tile-icon" style={{ background: p.color }}>
                 <img src={p.iconUrl} alt={p.label} class="provider-picker-tile-img" classList={{ "provider-picker-tile-img-mono": !!p.monochrome_icon }} />

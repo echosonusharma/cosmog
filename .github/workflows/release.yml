@@ -35,6 +35,24 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            BODY=$(git log --pretty=format:"- %s" "${PREV}..HEAD")
+          else
+            BODY=$(git log --pretty=format:"- %s")
+          fi
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-24.04'
@@ -76,7 +94,73 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Cosmog ${{ github.ref_name }}'
-          releaseBody: 'See assets below to download and install.'
+          releaseBody: "${{ steps.changelog.outputs.body }}"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  android:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK 27
+        run: sdkmanager "ndk;27.1.12297006"
+
+      - name: Setup Rust (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Write signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > src-tauri/gen/android/release.jks
+          cat > src-tauri/gen/android/keystore.properties <<EOF
+          storeFile=release.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_STORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEYSTORE_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
+          EOF
+
+      - name: Build release APK
+        run: npx tauri android build --apk
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
+
+      - name: Upload APK to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release/ -name "*.apk" | head -1)
+          gh release upload ${{ github.ref_name }} \
+            "${APK}#Cosmog-${{ github.ref_name }}-android.apk" \
+            --clobber

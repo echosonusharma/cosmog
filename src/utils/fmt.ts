@@ -25,5 +25,6 @@ export function formatRelative(ts: number): string {
 export function basename(path: string): string {
   const trimmed = path.endsWith("/") || path.endsWith("\\") ? path.slice(0, -1) : path;
   const lastSep = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return trimmed.slice(lastSep + 1);
+  const raw = trimmed.slice(lastSep + 1);
+  try { return decodeURIComponent(raw); } catch { return raw; }
 }

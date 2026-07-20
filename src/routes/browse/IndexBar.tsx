@@ -41,7 +41,7 @@ export function IndexBar(props: {
       </Show>
       <div class="index-bar-spacer" />
       <Show when={props.indexStatus()?.enabled}>
-        <button class="icon-btn" title="Re-index" disabled={props.indexBusy} onClick={props.onReindex}>
+        <button class="icon-btn" disabled={props.indexBusy} onClick={props.onReindex}>
           <IconRefresh size={14} />
         </button>
       </Show>

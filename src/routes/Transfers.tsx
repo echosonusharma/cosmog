@@ -2,12 +2,12 @@ import { createSignal, For, Show, onCleanup } from "solid-js";
 import {
   listTransfers, cancelTransfer, clearCompletedTransfers, clearTransfer, retryTransfer,
 } from "../api/transfers";
-import { formatBytes } from "../utils/fmt";
 import { toast, errMsg } from "../state/toast";
 import { confirmDialog } from "../state/confirm";
-import { IconArrowUpLine, IconX, IconTransfer } from "../utils/icons";
+import { IconX, IconTransfer } from "../utils/icons";
 import type { Transfer } from "../types";
-import { STATUS_ORDER, recordAndComputeSpeed } from "./transfers/helpers";
+import { STATUS_ORDER } from "./transfers/helpers";
+import { moveSafFinalize, discardSafDownload } from "./browse/helpers";
 import { TransferRow } from "./transfers/TransferRow";
 import { EncryptionModal } from "./browse/EncryptionModal";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
@@ -78,17 +78,28 @@ export default function Transfers() {
   }, 1000);
   onCleanup(() => clearInterval(rateTimer));
 
+  // No toast on success: the MainApp transfer poll posts a proper native
+  // notification (filename + account + bucket) when the status flips.
   async function cancel(id: string) {
-    try { await cancelTransfer(id); await load(); toast.ok("Cancelled"); }
+    try { await cancelTransfer(id); await load(); }
     catch (e) { toast.err(e); }
   }
   async function clearOne(id: string) {
+    // Clearing a failed download abandons its retry path; drop the pending
+    // SAF entry and the 0-byte placeholder at the picked location with it.
+    discardSafDownload(id);
     try { await clearTransfer(id); }
     catch (e) { toast.err(e); return; }
     setTransfers((prev) => prev.filter((t) => t.id !== id));
   }
   async function retry(id: string) {
-    try { await retryTransfer(id); await load(); toast.ok("Retrying"); }
+    try {
+      const res = await retryTransfer(id);
+      // Retry re-enqueues under a fresh id; carry the pending SAF finalize
+      // over so the retried download still lands at the picked location.
+      if (res?.transfer_id) moveSafFinalize(id, res.transfer_id);
+      await load();
+    }
     catch (e) { toast.err(e); }
   }
   async function clearAll() {
@@ -98,6 +109,9 @@ export default function Transfers() {
       confirmLabel: "Clear",
     });
     if (!ok) return;
+    for (const t of transfers()) {
+      if (t.status === "failed" && t.direction === "download") discardSafDownload(t.id);
+    }
     try { await clearCompletedTransfers(); await load(); }
     catch (e) { toast.err(e); }
   }
@@ -123,11 +137,6 @@ export default function Transfers() {
 
   const hasDone = () =>
     transfers().some((t) => ["done", "failed", "canceled"].includes(t.status));
-
-  const activeSpeedTotal = () =>
-    transfers()
-      .filter((t) => t.status === "active")
-      .reduce((sum, t) => sum + recordAndComputeSpeed(t), 0);
 
   return (
     <div class="view-container">
@@ -188,11 +197,6 @@ export default function Transfers() {
       </Show>
 
       <div class="transfer-footer-bar">
-        <Show when={counts().active > 0}>
-          <span class="transfer-footer-speed">
-            <IconArrowUpLine size={12} /> {formatBytes(activeSpeedTotal())}/s
-          </span>
-        </Show>
         <div class="flex-1" />
         <span class="faint">
           {counts().active > 0 && `${counts().active} active`}
