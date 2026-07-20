@@ -3,9 +3,15 @@
 
   # Cosmog
 
-  Desktop and Android app for managing S3-compatible object storage.  
-  Browse, upload, download, and organize files across any S3 provider.
+  Your S3 storage, everywhere.  
+  A fast, native app for managing files across any S3-compatible provider on desktop and android.
+
+  [Download latest release →](https://github.com/echosonusharma/cosmog/releases/latest)
+
 </div>
+
+> **Early development.** Cosmog is actively being built, you may encounter bugs.
+> If something breaks, [open an issue](https://github.com/echosonusharma/cosmog/issues) and we'll fix it.
 
 <div align="center">
 
@@ -13,88 +19,60 @@
 
 </div>
 
-## Features
+---
 
-- **Browse** buckets and objects with folder navigation, column layout, and search
-- **Upload and download** files with background transfer queue, progress tracking, and retry
-- **Preview** images, text, JSON, XML, and spreadsheets inline
+## What you can do
+
+- **Browse** buckets and folders with fast column navigation
+- **Upload and download** with a background queue, progress tracking, and retry
+- **Preview** images, spreadsheets, JSON, XML, text, and code without downloading
 - **Edit** text files directly in the app
-- **Bulk operations** including multi-select delete and presigned link generation
-- **Create and delete** buckets, folders, and objects
-- **Copy and move** objects within and across buckets
-- **Presigned URLs** with configurable expiry
-- **Versioning** view and toggle bucket versioning
-- **Full-text search** with local index per bucket
-- **Multiple accounts** manage credentials for many providers side by side
-- **Transfer manager** real-time speed, filter by active, done, or failed
-- **Request logs** searchable history of every S3 API call with operation and status filters
-- **System logs** live-tailing log viewer with level filter and search
-- **Multi-region routing** buckets are automatically routed to their correct AWS region
-- **Secure credentials** secrets stored in the OS keychain, never written to disk
-- **Backup and restore** export and import accounts and settings as JSON (secrets excluded)
-- **Themes** light, dark, or follow system
-- **Android** native OS notifications, background transfers via foreground service, SAF-based file picker for saving downloads anywhere on device
+- **Search** across your entire bucket with full-text search
+- **Share** files instantly with presigned links
+- **Encrypt** entire buckets client-side with per-bucket keys
+- **Manage** multiple accounts and providers side by side
 
-## Supported Providers
+## Why Cosmog
 
-| Provider | Notes |
-|---|---|
-| Amazon S3 | Native AWS support |
-| Cloudflare R2 | Custom endpoint required |
-| Backblaze B2 | Custom endpoint required |
-| DigitalOcean Spaces | Custom endpoint required |
-| Wasabi | Custom endpoint required |
-| MinIO | Self-hosted |
-| Any S3-compatible API | Works with any provider matching the AWS S3 API |
+| | Cosmog | S3 Browser | Cyberduck | Transmit 5 |
+|---|:---:|:---:|:---:|:---:|
+| macOS | ✅ | ❌ | ✅ | ✅ |
+| Windows | ✅ | ✅ | ✅ | ❌ |
+| Linux | ✅ | ❌ | ❌ | ❌ |
+| **Android** | ✅ | ❌ | ❌ | ❌ |
+| Free & open source | ✅ | Personal only | Donationware | ❌ Paid |
+| Full-text search | ✅ | ❌ | ❌ | ❌ |
+| Client-side encryption | ✅ | ❌ | ✅ (Cryptomator) | ❌ |
+| In-app file preview | ✅ | ❌ | ❌ | Limited |
+| In-app editor | ✅ | ❌ | ❌ | ❌ |
+| Multiple accounts | ✅ | ✅ | ✅ | ✅ |
+
+## Works with your provider
+
+AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, and any S3-compatible API.
 
 ## Download
 
-| Platform | |
-|---|---|
-| macOS (Apple Silicon) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| macOS (Intel) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| Linux (.deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
-| Android (APK) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) |
+| Platform | Link | File to download |
+|---|---|---|
+| macOS (Apple Silicon) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_aarch64.dmg` |
+| macOS (Intel) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_x64.dmg` |
+| Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_x64-setup.exe` or `.msi` |
+| Linux (AppImage) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_amd64.AppImage` |
+| Linux (deb) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_amd64.deb` |
+| Linux (rpm) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog-*-1.x86_64.rpm` |
+| Android (requires 7.0+) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog-*-android-arm64.apk` (most phones) |
 
-> **Android:** requires Android 7.0 (API 24) or newer. Sideload the APK or install via a release
-> channel. Credentials are stored in EncryptedSharedPreferences backed by the Android Keystore.
-
-> **Desktop:** credentials are stored in the native OS secret store: Keychain on macOS,
-> Credential Manager on Windows, and the D-Bus Secret Service on Linux.
-> A compatible provider such as GNOME Keyring, KWallet, or KeePassXC must be running on Linux.
-
-> Cosmog is built with [Tauri](https://tauri.app). On desktop it renders using the platform's
-> native WebView (WKWebView on macOS, WebView2 on Windows, WebKit2GTK on Linux). On Android it
-> uses the system WebView.
+Credentials are stored in the native OS secret store on each platform and never written to disk.
 
 ## Development
 
-**Prerequisites (desktop)**
-- [Rust](https://rustup.rs) (stable toolchain)
-- Node 22+
-- Linux only: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`
+Requires [Rust](https://rustup.rs) and Node 22+.
 
 ```sh
 npm install
-npm run tauri dev     # run with hot reload
-npm run tauri build   # production bundles
+npm run tauri dev    # desktop, hot reload
+npm run tauri build  # desktop, production
 ```
 
-**Prerequisites (Android)**
-- Android Studio with SDK 36 and NDK 27
-- Rust Android targets:
-  ```sh
-  rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-  ```
-- [Tauri Android environment setup](https://v2.tauri.app/start/prerequisites/#android)
-
-```sh
-npm install
-npx tauri android build --debug --apk --target aarch64   # arm64 device
-npx tauri android build --debug --apk --target x86_64    # emulator
-adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-```
-
-Architecture, module layout, and internals are documented in [DOCS.md](DOCS.md).
+For Android setup and internals, see [DOCS.md](DOCS.md).
