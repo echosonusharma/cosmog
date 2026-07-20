@@ -16,6 +16,25 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
+        // When `tauri android build` is used (not Android Studio), the Rust .so
+        // is compiled and symlinked into jniLibs BEFORE Gradle runs. In that
+        // case, skip calling android-studio-script (which requires the Tauri
+        // CLI WebSocket server to be running — it is not in the build flow).
+        val abiMap = mapOf(
+            "aarch64" to "arm64-v8a",
+            "armv7"   to "armeabi-v7a",
+            "i686"    to "x86",
+            "x86_64"  to "x86_64",
+        )
+        val abi = abiMap[target]
+        if (abi != null) {
+            val so = java.io.File(project.projectDir, "src/main/jniLibs/$abi/libcosmog_lib.so")
+            if (so.exists()) {
+                project.logger.lifecycle("rustBuild($target): .so already in jniLibs, skipping CLI invocation")
+                return
+            }
+        }
+
         val executable = """npm""";
         try {
             runTauriCli(executable)
