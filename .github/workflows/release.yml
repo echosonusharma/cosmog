@@ -125,10 +125,14 @@ jobs:
       - name: Install NDK 27
         run: sdkmanager "ndk;27.1.12297006"
 
+      # Only the two targets users actually need: arm64 for real phones (~95%
+      # of Android devices), x86_64 for emulators and some Chromebooks.
+      # Building all 4 ABIs into a universal APK produces a ~165 MB file;
+      # two single-ABI APKs are ~40 MB each.
       - name: Setup Rust (Android targets)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -151,16 +155,32 @@ jobs:
           keyPassword=${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
           EOF
 
-      - name: Build release APK
-        run: npx tauri android build --apk
+      - name: Build arm64 APK (phones)
+        run: npx tauri android build --apk --target aarch64
         env:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
 
-      - name: Upload APK to release
+      - name: Rename arm64 APK
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | head -1)
+          cp "$APK" /tmp/cosmog-arm64.apk
+
+      - name: Build x86_64 APK (emulator)
+        run: npx tauri android build --apk --target x86_64
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
+
+      - name: Rename x86_64 APK
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | head -1)
+          cp "$APK" /tmp/cosmog-x86_64.apk
+
+      - name: Upload APKs to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk/universal/release/ -name "*.apk" | head -1)
-          gh release upload ${{ github.ref_name }} \
-            "${APK}#Cosmog-${{ github.ref_name }}-android.apk" \
+          TAG=${{ github.ref_name }}
+          gh release upload "$TAG" \
+            "/tmp/cosmog-arm64.apk#Cosmog-${TAG}-android-arm64.apk" \
+            "/tmp/cosmog-x86_64.apk#Cosmog-${TAG}-android-x86_64.apk" \
             --clobber
