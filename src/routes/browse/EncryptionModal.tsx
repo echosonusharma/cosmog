@@ -84,7 +84,7 @@ export function EncryptionModal(props: {
       const res = await enableBucketEncryption(props.accountId, props.bucket);
       setFreshSecret(res.secret_identity);
       setFreshRecipient(res.public_recipient);
-      toast.ok("Encryption enabled. Save the key before closing this dialog.");
+      toast.ok("Encryption enabled", `New uploads to "${props.bucket}" will be encrypted. Save the key before closing this dialog.`);
       props.onChanged();
     } catch (e) { setErr(errMsg(e)); } finally { setEnabling(false); }
   }
@@ -93,7 +93,7 @@ export function EncryptionModal(props: {
     setDisabling(true); setErr("");
     try {
       await disableBucketEncryption(props.accountId, props.bucket);
-      toast.ok("Encryption disabled");
+      toast.ok("Encryption disabled", `New uploads to "${props.bucket}" will no longer be encrypted`);
       props.onChanged();
       closeAndScrub();
     } catch (e) { setErr(errMsg(e)); } finally { setDisabling(false); }
@@ -112,7 +112,7 @@ export function EncryptionModal(props: {
     try {
       await saveEncryptionKeyExport(props.accountId, props.bucket, dest);
       setSavedPath(dest);
-      toast.ok("Key saved");
+      toast.ok("Key saved", `Encryption key for "${props.bucket}" written to ${dest}`);
     } catch (e) { setErr(errMsg(e)); } finally { setExporting(false); }
   }
 
@@ -132,7 +132,7 @@ export function EncryptionModal(props: {
     setImporting("loading");
     try {
       await importEncryptionIdentityFromFile(props.accountId, props.bucket, src);
-      toast.ok("Key loaded");
+      toast.ok("Key loaded", `Encryption key for "${props.bucket}" imported from file`);
       props.onChanged();
       closeAndScrub();
     } catch (e) { setErr(errMsg(e)); } finally { setImporting(false); }
@@ -145,7 +145,7 @@ export function EncryptionModal(props: {
     setImporting("loading");
     try {
       await importEncryptionIdentity(props.accountId, props.bucket, text);
-      toast.ok("Key loaded");
+      toast.ok("Key loaded", `Encryption key for "${props.bucket}" imported`);
       setImportText("");
       props.onChanged();
       closeAndScrub();

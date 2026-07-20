@@ -83,7 +83,7 @@
 }
 
 .sheet-modal-overlay {
-  position: fixed; inset: 0; z-index: 500;
+  position: fixed; inset: 0; z-index: 1100;
   background: rgba(0,0,0,0.7);
   display: flex; align-items: center; justify-content: center;
   cursor: default;
@@ -136,8 +136,10 @@
 .err-popup-icon { color: var(--err); flex-shrink: 0; }
 .err-popup-close { margin-left: auto; }
 
+/* Fullscreen overlays sit above the mobile preview pane (900) and sidebar
+   drawer (1000) but below confirm dialogs (1200). */
 .editor-modal-backdrop {
-  position: fixed; inset: 0; z-index: 400;
+  position: fixed; inset: 0; z-index: 1100;
   background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
@@ -179,7 +181,7 @@
 }
 
 .lightbox {
-  position: fixed; inset: 0; z-index: 500;
+  position: fixed; inset: 0; z-index: 1100;
   background: rgba(0,0,0,.82);
   display: flex; align-items: center; justify-content: center;
   cursor: zoom-out;

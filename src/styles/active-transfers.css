@@ -1,0 +1,85 @@
+/* Sticky live-progress strip that renders above the main content area
+ * whenever there's at least one active transfer. Compact list of rows, each
+ * with per-transfer filename, direction, and bytes done/total. */
+
+.active-xfer-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 500;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+  max-height: 40vh;
+  overflow-y: auto;
+  cursor: pointer;
+  box-shadow: 0 -6px 20px rgb(0 0 0 / 30%);
+}
+.active-xfer-bar:hover { background: var(--bg-hover); }
+
+.active-xfer-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 2px 0 6px;
+}
+.active-xfer-count { font-weight: 600; color: var(--text); }
+
+.active-xfer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.active-xfer-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.active-xfer-dir {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-hover);
+}
+.active-xfer-dir.upload   { color: var(--accent); }
+.active-xfer-dir.download { color: var(--ok); }
+
+.active-xfer-item-body { flex: 1; min-width: 0; }
+
+.active-xfer-item-line-1 {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.active-xfer-name { flex: 1; min-width: 0; color: var(--text); }
+
+.active-xfer-progress {
+  height: 4px;
+  margin: 4px 0 2px;
+}
+
+.active-xfer-item-line-2 {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Desktop / tablet: cap width and align to the right of the content area
+ * so it doesn't hide table content beneath. */
+@media (min-width: 769px) {
+  .active-xfer-bar {
+    max-height: 32vh;
+    padding: 8px 14px;
+  }
+}

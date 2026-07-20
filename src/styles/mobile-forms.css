@@ -1,0 +1,442 @@
+/* mobile: titlebar, onboarding, settings, transfers, modals, forms. */
+
+@media (max-width: 768px) {
+
+  /* ── titlebar: hidden entirely on mobile ─────────────────────────────── */
+  .titlebar { display: none; }
+
+  /* ── onboarding ───────────────────────────────────────────────────────── */
+  .onboarding {
+    padding: 64px 16px 24px;
+    justify-content: flex-start;
+    gap: 16px;
+  }
+  .onboarding-stepper { flex-wrap: wrap; justify-content: center; gap: 4px; }
+  .step-connector { width: 20px; margin: 0 4px; }
+  .step-label { display: none; }
+  .step-item.active .step-label,
+  .step-item.done .step-label { display: inline; }
+
+  .card {
+    width: 100%;
+    max-width: 100%;
+    padding: 20px 16px;
+    border-radius: 10px;
+    gap: 16px;
+  }
+
+  .provider-grid,
+  .provider-picker,
+  .onboarding-providers {
+    grid-template-columns: 1fr !important;
+  }
+
+  .onboarding-actions,
+  .onboarding-btn-row,
+  .card .btn-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .onboarding-actions button,
+  .onboarding-btn-row button,
+  .card .btn-row button {
+    flex: 1;
+    width: 100%;
+  }
+
+  /* ── settings ─────────────────────────────────────────────────────────── */
+  .settings-body {
+    padding: 12px 14px;
+    gap: 20px;
+  }
+  .settings-section { gap: 10px; }
+  .settings-section-title {
+    padding-bottom: 6px;
+    font-size: 10.5px;
+  }
+  .settings-grid {
+    grid-template-columns: 1fr;
+    gap: 6px 0;
+  }
+  .settings-label {
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .settings-section .btn-row { justify-content: stretch; }
+  .settings-section .btn-row button { width: 100%; flex: 1; }
+
+  .settings-danger-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .settings-danger-zone .btn-danger { width: 100%; }
+
+  .add-account-btn-row { justify-content: stretch; }
+  .add-account-btn { width: 100%; }
+
+  /* ── transfers ────────────────────────────────────────────────────────── */
+  .transfer-filterbar {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .transfer-filterbar-title { font-size: 14px; }
+  .filter-chips {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    gap: 4px;
+  }
+  .chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
+    font-size: 11.5px;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .transfer-clear-btn { align-self: flex-start; }
+
+  .transfer-list { padding: 6px 0; gap: 4px; }
+  .transfer-row {
+    padding: 12px 14px;
+    gap: 10px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .transfer-dir { width: 28px; height: 28px; flex: 0 0 28px; }
+  .transfer-filename { font-size: 12.5px; }
+  .transfer-line-2 { font-size: 10.5px; }
+
+  .transfer-stat-size,
+  .transfer-stat-speed { display: none; }
+  .transfer-stats-row .transfer-pct,
+  .transfer-stats-row .transfer-stat-time { display: inline; }
+
+  .progress-track { width: 100%; }
+
+  .transfer-footer-bar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 6px 12px;
+    gap: 10px;
+    font-size: 10.5px;
+  }
+  .transfer-footer-speeds { flex-wrap: wrap; gap: 8px; }
+  .transfer-footer-summary { margin-left: 0; gap: 8px; }
+
+  /* ── modals: bottom-sheet style on mobile ─────────────────────────────── */
+  .modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
+    justify-content: stretch;
+  }
+  .modal-backdrop > * {
+    max-width: 100% !important;
+    width: 100vw !important;
+    max-height: 92dvh !important;
+    height: auto !important;
+    border-radius: 16px 16px 0 0 !important;
+  }
+  .modal,
+  .cd-modal,
+  .bug-modal,
+  .download-modal,
+  .upload-modal,
+  .new-folder-modal,
+  .rename-modal,
+  .encryption-modal,
+  .enc-modal {
+    width: 100vw !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: 92dvh !important;
+    border-radius: 16px 16px 0 0 !important;
+    padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+    padding-left: calc(16px + env(safe-area-inset-left));
+    padding-right: calc(16px + env(safe-area-inset-right));
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    animation: sheet-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    box-shadow: 0 -8px 30px -5px rgba(0, 0, 0, 0.55) !important;
+  }
+
+  /* drag handle at top of sheet */
+  .modal::before,
+  .cd-modal::before,
+  .bug-modal::before,
+  .download-modal::before,
+  .upload-modal::before,
+  .new-folder-modal::before,
+  .rename-modal::before,
+  .encryption-modal::before,
+  .enc-modal::before {
+    content: "";
+    position: sticky;
+    top: -20px;
+    align-self: center;
+    width: 40px;
+    height: 4px;
+    margin-bottom: 10px;
+    background: var(--border-strong);
+    border-radius: 2px;
+    flex-shrink: 0;
+    z-index: 6;
+  }
+
+  /* sticky action row bottom */
+  .modal .btn-row,
+  .cd-modal .btn-row,
+  .bug-modal .btn-row,
+  .enc-modal .btn-row {
+    position: sticky;
+    bottom: calc(-1 * env(safe-area-inset-bottom) - 16px);
+    background: var(--bg-elev-2);
+    margin: 8px calc(-1 * env(safe-area-inset-right) - 16px) calc(-1 * env(safe-area-inset-bottom) - 16px) calc(-1 * env(safe-area-inset-left) - 16px);
+    padding: 12px calc(env(safe-area-inset-right) + 16px) calc(12px + env(safe-area-inset-bottom)) calc(env(safe-area-inset-left) + 16px);
+    border-top: 1px solid var(--border);
+    z-index: 5;
+  }
+  .modal .btn-row button { flex: 1; }
+
+  @keyframes sheet-in {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
+  /* ── context menu: cap width, allow scroll ───────────────────────────── */
+  .context-menu {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 40px);
+    overflow-y: auto;
+  }
+
+  /* editor/sheet/lightbox fullscreen layout lives in mobile-browse.css */
+
+  .cd-modal-header,
+  .bug-modal-header { padding: 12px 14px; }
+  .cd-modal-body,
+  .bug-modal-body { padding: 14px; }
+
+  /* ── forms ────────────────────────────────────────────────────────────── */
+  input,
+  select,
+  textarea,
+  .field,
+  .custom-select {
+    font-size: 16px;
+    min-height: 40px;
+  }
+  textarea { min-height: 80px; }
+
+  button,
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .cd-delete-btn,
+  .enc-disable-btn {
+    min-height: 40px;
+  }
+
+  /* icon-only buttons stay square with centered glyph */
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-btn svg { display: block; }
+
+  .num-field { height: 42px; }
+  .num-field-btn { width: 40px; }
+
+  /* ── context menu ─────────────────────────────────────────────────────── */
+  .context-menu { min-width: 200px; }
+
+  /* ── logs: mobile-compatible ──────────────────────────────────────────── */
+  .logs-tabbar {
+    padding: 0 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    display: flex;
+    align-items: center;
+  }
+  .logs-tabbar::-webkit-scrollbar { display: none; }
+  .logs-tabbar-title { font-size: 14px; margin-right: 8px; }
+  .logs-tab { padding: 10px 8px 8px; font-size: 12px; flex-shrink: 0; }
+
+  .logs-header {
+    padding: 8px 10px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .logs-search-wrap { flex: 1 1 100%; min-width: 0; }
+  .logs-select {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto !important;
+    height: 34px;
+    font-size: 12px;
+  }
+  .logs-select-op,
+  .logs-select-status,
+  .logs-select-level {
+    width: auto !important;
+    min-width: 0;
+  }
+  .logs-clear-btn {
+    flex-shrink: 0;
+    height: 34px;
+    width: 34px;
+    padding: 0;
+    font-size: 0 !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .logs-clear-btn svg { font-size: initial; }
+
+  .log-line {
+    padding: 8px 12px;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+  }
+  .log-ts {
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    flex: 0 0 auto;
+  }
+  .log-level { min-width: 34px; font-size: 9.5px; padding: 2px 5px; }
+  .log-main {
+    flex: 1 1 100%;
+    gap: 4px;
+  }
+  .log-headline {
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .log-msg {
+    font-size: 12px;
+    word-break: break-word;
+    flex: 1 1 100%;
+  }
+  .log-span { font-size: 10px; padding: 1px 5px; }
+  .log-kv { font-size: 10.5px; }
+  .log-k, .log-v { padding: 1px 4px; }
+  .log-fields { gap: 3px; }
+  .log-json {
+    font-size: 10.5px;
+    padding: 6px 8px;
+    overflow-x: auto;
+  }
+  .log-json-toggle { font-size: 10px; padding: 0 4px; }
+
+  .logs-tailing-label { display: none; }
+
+  .req-log-main {
+    padding: 10px 10px;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+  }
+  .req-log-ts { font-size: 10.5px; min-width: 0; }
+  .req-log-account { max-width: 100px; font-size: 10.5px; }
+  .req-log-op { font-size: 10.5px; padding: 1px 7px; }
+  .req-log-target { font-size: 10.5px; flex-basis: 100%; }
+  .req-log-row { border-left-width: 3px; }
+
+  /* ── loading spinner: always centered on viewport ─────────────────────── */
+  .browse-loading-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 500;
+  }
+  .center-fill {
+    min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── full-width content across all views ──────────────────────────────── */
+  .view-header {
+    padding: 12px 12px 10px;
+  }
+  .transfer-footer-bar {
+    padding: 6px 12px;
+  }
+}
+
+/* tablet: modal stays centered dialog, capped max-width */
+@media (min-width: 601px) and (max-width: 1024px) {
+  .modal-backdrop {
+    padding: 32px;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-backdrop > * {
+    width: 100% !important;
+    max-width: 520px !important;
+    height: auto !important;
+    max-height: 85dvh !important;
+    border-radius: 12px !important;
+    animation: none;
+  }
+  .modal,
+  .cd-modal,
+  .bug-modal,
+  .download-modal,
+  .upload-modal,
+  .new-folder-modal,
+  .rename-modal,
+  .encryption-modal,
+  .enc-modal {
+    max-width: 520px !important;
+    padding: 20px 20px calc(16px + env(safe-area-inset-bottom));
+  }
+  .modal::before,
+  .cd-modal::before,
+  .bug-modal::before,
+  .download-modal::before,
+  .upload-modal::before,
+  .new-folder-modal::before,
+  .rename-modal::before,
+  .encryption-modal::before,
+  .enc-modal::before {
+    display: none;
+  }
+  .modal .btn-row,
+  .cd-modal .btn-row,
+  .bug-modal .btn-row,
+  .enc-modal .btn-row {
+    position: static;
+    background: transparent;
+    margin: 8px 0 0;
+    padding: 0;
+    border-top: none;
+  }
+}

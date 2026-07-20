@@ -132,6 +132,7 @@ impl From<rusqlite::Error> for AppError {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl From<keyring::Error> for AppError {
     fn from(value: keyring::Error) -> Self {
         match value {

@@ -10,6 +10,9 @@ pub mod logging;
 pub mod region_retry;
 pub mod s3;
 
+#[cfg(target_os = "android")]
+pub mod android_tls;
+
 use std::path::PathBuf;
 
 use async_trait::async_trait;

@@ -174,15 +174,15 @@ export function ListView(props: {
                                          onClick={(e) => e.stopPropagation()}
                                          onChange={() => props.onToggleSel(obj().key)} />
                                   <FileIcon name={obj().basename} />
-                                  <span class="obj-name" title={obj().key}>{obj().basename}</span>
+                                  <span class="obj-name">{obj().basename}</span>
                                 </div>
                                 <div class="obj-type">{obj().key.endsWith("/") ? "Folder" : fileTypeLabel(obj().basename)}</div>
                                 <div class="obj-size">{formatBytes(obj().size)}</div>
                                 <div class="obj-date">{obj().last_modified ? formatDate(obj().last_modified) : "-"}</div>
                                 <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
-                                  <button class="icon-btn" title="Download" onClick={() => props.onDownload(obj())}><IconDownload size={15} /></button>
-                                  <button class="icon-btn" title="Copy link" onClick={() => props.onCopyLink(obj())}><IconLink size={15} /></button>
-                                  <button class="icon-btn danger" title="Delete" onClick={() => props.onDelete(obj())}><IconTrash size={15} /></button>
+                                  <button class="icon-btn" onClick={() => props.onDownload(obj())}><IconDownload size={15} /></button>
+                                  <button class="icon-btn" onClick={() => props.onCopyLink(obj())}><IconLink size={15} /></button>
+                                  <button class="icon-btn danger" onClick={() => props.onDelete(obj())}><IconTrash size={15} /></button>
                                 </div>
                               </div>
                             );

@@ -81,14 +81,14 @@ export function SearchResultsPane(props: {
                     <div class="obj-name-cell">
                       <span class="obj-checkbox-spacer" />
                       <FileIcon name={obj.basename} />
-                      <span class="obj-name" title={obj.key}>{highlightText(obj.key, props.searchQuery)}</span>
+                      <span class="obj-name">{highlightText(obj.key, props.searchQuery)}</span>
                     </div>
                     <div class="obj-type">{fileTypeLabel(obj.basename)}</div>
                     <div class="obj-size">{formatBytes(obj.size)}</div>
                     <div class="obj-date">{obj.last_modified ? formatDate(obj.last_modified) : "-"}</div>
                     <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
-                      <button class="icon-btn" title="Download" onClick={() => props.onDownload(obj)}><IconDownload size={15} /></button>
-                      <button class="icon-btn" title="Copy link" onClick={() => props.onCopyLink(obj)}><IconLink size={15} /></button>
+                      <button class="icon-btn" onClick={() => props.onDownload(obj)}><IconDownload size={15} /></button>
+                      <button class="icon-btn" onClick={() => props.onCopyLink(obj)}><IconLink size={15} /></button>
                     </div>
                   </div>
                 )}

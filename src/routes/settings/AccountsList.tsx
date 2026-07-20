@@ -32,7 +32,7 @@ export function AccountsList() {
       danger: true,
     });
     if (!ok) return;
-    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed"); }
+    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed", `"${name}" and its cached data were deleted`); }
     catch (e) { toast.err(e); }
   }
 
@@ -67,9 +67,9 @@ export function AccountsList() {
                     {a.endpoint ? ` · ${a.endpoint}` : ""}
                   </span>
                 </div>
-                <button class="icon-btn" title="Edit"
+                <button class="icon-btn"
                         onClick={() => { setEditing(a); setShowAdd(true); }}><IconEdit size={15} /></button>
-                <button class="icon-btn danger" title="Remove"
+                <button class="icon-btn danger"
                         onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
               </div>
             )}

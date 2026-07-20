@@ -30,7 +30,7 @@ export function SettingsForm() {
       await updateSettings(form());
       setForm({});
       await refetch();
-      toast.ok("Settings saved");
+      toast.ok("Settings saved", "Your preferences were updated");
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
   }
@@ -49,7 +49,7 @@ export function SettingsForm() {
       setTheme(s.theme ?? "system");
       setForm({});
       await refetch();
-      toast.ok("Defaults restored");
+      toast.ok("Defaults restored", "Every preference was reset to its default");
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
   }
