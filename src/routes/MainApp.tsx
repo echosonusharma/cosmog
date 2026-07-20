@@ -19,6 +19,7 @@ import {
   notifId,
   onNotificationAction,
   dismissNotification,
+  ensureNotificationPermission,
   IS_MOBILE_OS,
   TRANSFER_ACTION_TYPE_ID,
   TRANSFER_CANCEL_ACTION_ID,
@@ -221,6 +222,10 @@ export default function MainApp() {
   // in-memory on the Rust side, so 1s is comfortable even on mobile.
   const countTimer = setInterval(refreshCount, 1000);
   onCleanup(() => clearInterval(countTimer));
+
+  // Ask for notification permission and create channels immediately so the
+  // prompt appears on first launch rather than mid-transfer.
+  if (IS_MOBILE_OS) ensureNotificationPermission();
 
   // Route the notification "Cancel" button to the transfer cancel command.
   // Mobile only: the desktop plugin build does not register the listener
