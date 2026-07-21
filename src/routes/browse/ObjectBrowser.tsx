@@ -14,6 +14,7 @@ import {
   navigateToPrefix,
   pendingPreview, setPendingPreview,
 } from "../../state/app";
+import { useBackHandler } from "../../utils/androidBack";
 import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import type { CachedObjectMeta } from "../../types";
@@ -153,6 +154,20 @@ export function ObjectBrowser(props: {
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
+
+  // Android back: unwind the object browser's own overlays before the shell
+  // handles view/prefix navigation. Most-modal first; selection clears last.
+  useBackHandler(() => true, () => {
+    if (ctxMenu()) { setCtxMenu(null); return true; }
+    if (previewTarget()) { setPreviewTarget(null); return true; }
+    if (renameTarget()) { setRenameTarget(null); return true; }
+    if (downloadTarget()) { setDownloadTarget(null); return true; }
+    if (showNewFolder() !== null) { setShowNewFolder(null); return true; }
+    if (showUpload() !== false) { setShowUpload(false); setPendingDrop([]); return true; }
+    if (showEncryption()) { setShowEncryption(false); return true; }
+    if (selected().size > 0) { setSelected(new Set<string>()); return true; }
+    return false;
+  });
 
   // Auto-prune pending folders once real browse data for the current prefix covers them.
   createEffect(() => {
