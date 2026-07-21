@@ -1,4 +1,5 @@
 import { Show, For, createSignal, createMemo, createResource } from "solid-js";
+import { Portal } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion, getTauriVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -23,14 +24,23 @@ const GITHUB_ISSUES_URL = "https://github.com/echosonusharma/cosmog/issues";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+type DeviceInfo = { os: string; os_version: string; arch: string; model: string | null };
+
 async function loadBugInfo() {
   const appVersion = isTauri ? await getVersion() : "unknown";
   const tauriVersion = isTauri ? await getTauriVersion() : "unknown";
+  // navigator only knows the WebView runtime (e.g. "Linux aarch64" on Android),
+  // so pull the real OS/arch/device from the native backend when available.
+  const device: DeviceInfo | null = isTauri
+    ? await invoke<DeviceInfo>("get_device_info").catch(() => null)
+    : null;
   const ua = navigator.userAgent;
-  const platform = navigator.platform;
+  const os = device ? `${device.os} ${device.os_version}` : navigator.platform;
+  const arch = device?.arch ?? "unknown";
+  const model = device?.model ?? null;
   const screen = `${window.screen.width}x${window.screen.height} @${window.devicePixelRatio}x`;
   const locale = navigator.language;
-  return { appVersion, tauriVersion, ua, platform, screen, locale };
+  return { appVersion, tauriVersion, ua, os, arch, model, screen, locale };
 }
 
 function BugReportModal(props: { onClose: () => void }) {
@@ -40,14 +50,19 @@ function BugReportModal(props: { onClose: () => void }) {
   const infoText = () => {
     const d = info();
     if (!d) return "Loading…";
-    return [
+    const rows = [
       `App Version:   ${d.appVersion}`,
       `Tauri Version: ${d.tauriVersion}`,
-      `Platform:      ${d.platform}`,
+      `OS:            ${d.os}`,
+      `Arch:          ${d.arch}`,
+    ];
+    if (d.model) rows.push(`Device:        ${d.model}`);
+    rows.push(
       `Screen:        ${d.screen}`,
       `Locale:        ${d.locale}`,
       `User Agent:    ${d.ua}`,
-    ].join("\n");
+    );
+    return rows.join("\n");
   };
 
   function copyInfo() {
@@ -84,7 +99,11 @@ function BugReportModal(props: { onClose: () => void }) {
               <dl class="bug-info-grid">
                 <dt>App Version</dt><dd>{info()!.appVersion}</dd>
                 <dt>Tauri Version</dt><dd>{info()!.tauriVersion}</dd>
-                <dt>Platform</dt><dd>{info()!.platform}</dd>
+                <dt>OS</dt><dd>{info()!.os}</dd>
+                <dt>Arch</dt><dd>{info()!.arch}</dd>
+                <Show when={info()!.model}>
+                  <dt>Device</dt><dd>{info()!.model}</dd>
+                </Show>
                 <dt>Screen</dt><dd>{info()!.screen}</dd>
                 <dt>Locale</dt><dd>{info()!.locale}</dd>
                 <dt>User Agent</dt><dd>{info()!.ua}</dd>
@@ -312,7 +331,9 @@ export function Sidebar(props: {
       </Show>
 
       <Show when={showBugModal()}>
-        <BugReportModal onClose={() => setShowBugModal(false)} />
+        <Portal>
+          <BugReportModal onClose={() => setShowBugModal(false)} />
+        </Portal>
       </Show>
     </aside>
   );
