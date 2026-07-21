@@ -7,8 +7,9 @@ import {
   currentView, setCurrentView,
   setAccounts, accounts, browseState, setBrowseState, selectAccount,
   setSidebarBuckets, bucketsRefreshTick, accountsRefreshTick,
-  bumpBucketsRefresh, bumpAccountsRefresh, setActiveTransfers,
+  bumpBucketsRefresh, bumpAccountsRefresh, setActiveTransfers, goUpPrefix,
 } from "../state/app";
+import { useBackHandler } from "../utils/androidBack";
 import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
 import { listTransfers } from "../api/transfers";
@@ -47,6 +48,18 @@ export default function MainApp() {
 
   const openDrawer = () => setDrawerOpen(true);
   const closeDrawer = () => setDrawerOpen(false);
+
+  // Shell-level Android back handling. Registered first (parent mounts before
+  // children), so it sits at the bottom of the back stack — overlays and the
+  // object browser get first crack. Returning false at the browse root lets
+  // the OS take the back press and background/exit the app.
+  useBackHandler(() => true, () => {
+    if (drawerOpen()) { closeDrawer(); return true; }
+    if (currentView() !== "browse") { setCurrentView("browse"); return true; }
+    if (browseState.prefix) { goUpPrefix(); return true; }
+    if (browseState.bucket) { setBrowseState({ bucket: null, prefix: "" }); return true; }
+    return false;
+  });
 
   const [accountsData] = createResource(accountsRefreshTick, listAccounts);
   const [settings] = createResource(getSettings);

@@ -15,6 +15,7 @@ import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, extOf } from "./helpers";
 import { Lightbox } from "./preview/Lightbox";
 import { SheetPreview } from "./preview/SheetModal";
 import { MetaList } from "./preview/MetaList";
+import { useBackHandler } from "../../utils/androidBack";
 
 // Map a Tauri IPC rejection to a short, human-facing (title, hint) pair for
 // the preview error card. Falls back to the raw wire message when the code
@@ -59,6 +60,14 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const [loadRequested, setLoadRequested] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [editOpen, setEditOpen] = createSignal(false);
+
+  // Android back: close the lightbox / editor before the preview pane itself
+  // (which ObjectBrowser closes once this returns false).
+  useBackHandler(() => true, () => {
+    if (expanded()) { setExpanded(false); return true; }
+    if (editOpen()) { setEditOpen(false); return true; }
+    return false;
+  });
   const tooBig = () => props.obj.size > 10 * 1024 * 1024;
   // Encrypted images are decrypted whole into a Blob URL. Cap auto-load so a
   // 100 MB ciphertext doesn't balloon the webview. User can still click
