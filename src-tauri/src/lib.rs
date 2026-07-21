@@ -30,6 +30,7 @@ pub mod bulk;
 pub mod commands;
 pub mod crypto;
 pub mod db;
+pub mod device;
 pub mod error;
 pub mod providers;
 pub mod scheduler;
@@ -121,6 +122,14 @@ async fn stage_saf_upload(
 #[tauri::command]
 fn set_transfer_service(active: bool) -> Result<(), String> {
     crate::saf::set_transfer_service(active)
+}
+
+/// Real platform info for the bug-report dialog: OS name + version + CPU arch
+/// (and device model on Android). Resolved natively so it reflects the device,
+/// not the WebView's `navigator` string.
+#[tauri::command]
+fn get_device_info() -> Result<crate::device::DeviceInfo, String> {
+    crate::device::get_device_info()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -406,6 +415,9 @@ pub fn run() {
 
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale
+
+            // -------- device: native OS/arch/model for bug reports --------
+            get_device_info,
 
             // -------- notifications: native builder with icon + stable id --------
             notify_ex,

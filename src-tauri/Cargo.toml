@@ -58,6 +58,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
+os_info = { version = "3", default-features = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
