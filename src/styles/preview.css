@@ -105,6 +105,104 @@
   max-width: 240px;
 }
 .sheet-table-full { max-height: unset; flex: 1; border: none; border-radius: 0; }
+
+/* ── PDF modal ──────────────────────────────────────────────────────────── */
+.pdf-modal-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  cursor: default;
+}
+.pdf-modal-inner {
+  width: 92vw; max-width: 1000px; height: 90vh;
+  background: var(--bg-elev-1); border-radius: 10px;
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.pdf-modal-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.pdf-modal-title {
+  font-size: 13px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.pdf-modal-nav, .pdf-modal-zoom {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+/* Zoom + Move/Select group. Desktop: inline before the close button. */
+.pdf-header-controls {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  order: 1;
+}
+.pdf-modal-close { order: 2; margin-left: 4px; }
+.pdf-page-ind, .pdf-zoom-ind {
+  font-size: 11.5px; color: var(--text-muted);
+  min-width: 44px; text-align: center; font-variant-numeric: tabular-nums;
+}
+.pdf-mode-btn {
+  font-size: 11.5px; padding: 4px 10px; border-radius: 6px; flex-shrink: 0;
+}
+.pdf-mode-btn.active { background: var(--accent); color: #fff; }
+.pdf-canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background: var(--bg-elev-2);
+  touch-action: none; /* Move mode: we handle pinch/pan via pointer events */
+  cursor: grab;
+}
+.pdf-canvas-wrap.selecting {
+  touch-action: auto; cursor: text;
+}
+.pdf-page {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+  background: #fff;
+  /* A pan drag must never start a native HTML drag (it would trip the app's
+     file drag-drop handler and pop the upload dialog). */
+  -webkit-user-drag: none; user-select: none;
+}
+.pdf-page.hidden { display: none; }
+.pdf-modal-loading, .pdf-modal-err {
+  position: absolute; z-index: 4;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  margin: 0; white-space: nowrap;
+}
+.pdf-canvas {
+  display: block; width: 100%; height: 100%;
+}
+
+/* pdf.js text layer: transparent, absolutely-positioned selectable spans that
+   overlay the canvas. Selection is off in Move mode (so a drag pans) and enabled
+   only in Select mode. */
+.textLayer {
+  position: absolute; inset: 0; overflow: hidden;
+  line-height: 1; opacity: 1;
+  user-select: none; -webkit-user-select: none;
+}
+.pdf-canvas-wrap.selecting .textLayer {
+  user-select: text; -webkit-user-select: text;
+}
+.textLayer span, .textLayer br {
+  color: transparent; position: absolute; white-space: pre;
+  cursor: text; transform-origin: 0 0;
+}
+.textLayer ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* Floating Copy button (native long-press callout is suppressed in the
+   Tauri WebView). Sits above the page, thumb-reachable near the bottom. */
+.pdf-copy-fab {
+  position: absolute; z-index: 5;
+  left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 9px 18px; border-radius: 22px; border: none;
+  background: var(--accent); color: #fff;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
 .err-popup-backdrop {
   position: absolute; inset: 0; z-index: 300;
   display: flex; align-items: center; justify-content: center;

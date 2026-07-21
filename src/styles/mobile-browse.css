@@ -359,4 +359,40 @@
   .sheet-tab {
     padding: 6px 12px;
   }
+
+  /* ── PDF modal: same fullscreen treatment ────────────────────────────── */
+  .pdf-modal-overlay {
+    align-items: stretch;
+  }
+  .pdf-modal-inner {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pdf-modal-header {
+    padding: 8px 12px;
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+    background: var(--panel);
+    gap: 8px;
+    /* Two rows: [title · page nav · close] then [zoom · Move/Select]. */
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .pdf-modal-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    order: 0;
+  }
+  .pdf-modal-nav { order: 1; }
+  .pdf-modal-close { order: 2; }
+  .pdf-header-controls {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: center;
+  }
 }
