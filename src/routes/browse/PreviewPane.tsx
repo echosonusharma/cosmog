@@ -11,9 +11,10 @@ import {
 import type { CachedObjectMeta } from "../../types";
 import { CodeEditor, EditorModal } from "../../utils/CodeEditor";
 import { resolvedTheme } from "../../state/theme";
-import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, extOf } from "./helpers";
+import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, extOf } from "./helpers";
 import { Lightbox } from "./preview/Lightbox";
 import { SheetPreview } from "./preview/SheetModal";
+import { PdfPreview } from "./preview/PdfModal";
 import { MetaList } from "./preview/MetaList";
 import { useBackHandler } from "../../utils/androidBack";
 
@@ -55,7 +56,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const ext = () => extOf(props.obj.basename);
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
   const isSheet = () => SHEET_EXTS.has(ext());
-  const isText = () => !isSheet() && (ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript") || TEXT_EXTS.has(ext()));
+  const isPdf = () => ct() === "application/pdf" || PDF_EXTS.has(ext());
+  const isText = () => !isSheet() && !isPdf() && (ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript") || TEXT_EXTS.has(ext()));
 
   const [loadRequested, setLoadRequested] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
@@ -318,7 +320,12 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <SheetPreview obj={props.obj} />
           </Show>
 
-          <Show when={!isImage() && !isText() && !isSheet()}>
+          {/* PDF preview */}
+          <Show when={isPdf()}>
+            <PdfPreview obj={props.obj} />
+          </Show>
+
+          <Show when={!isImage() && !isText() && !isSheet() && !isPdf()}>
             <div class="muted preview-binary-note">
               Binary content · {formatBytes(props.obj.size)}
             </div>
