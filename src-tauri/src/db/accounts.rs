@@ -113,7 +113,7 @@ impl Db {
 
     pub async fn get_account(&self, id: &str) -> AppResult<Account> {
         let id = id.to_string();
-        let id2 = id.clone();
+        let not_found_msg = format!("account {id}");
         let row = self
             .conn
             .call(move |conn| {
@@ -124,7 +124,7 @@ impl Db {
                 Ok::<_, tokio_rusqlite::Error>(row)
             })
             .await?;
-        row.ok_or_else(|| AppError::NotFound(format!("account {id2}")))
+        row.ok_or_else(|| AppError::NotFound(not_found_msg))
     }
 
     pub async fn update_account(&self, id: &str, patch: UpdateAccount) -> AppResult<Account> {
@@ -143,25 +143,55 @@ impl Db {
             created_at: existing.created_at,
             updated_at: Utc::now().timestamp(),
         };
-        let to_update = merged.clone();
         self.conn
             .call(move |conn| {
                 conn.execute(
                     "UPDATE accounts SET name=?1, endpoint=?2, region=?3, access_key_id=?4, addressing_style=?5, updated_at=?6 WHERE id=?7",
                     params![
-                        to_update.name,
-                        to_update.endpoint,
-                        to_update.region,
-                        to_update.access_key_id,
-                        to_update.addressing_style,
-                        to_update.updated_at,
-                        to_update.id,
+                        merged.name,
+                        merged.endpoint,
+                        merged.region,
+                        merged.access_key_id,
+                        merged.addressing_style,
+                        merged.updated_at,
+                        merged.id,
+                    ],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(merged)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn upsert_account(&self, acct: Account) -> AppResult<()> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO accounts (id, name, protocol, endpoint, region, access_key_id, addressing_style, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                     ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        endpoint = excluded.endpoint,
+                        region = excluded.region,
+                        access_key_id = excluded.access_key_id,
+                        addressing_style = excluded.addressing_style,
+                        updated_at = excluded.updated_at",
+                    params![
+                        acct.id,
+                        acct.name,
+                        acct.protocol,
+                        acct.endpoint,
+                        acct.region,
+                        acct.access_key_id,
+                        acct.addressing_style,
+                        acct.created_at,
+                        acct.updated_at,
                     ],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(())
             })
             .await?;
-        Ok(merged)
+        Ok(())
     }
 
     pub async fn delete_account(&self, id: &str) -> AppResult<()> {

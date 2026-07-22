@@ -84,22 +84,3 @@ export function LabeledField(props: {
     </div>
   );
 }
-
-export function Field(props: {
-  placeholder: string;
-  value: string;
-  onInput: (v: string) => void;
-  type?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <input
-      class="field"
-      type={props.type ?? "text"}
-      placeholder={props.placeholder}
-      value={props.value}
-      disabled={props.disabled}
-      onInput={(e) => props.onInput(e.currentTarget.value)}
-    />
-  );
-}

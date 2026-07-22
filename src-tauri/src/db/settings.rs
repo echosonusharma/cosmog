@@ -14,6 +14,7 @@ use chrono::Utc;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+#[allow(unused_imports)]
 use crate::error::{AppError, AppResult};
 
 use super::Db;
@@ -291,7 +292,3 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
     }
 }
 
-// Keep AppError reachable so future error mappings compile without rework.
-const _: fn() = || {
-    let _: Option<AppError> = None;
-};

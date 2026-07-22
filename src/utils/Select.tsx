@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onMount, onCleanup, JSX } from "solid-js";
+import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { IconChevronD } from "./icons";
 
 export interface SelectOption {
@@ -11,7 +11,7 @@ export function Select(props: {
   options: SelectOption[];
   placeholder?: string;
   disabled?: boolean;
-  style?: string | JSX.CSSProperties;
+  style?: string;
   class?: string;
   onChange: (v: string) => void;
 }) {

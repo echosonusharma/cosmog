@@ -129,11 +129,7 @@ export function ListView(props: {
                   const item = () => listItems()[vrow().index];
                   return (
                     <Show when={item()}>
-                      <div style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
+                      <div class="virtual-row" style={{
                         height: `${LIST_ROW_H}px`,
                         transform: `translateY(${vrow().start}px)`,
                       }}>

@@ -36,7 +36,7 @@ fn expand_home(local_path: &str) -> String {
     local_path.to_string()
 }
 
-pub fn validate_upload_source(local_path: &str) -> AppResult<PathBuf> {
+pub async fn validate_upload_source(local_path: &str) -> AppResult<PathBuf> {
     let expanded = expand_home(local_path);
     let path = Path::new(&expanded).to_path_buf();
     let path = path.as_path();
@@ -45,7 +45,7 @@ pub fn validate_upload_source(local_path: &str) -> AppResult<PathBuf> {
             "local_path must be absolute".into(),
         ));
     }
-    let meta = std::fs::metadata(path)
+    let meta = tokio::fs::metadata(path).await
         .map_err(|e| AppError::InvalidInput(format!("local_path: {e}")))?;
     if !meta.is_file() {
         return Err(AppError::InvalidInput(
@@ -65,7 +65,7 @@ pub fn validate_upload_source(local_path: &str) -> AppResult<PathBuf> {
 /// create subdirectories *inside the user-supplied `local_root`* and verifies
 /// each resolved path stays within it — see `is_safe_relative_suffix` in
 /// `bulk.rs`.
-pub fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
+pub async fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
     let expanded = expand_home(local_path);
     let path_buf = Path::new(&expanded).to_path_buf();
     let path = path_buf.as_path();
@@ -77,7 +77,7 @@ pub fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
     let parent = path.parent().ok_or_else(|| {
         AppError::InvalidInput("local_path has no parent directory".into())
     })?;
-    if !parent.is_dir() {
+    if !tokio::fs::metadata(parent).await.map(|m| m.is_dir()).unwrap_or(false) {
         return Err(AppError::InvalidInput(format!(
             "parent directory does not exist: {}",
             parent.display()

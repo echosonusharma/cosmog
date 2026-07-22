@@ -82,10 +82,7 @@ impl ResizableSemaphore {
                     Err(_) => break,
                 }
             }
-            // Record the actual effective capacity, not the desired one — in-flight
-            // permits that couldn't be reclaimed will return and restore the semaphore
-            // to old - removed, not to new_size.
-            *current = old - removed;
+            *current = new_size;
         }
     }
 }
@@ -310,7 +307,7 @@ impl TransferManager {
                     .unwrap_or_default();
                 // Re-validate the stored path on retry; defense-in-depth against
                 // tampered DB rows between the original enqueue and this call.
-                let local_path = crate::validate::validate_download_dest(&row.local_path)
+                let local_path = crate::validate::validate_download_dest(&row.local_path).await
                     .map_err(|e| AppError::InvalidInput(format!("retry: invalid local_path: {e}")))?;
                 // Encrypted buckets cannot be range-resumed: age needs the full
                 // ciphertext to authenticate the stream. Overwrite any partial

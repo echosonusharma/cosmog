@@ -85,8 +85,7 @@ export function Toolbar(props: {
         </Show>
         <button
           class="icon-btn"
-          style={props.encryptionEnabled ? "color:var(--accent)" : ""}
-
+          classList={{ "enc-active": props.encryptionEnabled }}
           onClick={props.onOpenEncryption}
         >
           <Show when={props.encryptionEnabled} fallback={<IconLockOpen size={15} />}>

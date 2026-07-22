@@ -51,11 +51,7 @@ function ColumnPaneVirtual(props: {
             const item = () => props.items[vrow().index];
             return (
               <Show when={item()}>
-                <div style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
+                <div class="virtual-row" style={{
                   height: `${COL_ITEM_H}px`,
                   transform: `translateY(${vrow().start}px)`,
                 }}>

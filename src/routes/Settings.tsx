@@ -19,6 +19,7 @@ function ClearDataModal(props: { onClose: () => void }) {
       await clearAppData();
     } catch (e) {
       toast.err(e);
+    } finally {
       setBusy(false);
     }
   }

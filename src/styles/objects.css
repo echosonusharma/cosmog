@@ -30,6 +30,13 @@
 .object-browser { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .object-list { flex: 1; contain: layout paint; }
 
+.virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 /* ── table view ─────────────────────────────────────────────────────────── */
 .table-view {
   flex: 1; display: flex; flex-direction: column; overflow: hidden;

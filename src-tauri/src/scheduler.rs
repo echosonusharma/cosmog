@@ -35,6 +35,7 @@ pub fn spawn(state: AppState) -> CancellationToken {
     tokio::spawn(async move {
         info!("scheduler started");
         let mut tick = tokio::time::interval(Duration::from_secs(60));
+        let mut tick_count: u64 = 0;
         loop {
             tokio::select! {
                 _ = token.cancelled() => {
@@ -42,7 +43,8 @@ pub fn spawn(state: AppState) -> CancellationToken {
                     return;
                 }
                 _ = tick.tick() => {
-                    if let Err(e) = run_once(&state, &fail_times).await {
+                    tick_count += 1;
+                    if let Err(e) = run_once(&state, &fail_times, tick_count).await {
                         warn!("scheduler iteration failed: {e}");
                     }
                 }
@@ -55,16 +57,19 @@ pub fn spawn(state: AppState) -> CancellationToken {
 async fn run_once(
     state: &AppState,
     fail_times: &Arc<DashMap<String, Instant>>,
+    tick: u64,
 ) -> crate::error::AppResult<()> {
     let backoff = Duration::from_secs(AUTH_BACKOFF_SECS);
     // Expire old failure entries (older than AUTH_BACKOFF_SECS).
     fail_times.retain(|_, v| v.elapsed() < backoff);
 
-    // Prune request logs older than the configured TTL.
-    if let Ok(settings) = state.load_settings().await {
-        let cutoff = Utc::now().timestamp() - (settings.request_log_ttl_days as i64 * 86_400);
-        if let Err(e) = state.db.delete_old_request_logs(cutoff).await {
-            warn!("request log TTL cleanup failed: {e}");
+    // TTL cleanup runs once per day (every 1440 × 60s ticks).
+    if tick % 1440 == 1 {
+        if let Ok(settings) = state.load_settings().await {
+            let cutoff = Utc::now().timestamp() - (settings.request_log_ttl_days as i64 * 86_400);
+            if let Err(e) = state.db.delete_old_request_logs(cutoff).await {
+                warn!("request log TTL cleanup failed: {e}");
+            }
         }
     }
 

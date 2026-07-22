@@ -66,7 +66,10 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
         dismissLabel: "Keep editing",
       });
       if (action === null) return;
-      if (action === true) await doSaveSheet();
+      if (action === true) {
+        const saved = await doSaveSheet();
+        if (!saved) return;
+      }
     }
     setSheetExpanded(false);
     setSheetEditMode(false);
@@ -121,9 +124,9 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
     setSheetRev((n) => n + 1);
   }
 
-  async function doSaveSheet() {
+  async function doSaveSheet(): Promise<boolean> {
     const wb = sheetWb();
-    if (!wb) return;
+    if (!wb) return false;
     setSheetSaving(true);
     try {
       let bytes: number[];
@@ -143,7 +146,8 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
       notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
         largeBody: `Saved changes to "${props.obj.key}" in "${props.obj.bucket}"`,
       });
-    } catch (e) { toast.err(e); }
+      return true;
+    } catch (e) { toast.err(e); return false; }
     finally { setSheetSaving(false); }
   }
 

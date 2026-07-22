@@ -35,18 +35,14 @@ impl Protocol {
     }
 }
 
-/// Build a minimal S3 store pointed at the global endpoint (us-east-1, no
-/// custom endpoint override) for probing operations like `GetBucketLocation`
-/// that work cross-region. Used by region auto-correction logic to avoid
-/// calling `GetBucketLocation` on a misconfigured-region client.
-pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
+async fn build_store_inner(account: &Account, region: &str, endpoint: Option<String>) -> AppResult<Arc<dyn ObjectStore>> {
     let account_id = account.id.clone();
     let secret = tokio::task::spawn_blocking(move || secrets::get_secret(&account_id))
         .await
         .map_err(|e| AppError::Internal(format!("keyring task panicked: {e}")))??;
     let store = S3Store::new(S3Config {
-        region: "us-east-1".to_string(),
-        endpoint: None,
+        region: region.to_string(),
+        endpoint,
         access_key_id: account.access_key_id.clone(),
         secret_access_key: secret,
         addressing_style: account.addressing_style.clone(),
@@ -55,38 +51,25 @@ pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectSto
     Ok(Arc::new(store))
 }
 
+/// Build a minimal S3 store pointed at the global endpoint (us-east-1, no
+/// custom endpoint override) for probing operations like `GetBucketLocation`
+/// that work cross-region. Used by region auto-correction logic to avoid
+/// calling `GetBucketLocation` on a misconfigured-region client.
+pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
+    build_store_inner(account, "us-east-1", None).await
+}
+
 /// Like [`build_store`] but signs for an explicit region instead of the
 /// account's stored one. Used for per-bucket region routing.
 pub async fn build_store_with_region(
     account: &Account,
     region: &str,
 ) -> AppResult<Arc<dyn ObjectStore>> {
-    let mut acct = account.clone();
-    acct.region = region.to_string();
-    build_store(&acct).await
+    build_store_inner(account, region, account.endpoint.clone()).await
 }
 
 /// Build an ObjectStore for the given account, pulling its secret from the keyring.
 pub async fn build_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
-    let protocol = Protocol::parse(&account.protocol)?;
-    match protocol {
-        Protocol::S3 => {
-            // keyring::Entry::get_password is synchronous and may block on
-            // D-Bus (Linux) or Keychain (macOS). Run it off the Tokio executor
-            // to avoid stalling other in-flight commands.
-            let account_id = account.id.clone();
-            let secret = tokio::task::spawn_blocking(move || secrets::get_secret(&account_id))
-                .await
-                .map_err(|e| AppError::Internal(format!("keyring task panicked: {e}")))??;
-            let store = S3Store::new(S3Config {
-                region: account.region.clone(),
-                endpoint: account.endpoint.clone(),
-                access_key_id: account.access_key_id.clone(),
-                secret_access_key: secret,
-                addressing_style: account.addressing_style.clone(),
-            })
-            .await?;
-            Ok(Arc::new(store))
-        }
-    }
+    Protocol::parse(&account.protocol)?;
+    build_store_inner(account, &account.region, account.endpoint.clone()).await
 }

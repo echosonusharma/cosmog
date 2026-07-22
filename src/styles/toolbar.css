@@ -117,3 +117,5 @@
 .account-name { font-size: 13px; font-weight: 500; }
 .account-meta { font-size: 11px; color: var(--text-muted); }
 
+.enc-active { color: var(--accent); }
+

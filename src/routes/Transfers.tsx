@@ -35,7 +35,7 @@ export default function Transfers() {
         hasEncryptionIdentity(accountId, bucket),
       ]);
       setKeyModal({ accountId, bucket, enabled: status.enabled, identityPresent: present });
-    } catch (e) { toast.err(errMsg(e)); }
+    } catch (e) { toast.err(e); }
   }
 
   async function load() {
