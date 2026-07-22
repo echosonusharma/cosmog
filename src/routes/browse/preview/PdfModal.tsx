@@ -179,13 +179,14 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
     renderPage(d, n);
   });
 
-  async function renderPage(d: PDFDocumentProxy, n: number) {
+  async function renderPage(d: PDFDocumentProxy, n: number, retries = 0) {
     if (!expanded()) return; // modal closed mid-retry — stop (avoids a rAF loop)
     // The modal may not be laid out on the first open — clientWidth 0 would fit
     // the page to nothing and park it off-screen (white until the first pan).
     // Wait a frame and retry until the wrapper has a real width.
     if (!wrap || wrap.clientWidth === 0) {
-      requestAnimationFrame(() => renderPage(d, n));
+      if (retries >= 60) return;
+      requestAnimationFrame(() => renderPage(d, n, retries + 1));
       return;
     }
     renderTask?.cancel();

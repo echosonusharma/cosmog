@@ -9,6 +9,7 @@ use chrono::Utc;
 use rusqlite::{params, types::Value, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+#[allow(unused_imports)]
 use crate::error::{AppError, AppResult};
 use crate::store::ObjectMeta;
 
@@ -1294,6 +1295,16 @@ fn compute_facets(
     Ok(facets)
 }
 
+fn fts_join(query: &Option<String>) -> (String, Option<String>) {
+    match query {
+        Some(text) => (
+            "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
+            Some(text.clone()),
+        ),
+        None => (String::new(), None),
+    }
+}
+
 fn facet_group(
     conn: &rusqlite::Connection,
     account_id: &str,
@@ -1305,15 +1316,12 @@ fn facet_group(
     col: &str,
 ) -> Result<Vec<FacetBucket>, tokio_rusqlite::Error> {
     let (filter_sql, mut params) = build_filter(account_id, bucket, scope, filters, Some(dim));
-    let (join_sql, fts_clause) = if let Some(text) = fts {
-        params.push(Value::Text(text.to_string()));
-        (
-            "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-            " AND cached_objects_fts MATCH ? ".to_string(),
-        )
-    } else {
-        (String::new(), String::new())
-    };
+    let fts_owned = fts.map(|s| s.to_string());
+    let (join_sql, fts_param) = fts_join(&fts_owned);
+    let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
+    if let Some(text) = fts_param {
+        params.push(Value::Text(text));
+    }
 
     let sql = format!(
         "SELECT {col} AS v, COUNT(*) FROM cached_objects co {join_sql} {filter_sql} {fts_clause}
@@ -1356,15 +1364,12 @@ fn facet_size_buckets(
     for (label, lo, hi) in SIZE_BUCKETS {
         let (filter_sql, mut params) =
             build_filter(account_id, bucket, scope, filters, Some(FacetDim::Size));
-        let (join_sql, fts_clause) = if let Some(text) = fts {
-            params.push(Value::Text(text.to_string()));
-            (
-                "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-                " AND cached_objects_fts MATCH ? ".to_string(),
-            )
-        } else {
-            (String::new(), String::new())
-        };
+        let fts_owned = fts.map(|s| s.to_string());
+        let (join_sql, fts_param) = fts_join(&fts_owned);
+        let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
+        if let Some(text) = fts_param {
+            params.push(Value::Text(text));
+        }
         params.push(Value::Integer(*lo));
         params.push(Value::Integer(*hi));
 
@@ -1405,15 +1410,12 @@ fn facet_date_buckets(
     for (label, since) in ranges {
         let (filter_sql, mut params) =
             build_filter(account_id, bucket, scope, filters, Some(FacetDim::Date));
-        let (join_sql, fts_clause) = if let Some(text) = fts {
-            params.push(Value::Text(text.to_string()));
-            (
-                "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-                " AND cached_objects_fts MATCH ? ".to_string(),
-            )
-        } else {
-            (String::new(), String::new())
-        };
+        let fts_owned = fts.map(|s| s.to_string());
+        let (join_sql, fts_param) = fts_join(&fts_owned);
+        let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
+        if let Some(text) = fts_param {
+            params.push(Value::Text(text));
+        }
         params.push(Value::Integer(*since));
 
         let sql = format!(
@@ -1433,15 +1435,12 @@ fn facet_date_buckets(
     // "Older" — no upper bound, just absence of last_modified-after window.
     let (filter_sql, mut params) =
         build_filter(account_id, bucket, scope, filters, Some(FacetDim::Date));
-    let (join_sql, fts_clause) = if let Some(text) = fts {
-        params.push(Value::Text(text.to_string()));
-        (
-            "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-            " AND cached_objects_fts MATCH ? ".to_string(),
-        )
-    } else {
-        (String::new(), String::new())
-    };
+    let fts_owned = fts.map(|s| s.to_string());
+    let (join_sql, fts_param) = fts_join(&fts_owned);
+    let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
+    if let Some(text) = fts_param {
+        params.push(Value::Text(text));
+    }
     let year_ago = now - 365 * day;
     params.push(Value::Integer(year_ago));
     let sql = format!(
@@ -1460,7 +1459,3 @@ fn facet_date_buckets(
     Ok(out)
 }
 
-// Suppress unused warnings for AppError import (used via From).
-const _: fn() = || {
-    let _: Option<AppError> = None;
-};

@@ -9,7 +9,6 @@
 //! Settings are merged field-by-field.
 
 use chrono::Utc;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -168,36 +167,7 @@ pub async fn import_config(
     let mut updated = 0usize;
     for acct in bundle.accounts {
         let exists = state.db.get_account(&acct.id).await.is_ok();
-        let a = acct.clone();
-        state
-            .db
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO accounts (id, name, protocol, endpoint, region, access_key_id, addressing_style, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                     ON CONFLICT(id) DO UPDATE SET
-                        name = excluded.name,
-                        endpoint = excluded.endpoint,
-                        region = excluded.region,
-                        access_key_id = excluded.access_key_id,
-                        addressing_style = excluded.addressing_style,
-                        updated_at = excluded.updated_at",
-                    params![
-                        a.id,
-                        a.name,
-                        a.protocol,
-                        a.endpoint,
-                        a.region,
-                        a.access_key_id,
-                        a.addressing_style,
-                        a.created_at,
-                        a.updated_at,
-                    ],
-                )?;
-                Ok::<_, tokio_rusqlite::Error>(())
-            })
-            .await?;
+        state.db.upsert_account(acct.clone()).await?;
         if exists {
             updated += 1;
         } else {

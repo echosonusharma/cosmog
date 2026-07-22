@@ -24,7 +24,6 @@ export function pushBackHandler(fn: BackHandler): () => void {
   };
 }
 
-// Returns true if some handler consumed the back press.
 function runBack(): boolean {
   for (let i = handlers.length - 1; i >= 0; i--) {
     if (handlers[i]()) return true;

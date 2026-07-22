@@ -1,16 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-
-export interface Account {
-  id: string;
-  name: string;
-  protocol: string;
-  endpoint: string | null;
-  region: string;
-  access_key_id: string;
-  addressing_style: string;
-  created_at: number;
-  updated_at: number;
-}
+export type { Account } from "../types";
 
 export interface AddAccountInput {
   name: string;

@@ -72,10 +72,10 @@ const OP_COLORS: Record<string, string> = {
   put_object_tagging:    "#f59e0b",
 };
 
-function durationColor(ms: number): string {
-  if (ms < 200) return "#22c55e";
-  if (ms < 800) return "#f59e0b";
-  return "#ef4444";
+function durationClass(ms: number): string {
+  if (ms < 200) return "duration-fast";
+  if (ms < 800) return "duration-medium";
+  return "duration-slow";
 }
 
 function opLabel(op: string): string {
@@ -312,7 +312,7 @@ function RequestLogs() {
                       <div class="flex-1" />
 
                       {/* duration, color-coded */}
-                      <span class="req-log-duration" style={{ color: durationColor(log.duration_ms) }}>
+                      <span class={`req-log-duration ${durationClass(log.duration_ms)}`}>
                         {fmtDuration(log.duration_ms)}
                       </span>
 
@@ -374,7 +374,7 @@ function RequestLogs() {
                               {log.bucket}
                             </span>
                           </Show>
-                          <span class="req-log-chip req-log-chip-duration" style={{ color: durationColor(log.duration_ms) }}>
+                          <span class={`req-log-chip req-log-chip-duration ${durationClass(log.duration_ms)}`}>
                             <span class="req-log-chip-label">duration</span>
                             {log.duration_ms}ms
                           </span>

@@ -306,115 +306,115 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             // -------- accounts: provider credentials + connection state --------
-            commands::accounts::add_account,                // insert account row + stash secret in OS keyring
-            commands::accounts::list_accounts,              // return all configured accounts (metadata only, no secrets)
-            commands::accounts::get_account,                // fetch one account by id
-            commands::accounts::update_account,             // patch fields; optional secret rotation in keyring
-            commands::accounts::delete_account,             // cancel in-flight transfers/scans, drop row + secret + cached client
-            commands::accounts::test_account,               // connectivity probe (calls list_buckets)
-            commands::accounts::detect_account_region,      // ask the bucket for its actual region, update stored value if it differs
+            commands::accounts::add_account,
+            commands::accounts::list_accounts,
+            commands::accounts::get_account,
+            commands::accounts::update_account,
+            commands::accounts::delete_account,
+            commands::accounts::test_account,
+            commands::accounts::detect_account_region,
 
             // -------- buckets: top-level container ops --------
-            commands::buckets::list_buckets,                // enumerate all buckets visible to the credentials
-            commands::buckets::create_bucket,               // make a new bucket, optionally pinning a region
-            commands::buckets::delete_bucket,               // remove an (empty) bucket
-            commands::buckets::head_bucket,                 // existence + access check
-            commands::buckets::get_bucket_location,         // read the bucket's actual region
-            commands::buckets::put_bucket_acl,              // set canned ACL (private / public-read)
-            commands::buckets::get_bucket_versioning,       // is versioning currently enabled?
-            commands::buckets::put_bucket_versioning,       // toggle versioning on/off
-            commands::buckets::list_multipart_uploads,      // list in-progress multipart uploads (paged)
-            commands::buckets::cleanup_stale_multiparts,    // abort any multipart older than N seconds — stops leaked-part cost
-            commands::buckets::abort_multipart_upload,      // abort one specific upload by id
+            commands::buckets::list_buckets,
+            commands::buckets::create_bucket,
+            commands::buckets::delete_bucket,
+            commands::buckets::head_bucket,
+            commands::buckets::get_bucket_location,
+            commands::buckets::put_bucket_acl,
+            commands::buckets::get_bucket_versioning,
+            commands::buckets::put_bucket_versioning,
+            commands::buckets::list_multipart_uploads,
+            commands::buckets::cleanup_stale_multiparts,
+            commands::buckets::abort_multipart_upload,
 
             // -------- objects: single-object ops (metadata-only paths) --------
-            commands::objects::list_objects,                // raw S3 listing pass-through (paged, prefix/delimiter)
-            commands::objects::head_object,                 // fetch metadata + refresh local cache row
-            commands::objects::create_folder,               // put zero-byte object with trailing slash
-            commands::objects::delete_object,               // delete one key + remove cache row
-            commands::objects::delete_objects,              // batch delete up to 1000 keys per call
-            commands::objects::delete_object_version,       // delete a specific version (versioned buckets)
-            commands::objects::list_object_versions,        // list versions + delete markers under a prefix
-            commands::objects::copy_object,                 // server-side copy + cache write-through
-            commands::objects::move_object,                 // copy-then-delete; cache mirror across both sides
-            commands::objects::put_object_acl,              // set object-level canned ACL
-            commands::objects::get_object_tagging,          // read object tag set (AWS only)
-            commands::objects::put_object_tagging,          // set object tag set (AWS only)
-            commands::objects::delete_object_tagging,       // clear all tags on object (AWS only)
-            commands::objects::presign_get,                 // generate time-limited presigned GET URL
-            commands::objects::preview_object,              // in-memory read of first N bytes for FE previews
-            commands::objects::put_object_text,             // save edited text content directly without temp file
-            commands::objects::put_object_bytes_cmd,        // save binary content (e.g. xlsx) directly
-            commands::objects::list_keys_under_prefix,      // live S3 listing of all keys under prefix (no cache)
+            commands::objects::list_objects,
+            commands::objects::head_object,
+            commands::objects::create_folder,
+            commands::objects::delete_object,
+            commands::objects::delete_objects,
+            commands::objects::delete_object_version,
+            commands::objects::list_object_versions,
+            commands::objects::copy_object,
+            commands::objects::move_object,
+            commands::objects::put_object_acl,
+            commands::objects::get_object_tagging,
+            commands::objects::put_object_tagging,
+            commands::objects::delete_object_tagging,
+            commands::objects::presign_get,
+            commands::objects::preview_object,
+            commands::objects::put_object_text,
+            commands::objects::put_object_bytes_cmd,
+            commands::objects::list_keys_under_prefix,
 
             // -------- transfers: persistent upload/download queue --------
-            commands::transfers::enqueue_upload,            // queue an upload (returns transfer_id; events via Channel)
-            commands::transfers::enqueue_download,          // queue a download (returns transfer_id; events via Channel)
-            commands::transfers::list_transfers,            // list transfer rows, optionally filtered by status
-            commands::transfers::get_transfer,              // fetch one transfer row by id
-            commands::transfers::cancel_transfer,           // signal cancel; idempotent if already terminal
-            commands::transfers::retry_transfer,            // re-enqueue with original options + multipart resume
-            commands::transfers::clear_completed_transfers, // delete done/failed/canceled rows from history
-            commands::transfers::clear_transfer,            // delete one transfer row by id
+            commands::transfers::enqueue_upload,
+            commands::transfers::enqueue_download,
+            commands::transfers::list_transfers,
+            commands::transfers::get_transfer,
+            commands::transfers::cancel_transfer,
+            commands::transfers::retry_transfer,
+            commands::transfers::clear_completed_transfers,
+            commands::transfers::clear_transfer,
 
             // -------- search: cached-object FTS + faceted browse --------
-            commands::search::search_objects,               // FTS5 query + facets over the local cache
-            commands::search::sync_prefix,                  // refresh cache for one prefix (direct or recursive)
-            commands::search::bucket_index_status,          // is full-bucket index enabled? when last synced?
-            commands::search::enable_bucket_index,          // turn on indexing + run/resume initial full scan
-            commands::search::cancel_bucket_scan,           // stop an in-flight full scan (resumable later)
-            commands::search::reindex_bucket,               // fresh full scan, discarding any resume token
-            commands::search::disable_bucket_index,         // drop cache + turn off indexing for a bucket
-            commands::search::bucket_stats,                 // aggregate object count + total bytes + storage-class breakdown
-            commands::search::set_bucket_auto_reindex,      // configure scheduler to re-scan every N seconds
+            commands::search::search_objects,
+            commands::search::sync_prefix,
+            commands::search::bucket_index_status,
+            commands::search::enable_bucket_index,
+            commands::search::cancel_bucket_scan,
+            commands::search::reindex_bucket,
+            commands::search::disable_bucket_index,
+            commands::search::bucket_stats,
+            commands::search::set_bucket_auto_reindex,
 
             // -------- settings: user preferences --------
-            commands::settings::get_settings,               // load current AppSettings (defaults if unset)
-            commands::settings::update_settings,            // partial-patch update with normalization
-            commands::settings::reset_settings,             // wipe settings row, return defaults
+            commands::settings::get_settings,
+            commands::settings::update_settings,
+            commands::settings::reset_settings,
 
             // -------- bulk: folder-scoped multi-object operations --------
-            commands::bulk::delete_folder_cmd,              // recursive list + batched DeleteObjects under a prefix
-            commands::bulk::upload_directory_cmd,           // walk a local dir, enqueue every file as a separate upload
-            commands::bulk::download_directory_cmd,         // walk a remote prefix, enqueue every key as a separate download
-            commands::bulk::cancel_bulk_op,                 // cancel an in-flight bulk op by its op_id
+            commands::bulk::delete_folder_cmd,
+            commands::bulk::upload_directory_cmd,
+            commands::bulk::download_directory_cmd,
+            commands::bulk::cancel_bulk_op,
 
             // -------- capabilities: permission probing --------
-            commands::capabilities::probe_account_capabilities, // probe list_buckets at the account level
-            commands::capabilities::probe_bucket_capabilities,  // probe head/list/versioning/location for one bucket
-            commands::capabilities::get_account_capabilities,   // read cached account-level probe result
-            commands::capabilities::get_bucket_capabilities,    // read cached bucket-level probe result + write-attempt log
+            commands::capabilities::probe_account_capabilities,
+            commands::capabilities::probe_bucket_capabilities,
+            commands::capabilities::get_account_capabilities,
+            commands::capabilities::get_bucket_capabilities,
 
             // -------- logs: diagnostic file access --------
-            commands::logs::get_log_dir,                    // return path to the rolling log directory
-            commands::logs::get_log_tail,                   // return last N bytes of today's log file
+            commands::logs::get_log_dir,
+            commands::logs::get_log_tail,
 
             // -------- request_logs: S3 API call history --------
-            commands::request_logs::list_request_logs,      // paginated S3 API request log (newest first)
-            commands::request_logs::count_request_logs,     // count of log rows matching optional search
-            commands::request_logs::clear_request_logs,     // delete all request log rows
-            commands::request_logs::purge_old_request_logs, // delete rows older than the TTL setting
+            commands::request_logs::list_request_logs,
+            commands::request_logs::count_request_logs,
+            commands::request_logs::clear_request_logs,
+            commands::request_logs::purge_old_request_logs,
 
             // -------- portable: backup / restore / import / export --------
-            commands::portable::export_config,              // dump accounts (no secrets) + settings as a JSON bundle
-            commands::portable::import_config,              // merge a JSON bundle into the local DB
-            commands::portable::backup_database,            // atomic SQLite-Backup-API copy of the live DB to a path
-            commands::portable::stage_restore,              // validate + stage a SQLite file; applied at next boot
-            commands::portable::clear_app_data,             // delete all keyring secrets + wipe app data dir on next boot, then exit
+            commands::portable::export_config,
+            commands::portable::import_config,
+            commands::portable::backup_database,
+            commands::portable::stage_restore,
+            commands::portable::clear_app_data,
 
             // -------- encryption: per-bucket age (X25519 + ChaCha20-Poly1305) --------
-            commands::encryption::enable_bucket_encryption,   // generate identity, store secret in keychain, record recipient in DB
-            commands::encryption::disable_bucket_encryption,  // remove identity from keychain + config from DB
-            commands::encryption::get_bucket_encryption_status, // is encryption enabled for this bucket?
-            commands::encryption::export_encryption_key,      // return identity payload for external decryption tools
-            commands::encryption::save_encryption_key_export,  // write identity file (0600) to a user-chosen path
-            commands::encryption::import_encryption_identity,  // load identity text back into the keychain (recovery)
-            commands::encryption::import_encryption_identity_from_file, // convenience: read + import
-            commands::encryption::has_encryption_identity,     // FE preflight: keychain-present check
-            commands::encryption::list_encrypted_buckets,      // per-account list of encrypted buckets for grid lock badges
+            commands::encryption::enable_bucket_encryption,
+            commands::encryption::disable_bucket_encryption,
+            commands::encryption::get_bucket_encryption_status,
+            commands::encryption::export_encryption_key,
+            commands::encryption::save_encryption_key_export,
+            commands::encryption::import_encryption_identity,
+            commands::encryption::import_encryption_identity_from_file,
+            commands::encryption::has_encryption_identity,
+            commands::encryption::list_encrypted_buckets,
 
             // -------- browse: cache-aware navigation --------
-            commands::browse::browse_prefix,                // return cached children + sub-prefixes; background-refresh if stale
+            commands::browse::browse_prefix,
 
             // -------- device: native OS/arch/model for bug reports --------
             get_device_info,

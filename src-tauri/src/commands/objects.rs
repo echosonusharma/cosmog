@@ -553,6 +553,30 @@ pub async fn presign_get(
     store.presign_get(&bucket, &key, expires).await
 }
 
+async fn put_object_inner(
+    store: &std::sync::Arc<dyn crate::store::ObjectStore>,
+    state: &AppState,
+    account_id: &str,
+    bucket: &str,
+    key: &str,
+    data: Vec<u8>,
+    content_type: &str,
+    md: std::collections::HashMap<String, String>,
+) -> AppResult<()> {
+    let res = store.put_object_bytes(bucket, key, content_type, data, md).await;
+    record_write(state, account_id, bucket, WriteOp::Put, &res).await;
+    res?;
+    match store.head_object(bucket, key).await {
+        Ok(meta) => {
+            if let Err(e) = state.db.cache_upsert_object(account_id, bucket, &meta).await {
+                expire_prefix_on_cache_err(state, account_id, bucket, &meta.key, &e);
+            }
+        }
+        Err(e) => warn!("head after put_object failed: {e}"),
+    }
+    Ok(())
+}
+
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn put_object_text(
@@ -564,21 +588,8 @@ pub async fn put_object_text(
     content_type: String,
 ) -> AppResult<()> {
     let store = state.store_for(&account_id).await?;
-    let plaintext = content.into_bytes();
-    let (data, md) = encrypt_for_bucket(&state, &account_id, &bucket, plaintext).await?;
-    let res = store.put_object_bytes(&bucket, &key, &content_type, data, md).await;
-    record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
-    res?;
-    // Refresh cache entry with updated size/metadata.
-    match store.head_object(&bucket, &key).await {
-        Ok(meta) => {
-            if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
-                expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
-            }
-        }
-        Err(e) => warn!("head after put_object_text failed: {e}"),
-    }
-    Ok(())
+    let (data, md) = encrypt_for_bucket(&state, &account_id, &bucket, content.into_bytes()).await?;
+    put_object_inner(&store, &state, &account_id, &bucket, &key, data, &content_type, md).await
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -593,18 +604,7 @@ pub async fn put_object_bytes_cmd(
 ) -> AppResult<()> {
     let store = state.store_for(&account_id).await?;
     let (data, md) = encrypt_for_bucket(&state, &account_id, &bucket, bytes).await?;
-    let res = store.put_object_bytes(&bucket, &key, &content_type, data, md).await;
-    record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
-    res?;
-    match store.head_object(&bucket, &key).await {
-        Ok(meta) => {
-            if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
-                expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
-            }
-        }
-        Err(e) => warn!("head after put_object_bytes failed: {e}"),
-    }
-    Ok(())
+    put_object_inner(&store, &state, &account_id, &bucket, &key, data, &content_type, md).await
 }
 
 /// List every object key under `prefix` by paging S3 directly (no cache).

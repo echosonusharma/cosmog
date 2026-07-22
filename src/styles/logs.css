@@ -435,3 +435,7 @@
   cursor: text;
   tab-size: 2;
 }
+
+.duration-fast   { color: #22c55e; }
+.duration-medium { color: #f59e0b; }
+.duration-slow   { color: #ef4444; }

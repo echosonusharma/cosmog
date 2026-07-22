@@ -8,9 +8,6 @@ import { errMsg } from "../utils/errors";
 
 export { errMsg } from "../utils/errors";
 
-// Coalesce identical messages fired within this window into a single native
-// notification. Prevents chatty loops (retries, batch failures) from spamming
-// the tray.
 const RECENT_WINDOW_MS = 1500;
 const recent = new Map<string, number>();
 function suppressed(key: string): boolean {

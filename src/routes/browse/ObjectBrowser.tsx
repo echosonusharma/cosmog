@@ -304,22 +304,8 @@ export function ObjectBrowser(props: {
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    // Browser-level dropped files (won't have absolute paths in Tauri; fallback to clicking Upload)
-    const paths: string[] = [];
-    const dt = e.dataTransfer;
-    if (dt) {
-      for (let i = 0; i < dt.files.length; i++) {
-        const f: any = dt.files[i];
-        if (f.path) paths.push(f.path);
-      }
-    }
-    if (paths.length) {
-      setPendingDrop(paths);
-      setShowUpload(props.prefix);
-    } else {
-      toast.info("Drag-drop unsupported here, use Upload button");
-      setShowUpload(props.prefix);
-    }
+    toast.info("Drag-drop unsupported here, use Upload button");
+    setShowUpload(props.prefix);
   }
 
   function openCtx(e: MouseEvent, obj: CachedObjectMeta) {
