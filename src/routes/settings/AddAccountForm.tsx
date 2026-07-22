@@ -121,7 +121,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
               disabled={busy()}
 
             >
-              <span class="provider-picker-tile-icon" style={{ background: p.color }}>
+              <span class={`provider-picker-tile-icon${p.tile_fill ? " tile-fill" : ""}`} style={{ background: p.color }}>
                 <img src={p.iconUrl} alt={p.label} class="provider-picker-tile-img" classList={{ "provider-picker-tile-img-mono": !!p.monochrome_icon }} />
               </span>
               <span class="provider-picker-tile-label">{p.label}</span>

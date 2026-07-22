@@ -124,7 +124,7 @@ export function ProviderIcon(props: {
   const sz = props.size ?? 22;
   return (
     <span
-      class={`provider-tile ${def().monochrome_icon ? "mono" : ""}`}
+      class={`provider-tile ${def().monochrome_icon ? "mono" : ""} ${def().tile_fill ? "tile-fill" : ""}`}
       style={`--sz:${sz}px`}
     >
       <img src={def().iconUrl} alt={def().label} class="provider-tile-img" />

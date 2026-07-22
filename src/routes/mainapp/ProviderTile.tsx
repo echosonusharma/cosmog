@@ -10,9 +10,8 @@ export function ProviderTile(props: {
   const sz = props.size ?? "normal";
   return (
     <span
-      class={`provider-icon-tile${sz === "small" ? " small" : sz === "large" ? " large" : ""}`}
+      class={`provider-icon-tile${sz === "small" ? " small" : sz === "large" ? " large" : ""}${def().tile_fill ? " tile-fill" : ""}`}
       style={{ background: def().color }}
-
     >
       <img src={def().iconUrl} alt={def().label} />
     </span>

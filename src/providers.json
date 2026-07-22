@@ -3,7 +3,7 @@
     {
       "id": "aws",
       "label": "Amazon S3",
-      "color": "#232F3E",
+      "color": "#3F8624",
       "iconUrl": "/icons/aws.svg",
       "endpoint": "",
       "region": "us-east-1",
@@ -11,7 +11,10 @@
       "custom_endpoint": false,
       "endpoint_placeholder": null,
       "monochrome_icon": false,
-      "detect": ["amazonaws.com"]
+      "tile_fill": true,
+      "detect": [
+        "amazonaws.com"
+      ]
     },
     {
       "id": "backblaze",
@@ -24,7 +27,10 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "https://s3.<region>.backblazeb2.com",
       "monochrome_icon": true,
-      "detect": ["backblazeb2.com"]
+      "detect": [
+        "backblazeb2.com"
+      ],
+      "tile_fill": false
     },
     {
       "id": "r2",
@@ -37,7 +43,10 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "https://<account_id>.r2.cloudflarestorage.com",
       "monochrome_icon": false,
-      "detect": ["r2.cloudflarestorage.com"]
+      "detect": [
+        "r2.cloudflarestorage.com"
+      ],
+      "tile_fill": false
     },
     {
       "id": "wasabi",
@@ -50,7 +59,10 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "https://s3.<region>.wasabisys.com",
       "monochrome_icon": true,
-      "detect": ["wasabisys.com"]
+      "detect": [
+        "wasabisys.com"
+      ],
+      "tile_fill": false
     },
     {
       "id": "digitalocean",
@@ -63,7 +75,10 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "https://<region>.digitaloceanspaces.com",
       "monochrome_icon": true,
-      "detect": ["digitaloceanspaces.com"]
+      "detect": [
+        "digitaloceanspaces.com"
+      ],
+      "tile_fill": false
     },
     {
       "id": "minio",
@@ -76,7 +91,13 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "http://localhost:9000",
       "monochrome_icon": true,
-      "detect": ["localhost", "127.0.0.1", "0.0.0.0", ":9000"]
+      "detect": [
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        ":9000"
+      ],
+      "tile_fill": false
     },
     {
       "id": "s3",
@@ -89,7 +110,8 @@
       "custom_endpoint": true,
       "endpoint_placeholder": "https://s3.example.com",
       "monochrome_icon": true,
-      "detect": []
+      "detect": [],
+      "tile_fill": false
     }
   ]
 }

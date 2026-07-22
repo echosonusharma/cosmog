@@ -8,26 +8,14 @@ export type Step = "provider" | "account-setup";
 
 // ── provider color tile ───────────────────────────────────────────────────────
 
-const PROVIDER_COLORS: Record<string, string> = {
-  aws:          "#E8891C",
-  backblaze:    "#CC0000",
-  r2:           "#F38020",
-  wasabi:       "#27A843",
-  digitalocean: "#0080FF",
-  minio:        "#C7264A",
-  s3:           "#6B6F7A",
-};
-
 export function ProviderIconTile(props: { provider: ProviderDef; size?: number }) {
   const sz = props.size ?? 32;
-  const color = PROVIDER_COLORS[props.provider.id] ?? "#6B6F7A";
   return (
     <span
-      class="provider-icon-tile"
-      style={{ background: color, width: `${sz}px`, height: `${sz}px`, "border-radius": `${Math.round(sz * 0.22)}px` }}
-
+      class={`provider-icon-tile${props.provider.tile_fill ? " tile-fill" : ""}`}
+      style={{ background: props.provider.color, width: `${sz}px`, height: `${sz}px`, "border-radius": `${Math.round(sz * 0.22)}px` }}
     >
-      <img src={props.provider.iconUrl} alt={props.provider.label} />
+      <img src={props.provider.iconUrl} alt={props.provider.label} class="provider-icon-tile-img" />
     </span>
   );
 }

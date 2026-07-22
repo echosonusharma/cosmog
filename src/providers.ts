@@ -11,6 +11,7 @@ export interface ProviderDef {
   custom_endpoint: boolean;
   endpoint_placeholder: string | null;
   monochrome_icon: boolean;
+  tile_fill: boolean;
   detect: string[];
 }
 
