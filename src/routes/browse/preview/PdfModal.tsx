@@ -491,7 +491,10 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
             >
               <Show when={loading()}>
-                <div class="loading-row pdf-modal-loading"><span class="spinner" /> Loading…</div>
+                <div class="preview-loader pdf-modal-loading">
+                  <span class="spinner spinner-lg" />
+                  <span>Loading PDF…</span>
+                </div>
               </Show>
               <Show when={err()}>
                 <div class="status-msg err pdf-modal-err">{err()}</div>
