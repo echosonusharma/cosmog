@@ -81,6 +81,7 @@
 
 .provider-picker-tile-img { width: 65%; height: 65%; object-fit: contain; }
 .provider-picker-tile-img-mono { filter: brightness(0) invert(1); }
+.provider-picker-tile-icon.tile-fill .provider-picker-tile-img { width: 100%; height: 100%; border-radius: 6px; }
 
 .add-account-btn-row { justify-content: flex-end; }
 .add-account-btn { min-width: 90px; }
