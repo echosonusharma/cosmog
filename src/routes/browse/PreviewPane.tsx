@@ -129,6 +129,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   });
   onCleanup(() => { if (priorBlob) URL.revokeObjectURL(priorBlob); });
 
+  const [imgLoaded, setImgLoaded] = createSignal(false);
+  createEffect(() => { if (displayUrl()) setImgLoaded(false); });;
+
   // Text: fetch bytes via backend
   const [loadedKey, setLoadedKey] = createSignal<string | null>(null);
   const textShouldFetch = () => isText() && !isImage() && (textAutoLoad() || loadRequested());
@@ -246,11 +249,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 </div>
               </Show>
               <Show when={imgUrl.loading && !displayUrl()}>
-                <div class="preview-decrypting">
-                  <span class="spinner" />
-                  <Show when={props.encrypted}>
-                    <span class="muted text-xxs">Decrypting…</span>
-                  </Show>
+                <div class="preview-loader">
+                  <span class="spinner spinner-lg" />
+                  <span>{props.encrypted ? "Decrypting…" : "Loading image…"}</span>
                 </div>
               </Show>
               <Show when={imgUrl.error && !displayUrl()}>
@@ -262,8 +263,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                   classList={{ "preview-thumb-switching": imgSwitching() }}
                   src={imgSrc()}
                   onClick={() => setExpanded(true)}
+                  onLoad={() => setImgLoaded(true)}
+                  onError={() => setImgLoaded(true)}
                 />
-                <Show when={imgSwitching()}>
+                <Show when={!imgLoaded() || imgSwitching()}>
                   <div class="preview-switching-overlay">
                     <span class="spinner spinner-lg" />
                   </div>
@@ -275,7 +278,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           <Show when={isText() && !isImage()}>
             <Show when={textAutoLoad()}>
               <Show when={preview.loading && !displayText()}>
-                <div class="loading-row"><span class="spinner" /> {props.encrypted ? "Decrypting…" : "Loading…"}</div>
+                <div class="preview-loader">
+                  <span class="spinner spinner-lg" />
+                  <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+                </div>
               </Show>
               <Show when={displayText()}>
                 <div class="preview-editor rel">
@@ -300,7 +306,12 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                     <span class="muted text-xs">File too large to preview</span>
                   </Show>
                 </Show>
-                <Show when={loadRequested() && !displayText()}><span class="spinner" /></Show>
+                <Show when={loadRequested() && !displayText()}>
+                  <div class="preview-loader">
+                    <span class="spinner spinner-lg" />
+                    <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+                  </div>
+                </Show>
                 <Show when={displayText()}>
                   <div class="preview-editor full">
                     <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />

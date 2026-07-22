@@ -359,12 +359,14 @@
 }
 .preview-thumb-switching { opacity: 0.5; transition: opacity 0.15s ease; }
 
+.preview-loader {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; min-height: 120px; width: 100%;
+  color: var(--text-muted); font-size: 12px;
+}
 .preview-load-hint {
   display: flex; flex-direction: column; align-items: center;
   gap: 8px; padding: 12px;
-}
-.preview-decrypting {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
 .preview-btn-inline {
   display: flex; align-items: center; gap: 8px;
@@ -382,7 +384,8 @@
 .sheet-modal-btn {
   height: 30px; padding: 0 14px; font-size: 12px;
 }
-.sheet-modal-loading { flex: 1; justify-content: center; }
+.sheet-modal-loading,
+.pdf-modal-loading { flex: 1; min-height: unset; }
 .sheet-modal-err { margin: 16px; }
 .sheet-preview-col { flex-direction: column; gap: 8px; }
 .sheet-preview-hint { font-size: 12px; }

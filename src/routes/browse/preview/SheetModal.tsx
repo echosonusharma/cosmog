@@ -201,7 +201,10 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
               </div>
             </div>
             <Show when={sheetLoading()}>
-              <div class="loading-row sheet-modal-loading"><span class="spinner" /> Loading…</div>
+              <div class="preview-loader sheet-modal-loading">
+                <span class="spinner spinner-lg" />
+                <span>Loading spreadsheet…</span>
+              </div>
             </Show>
             <Show when={sheetErr()}>
               <div class="status-msg err sheet-modal-err">{sheetErr()}</div>
