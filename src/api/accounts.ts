@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-export type { Account } from "../types";
+import type { Account } from "../types";
+export type { Account };
 
 export interface AddAccountInput {
   name: string;

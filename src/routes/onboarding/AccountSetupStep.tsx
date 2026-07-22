@@ -48,7 +48,7 @@ export function AccountSetupStep(props: {
         addressing_style: props.provider.addressing_style,
       });
       id = acct.id;
-      const buckets = await testAccount(id);
+      const buckets = await testAccount(id!);
       setStatus({ kind: "ok", buckets });
     } catch (e) {
       setStatus({ kind: "err", msg: errMsg(e) });
@@ -72,7 +72,7 @@ export function AccountSetupStep(props: {
         addressing_style: props.provider.addressing_style,
       });
       id = acct.id;
-      await testAccount(id);
+      await testAccount(id!);
       props.onDone();
     } catch (e) {
       if (id) await deleteAccount(id).catch(() => {});
