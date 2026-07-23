@@ -1,4 +1,4 @@
-import { createEffect, createMemo, Show, ErrorBoundary } from "solid-js";
+import { createEffect, createMemo, Show, ErrorBoundary, Suspense } from "solid-js";
 import { accounts, browseState, setBrowseState, setCurrentView } from "../state/app";
 import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
@@ -70,7 +70,9 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                   </div>
                 );
               }}>
-                <BucketGrid accountId={accountId} accountName={accountName()} />
+                <Suspense>
+                  <BucketGrid accountId={accountId} accountName={accountName()} />
+                </Suspense>
               </ErrorBoundary>
             )}
           </Show>
@@ -96,13 +98,15 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                 </div>
               );
             }}>
-              <ObjectBrowser
-                accountId={stableAccountId()}
-                accountName={accountName()}
-                bucket={stableBucket()}
-                prefix={browseState.prefix}
-                defaultDownloadDir={props.defaultDownloadDir}
-              />
+              <Suspense fallback={<div class="browse-loading-overlay"><span class="spinner spinner-lg" /></div>}>
+                <ObjectBrowser
+                  accountId={stableAccountId()}
+                  accountName={accountName()}
+                  bucket={stableBucket()}
+                  prefix={browseState.prefix}
+                  defaultDownloadDir={props.defaultDownloadDir}
+                />
+              </Suspense>
             </ErrorBoundary>
           </div>
         </Show>

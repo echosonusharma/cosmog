@@ -36,20 +36,24 @@ export function createPagedBrowse(getKey: () => {
 
   const [fetchTrigger, setFetchTrigger] = createSignal(0);
   let nextContinuation: string | null = null;
+  let lastAccountId = "";
+  let lastBucket = "";
 
   // Refetch first page whenever the identity (account/bucket/prefix/refresh)
   // changes. Always stale-while-revalidate: previous rows stay visible (with
-  // `loading` true) until the new page lands, so navigation and bucket/account
-  // switches don't flash a blank content area. Bulk selection is reset by the
-  // caller on bucket/account change, so acting on stale rows is safe — per-row
-  // actions use each CachedObjectMeta's own account_id/bucket, not the
-  // component's current props.
+  // `loading` true) until the new page lands, so folder navigation doesn't
+  // flash a blank content area. Reset initialLoaded only on bucket/account
+  // change (sidebar bucket switch) so the loading overlay shows there but not
+  // on prefix navigation within the same bucket.
   createEffect(() => {
     const key = getKey();
     void key.prefix; void key.refresh;
     void key.accountId; void key.bucket;
+    const bucketChanged = key.accountId !== lastAccountId || key.bucket !== lastBucket;
+    lastAccountId = key.accountId;
+    lastBucket = key.bucket;
     nextContinuation = null;
-    setState({ continuation: null, truncated: false, error: null });
+    setState({ continuation: null, truncated: false, error: null, ...(bucketChanged ? { initialLoaded: false } : {}) });
     setFetchTrigger((n) => n + 1);
   });
 

@@ -365,16 +365,16 @@
   .req-log-target { font-size: 10.5px; flex-basis: 100%; }
   .req-log-row { border-left-width: 3px; }
 
-  /* ── loading spinner: always centered on viewport ─────────────────────── */
-  .browse-loading-overlay {
-    position: fixed;
-    inset: 0;
+  .bucket-grid-body {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    z-index: 500;
+    flex-direction: column;
   }
+  .bucket-grid-body .loading-row {
+    flex: 1;
+    justify-content: center;
+    align-items: center;
+  }
+
   .center-fill {
     min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     display: flex;
