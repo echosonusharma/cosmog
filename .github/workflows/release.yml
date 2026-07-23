@@ -99,6 +99,28 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Rename versionless macOS bundle
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.ref_name }}
+          REPO=${{ github.repository }}
+          if [ "${{ matrix.rust-target }}" = "aarch64-apple-darwin" ]; then
+            ARCH="aarch64"
+          else
+            ARCH="x64"
+          fi
+          OLD="Cosmog_${ARCH}.app.tar.gz"
+          NEW="Cosmog_${TAG}_${ARCH}.app.tar.gz"
+          gh release download "$TAG" --pattern "$OLD" --dir /tmp --repo "$REPO"
+          cp "/tmp/$OLD" "/tmp/$NEW"
+          gh release upload "$TAG" "/tmp/$NEW" --clobber --repo "$REPO"
+          ASSET_ID=$(gh api "/repos/${REPO}/releases/tags/${TAG}" --jq ".assets[] | select(.name==\"$OLD\") | .id")
+          if [ -n "$ASSET_ID" ]; then
+            gh api -X DELETE "/repos/${REPO}/releases/assets/${ASSET_ID}"
+          fi
+
   android:
     needs: build
     runs-on: ubuntu-latest
@@ -162,8 +184,9 @@ jobs:
 
       - name: Rename arm64 APK
         run: |
+          TAG=${{ github.ref_name }}
           APK=$(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | head -1)
-          cp "$APK" /tmp/cosmog-arm64.apk
+          cp "$APK" "/tmp/Cosmog-${TAG}-android-arm64.apk"
 
       - name: Build x86_64 APK (emulator)
         run: npx tauri android build --apk --target x86_64
@@ -172,8 +195,9 @@ jobs:
 
       - name: Rename x86_64 APK
         run: |
+          TAG=${{ github.ref_name }}
           APK=$(find src-tauri/gen/android/app/build/outputs/apk/ -name "*.apk" | head -1)
-          cp "$APK" /tmp/cosmog-x86_64.apk
+          cp "$APK" "/tmp/Cosmog-${TAG}-android-x86_64.apk"
 
       - name: Upload APKs to release
         env:
@@ -181,6 +205,6 @@ jobs:
         run: |
           TAG=${{ github.ref_name }}
           gh release upload "$TAG" \
-            "/tmp/cosmog-arm64.apk#Cosmog-${TAG}-android-arm64.apk" \
-            "/tmp/cosmog-x86_64.apk#Cosmog-${TAG}-android-x86_64.apk" \
+            "/tmp/Cosmog-${TAG}-android-arm64.apk" \
+            "/tmp/Cosmog-${TAG}-android-x86_64.apk" \
             --clobber
