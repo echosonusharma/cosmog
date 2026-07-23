@@ -58,6 +58,29 @@
 /* ── flex:1 buttons in modal btn-row ────────────────────────────────────── */
 .btn-row .btn-half { flex: 1; }
 
+/* ── update modal ───────────────────────────────────────────────────────── */
+.update-modal { max-width: 460px; }
+.update-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.update-modal-changelog {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  margin: 0;
+}
+
 /* ── upload modal: encrypted bucket notice + progress ───────────────────── */
 .upload-encrypted-note {
   margin-top: 10px;
