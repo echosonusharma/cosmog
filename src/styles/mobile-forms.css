@@ -5,6 +5,29 @@
   /* ── titlebar: hidden entirely on mobile ─────────────────────────────── */
   .titlebar { display: none; }
 
+  .mobile-header-update-badge {
+    -webkit-appearance: none;
+    appearance: none;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    line-height: 1;
+    padding: 3px 8px;
+    min-height: 0;
+    border-radius: 99px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   /* ── onboarding ───────────────────────────────────────────────────────── */
   .onboarding {
     padding: 64px 16px 24px;

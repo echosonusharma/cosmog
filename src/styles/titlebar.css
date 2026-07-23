@@ -68,3 +68,17 @@
 .titlebar-btn:hover { background: var(--panel-2); color: var(--text); }
 .titlebar-btn.close:hover { background: var(--red); color: #fff; }
 
+.titlebar-update-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  pointer-events: auto;
+}
+.titlebar-update-badge:hover { background: var(--accent); color: #fff; }
+

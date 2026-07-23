@@ -1,7 +1,9 @@
-import { createResource, Show } from "solid-js";
+import { createResource, createSignal, createEffect, Show } from "solid-js";
 import { resolvedTheme } from "../state/theme";
 import { isMobile } from "../utils/breakpoint";
 import { SunIcon, MoonIcon, toggleTheme } from "../utils/icons";
+import { checkLatestVersion, type UpdateInfo } from "../utils/updates";
+import { UpdateModal } from "./mainapp/UpdateModal";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -16,38 +18,57 @@ const getVersion = isTauri
 
 export default function Titlebar() {
   const [version] = createResource(getVersion);
+  const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
+  const [modalOpen, setModalOpen] = createSignal(false);
+
+  createEffect(() => {
+    const v = version();
+    if (!v) return;
+    checkLatestVersion(v).then(setUpdateInfo);
+  });
+
   return (
-    <div class="titlebar" data-tauri-drag-region>
-      <div class="titlebar-left" data-tauri-drag-region>
-        <img src="/app-icon.svg" width="22" height="22" class="titlebar-logo" alt="" />
-        <span class="titlebar-appname">Cosmog</span>
-        <span class="titlebar-version">v{version()}</span>
+    <>
+      <div class="titlebar" data-tauri-drag-region>
+        <div class="titlebar-left" data-tauri-drag-region>
+          <img src="/app-icon.svg" width="22" height="22" class="titlebar-logo" alt="" />
+          <span class="titlebar-appname">Cosmog</span>
+          <span class="titlebar-version">v{version()}</span>
+          <Show when={updateInfo()}>
+            <button class="titlebar-update-badge" onClick={() => setModalOpen(true)}>
+              v{updateInfo()!.version} available
+            </button>
+          </Show>
+        </div>
+        <div class="titlebar-controls">
+          <button class="titlebar-btn" onClick={toggleTheme}>
+            {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <Show when={!isMobile()}>
+            <div class="titlebar-sep" />
+          </Show>
+          <Show when={isTauri && !isMobile()}>
+            <button class="titlebar-btn" onClick={() => win?.minimize()}>
+              <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
+                <path d="M5 12h14"/>
+              </svg>
+            </button>
+            <button class="titlebar-btn" onClick={() => win?.toggleMaximize()}>
+              <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.9" fill="none">
+                <rect x="4" y="4" width="16" height="16" rx="2.5"/>
+              </svg>
+            </button>
+            <button class="titlebar-btn close" onClick={() => win?.close()}>
+              <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18"/>
+              </svg>
+            </button>
+          </Show>
+        </div>
       </div>
-      <div class="titlebar-controls">
-        <button class="titlebar-btn" onClick={toggleTheme}>
-          {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
-        </button>
-        <Show when={!isMobile()}>
-          <div class="titlebar-sep" />
-        </Show>
-        <Show when={isTauri && !isMobile()}>
-          <button class="titlebar-btn" onClick={() => win?.minimize()}>
-            <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
-              <path d="M5 12h14"/>
-            </svg>
-          </button>
-          <button class="titlebar-btn" onClick={() => win?.toggleMaximize()}>
-            <svg width="11" height="11" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.9" fill="none">
-              <rect x="4" y="4" width="16" height="16" rx="2.5"/>
-            </svg>
-          </button>
-          <button class="titlebar-btn close" onClick={() => win?.close()}>
-            <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
-        </Show>
-      </div>
-    </div>
+      <Show when={modalOpen() && updateInfo()}>
+        <UpdateModal info={updateInfo()!} onClose={() => setModalOpen(false)} />
+      </Show>
+    </>
   );
 }
