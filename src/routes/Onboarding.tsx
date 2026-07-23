@@ -31,11 +31,11 @@ export default function Onboarding(props: { onDone: () => void }) {
       </Show>
 
       <div class="onboarding-footer">
-        Cosmog runs locally
+        Multiple providers
         <span>·</span>
         No telemetry
         <span>·</span>
-        Single native binary
+        Open source
       </div>
     </div>
   );

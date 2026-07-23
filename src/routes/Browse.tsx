@@ -70,7 +70,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                   </div>
                 );
               }}>
-                <Suspense>
+                <Suspense fallback={<div class="browse-loading-overlay"><span class="spinner spinner-lg" /></div>}>
                   <BucketGrid accountId={accountId} accountName={accountName()} />
                 </Suspense>
               </ErrorBoundary>
