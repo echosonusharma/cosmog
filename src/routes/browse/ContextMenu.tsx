@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import {
   IconDownload, IconLink, IconTrash, IconEdit, IconEye,
-  IconPlus, IconUpload, IconChevronR,
+  IconPlus, IconUpload, IconChevronR, IconActivity,
 } from "../../utils/icons";
 import { navigateToPrefix } from "../../state/app";
 import type { CachedObjectMeta } from "../../types";
@@ -21,6 +21,7 @@ export function ContextMenu(props: {
   onDownload: (obj: CachedObjectMeta) => void;
   onCopyLink: (obj: CachedObjectMeta) => void;
   onRename: (obj: CachedObjectMeta) => void;
+  onVersionHistory: (obj: CachedObjectMeta) => void;
   onDelete: (obj: CachedObjectMeta) => void;
 }) {
   const m = () => props.menu;
@@ -65,6 +66,9 @@ export function ContextMenu(props: {
           </button>
           <button class="context-item" onClick={() => { props.onRename(f().obj); props.onClose(); }}>
             <span class="context-item-icon"><IconEdit size={14} /></span> Rename / Move
+          </button>
+          <button class="context-item" onClick={() => { props.onVersionHistory(f().obj); props.onClose(); }}>
+            <span class="context-item-icon"><IconActivity size={14} /></span> Version history
           </button>
           <div class="context-sep" />
           <button class="context-item danger" onClick={() => { props.onDelete(f().obj); props.onClose(); }}>

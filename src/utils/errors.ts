@@ -13,6 +13,7 @@ const PREFIXES: Record<string, string> = {
   io:                   "io error: ",
   canceled:             "canceled: ",
   region_redirect:      "region redirect: ",
+  unsupported:          "unsupported: ",
   network_unreachable:  "network unreachable: ",
   internal:             "internal: ",
 };

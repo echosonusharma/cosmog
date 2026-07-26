@@ -35,9 +35,9 @@ use crate::transfer::{
 };
 
 use super::{
-    Bucket, CannedAcl, DeleteObjectError, DeleteObjectsResult, GetOptions, ListOptions, ListPage,
-    ObjectMeta, ObjectPreview, ObjectStore, ObjectTag, ObjectVersion, PendingMultipartUpload,
-    PutOptions, Sse,
+    Bucket, CannedAcl, CorsConfig, CorsRule, DeleteObjectError, DeleteObjectsResult, GetOptions,
+    ListOptions, ListPage, ObjectMeta, ObjectPreview, ObjectStore, ObjectTag, ObjectVersion,
+    PendingMultipartUpload, PutOptions, Sse,
 };
 
 /// Per-account configuration needed to construct an [`S3Store`].
@@ -166,7 +166,19 @@ where
             "PermanentRedirect" => {
                 return AppError::RegionRedirect(display);
             }
+            // Provider doesn't implement this operation (common on B2/R2 for
+            // bucket policy or CORS). Give the FE a distinct code to switch on.
+            "NotImplemented" | "501" => {
+                return AppError::Unsupported(display);
+            }
             _ => {}
+        }
+        // Some providers signal "not implemented" only via HTTP 501 with an
+        // empty/unknown error code. Classify from the raw status.
+        if let SdkError::ServiceError(ref se) = err {
+            if se.raw().status().as_u16() == 501 {
+                return AppError::Unsupported(display);
+            }
         }
     }
     // HEAD responses (HeadBucket/HeadObject) carry no XML error body, so a
@@ -363,6 +375,158 @@ impl ObjectStore for S3Store {
         Ok(())
     }
 
+    async fn get_bucket_policy(&self, name: &str) -> AppResult<Option<String>> {
+        let resp = self
+            .client
+            .get_bucket_policy()
+            .bucket(name)
+            .send()
+            .await;
+        match resp {
+            Ok(r) => Ok(r.policy().map(|s| s.to_string())),
+            Err(e) => {
+                // No policy on the bucket is a normal "absent" state, not an error.
+                if e.as_service_error()
+                    .and_then(|se| se.code())
+                    .map(|c| c.contains("NoSuchBucketPolicy"))
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                }
+                Err(classify_aws("get_bucket_policy", e))
+            }
+        }
+    }
+
+    async fn put_bucket_policy(&self, name: &str, policy: String) -> AppResult<()> {
+        self.client
+            .put_bucket_policy()
+            .bucket(name)
+            .policy(policy)
+            .send()
+            .await
+            .map_err(|e| classify_aws("put_bucket_policy", e))?;
+        Ok(())
+    }
+
+    async fn delete_bucket_policy(&self, name: &str) -> AppResult<()> {
+        let resp = self
+            .client
+            .delete_bucket_policy()
+            .bucket(name)
+            .send()
+            .await;
+        match resp {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Deleting an absent policy is a no-op success.
+                if e.as_service_error()
+                    .and_then(|se| se.code())
+                    .map(|c| c.contains("NoSuchBucketPolicy"))
+                    .unwrap_or(false)
+                {
+                    return Ok(());
+                }
+                Err(classify_aws("delete_bucket_policy", e))
+            }
+        }
+    }
+
+    async fn get_bucket_cors(&self, name: &str) -> AppResult<Option<CorsConfig>> {
+        let resp = self.client.get_bucket_cors().bucket(name).send().await;
+        match resp {
+            Ok(r) => {
+                let rules = r
+                    .cors_rules()
+                    .iter()
+                    .map(|rule| CorsRule {
+                        id: rule.id().map(|s| s.to_string()),
+                        allowed_origins: rule
+                            .allowed_origins()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                        allowed_methods: rule
+                            .allowed_methods()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                        allowed_headers: rule
+                            .allowed_headers()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                        expose_headers: rule
+                            .expose_headers()
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                        max_age_seconds: rule.max_age_seconds(),
+                    })
+                    .collect();
+                Ok(Some(CorsConfig { rules }))
+            }
+            Err(e) => {
+                if e.as_service_error()
+                    .and_then(|se| se.code())
+                    .map(|c| c.contains("NoSuchCORSConfiguration"))
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                }
+                Err(classify_aws("get_bucket_cors", e))
+            }
+        }
+    }
+
+    async fn put_bucket_cors(&self, name: &str, cors: CorsConfig) -> AppResult<()> {
+        use aws_sdk_s3::types::{CorsConfiguration, CorsRule as AwsCorsRule};
+        let rules: Vec<AwsCorsRule> = cors
+            .rules
+            .into_iter()
+            .map(|r| {
+                AwsCorsRule::builder()
+                    .set_id(r.id)
+                    .set_allowed_origins(Some(r.allowed_origins))
+                    .set_allowed_methods(Some(r.allowed_methods))
+                    .set_allowed_headers(Some(r.allowed_headers))
+                    .set_expose_headers(Some(r.expose_headers))
+                    .set_max_age_seconds(r.max_age_seconds)
+                    .build()
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| s3_err("put_bucket_cors build", e))?;
+        let cfg = CorsConfiguration::builder()
+            .set_cors_rules(Some(rules))
+            .build()
+            .map_err(|e| s3_err("put_bucket_cors build", e))?;
+        self.client
+            .put_bucket_cors()
+            .bucket(name)
+            .cors_configuration(cfg)
+            .send()
+            .await
+            .map_err(|e| classify_aws("put_bucket_cors", e))?;
+        Ok(())
+    }
+
+    async fn delete_bucket_cors(&self, name: &str) -> AppResult<()> {
+        let resp = self.client.delete_bucket_cors().bucket(name).send().await;
+        match resp {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.as_service_error()
+                    .and_then(|se| se.code())
+                    .map(|c| c.contains("NoSuchCORSConfiguration"))
+                    .unwrap_or(false)
+                {
+                    return Ok(());
+                }
+                Err(classify_aws("delete_bucket_cors", e))
+            }
+        }
+    }
+
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage> {
         let mut req = self.client.list_objects_v2().bucket(bucket);
         if let Some(p) = opts.prefix {
@@ -556,18 +720,67 @@ impl ObjectStore for S3Store {
         Ok(())
     }
 
+    async fn restore_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> AppResult<()> {
+        // Restore = server-side CopyObject where the source is the chosen old
+        // version (`bucket/key?versionId=...`) and the destination is the same
+        // `bucket/key`. On a versioned bucket this creates a new latest version
+        // whose bytes equal the old version. Callers must not point this at a
+        // delete marker (S3 rejects copying from one); un-deleting is done by
+        // deleting the marker instead.
+        //
+        // CopySource requires each key path segment to be percent-encoded
+        // (keys can contain #, ?, spaces, non-ASCII). Slashes are path
+        // separators and must not be encoded. This mirrors `copy_object`.
+        let encoded_key: String = key
+            .split('/')
+            .map(|seg| urlencoding::encode(seg).into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let copy_source = format!("{bucket}/{encoded_key}?versionId={version_id}");
+        self.client
+            .copy_object()
+            .copy_source(copy_source)
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| classify_aws("restore_object_version", e))?;
+        Ok(())
+    }
+
     async fn list_object_versions(
         &self,
         bucket: &str,
         prefix: Option<&str>,
         continuation: Option<String>,
     ) -> AppResult<(Vec<ObjectVersion>, Option<String>)> {
+        // ListObjectVersions pages within a single key using BOTH a key-marker
+        // and a version-id-marker: an object with more versions than fit in one
+        // response is only fully listed if we echo both on the follow-up. We
+        // carry the pair as a JSON continuation token so the frontend can round
+        // -trip it opaquely.
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct VersionsMarker {
+            key: String,
+            version_id: Option<String>,
+        }
+
         let mut req = self.client.list_object_versions().bucket(bucket);
         if let Some(p) = prefix {
             req = req.prefix(p);
         }
         if let Some(token) = continuation {
-            req = req.key_marker(token);
+            if let Ok(m) = serde_json::from_str::<VersionsMarker>(&token) {
+                req = req.key_marker(m.key);
+                if let Some(vid) = m.version_id {
+                    req = req.version_id_marker(vid);
+                }
+            }
         }
         let resp = req
             .send()
@@ -598,7 +811,18 @@ impl ObjectStore for S3Store {
             last_modified: d.last_modified().map(|x| x.secs()),
         }));
 
-        let next = resp.next_key_marker().map(|s| s.to_string());
+        // Only continue while S3 reports truncation, echoing both markers.
+        let next = if resp.is_truncated().unwrap_or(false) {
+            resp.next_key_marker().map(|k| {
+                let m = VersionsMarker {
+                    key: k.to_string(),
+                    version_id: resp.next_version_id_marker().map(|s| s.to_string()),
+                };
+                serde_json::to_string(&m).unwrap_or_default()
+            })
+        } else {
+            None
+        };
         Ok((out, next))
     }
 

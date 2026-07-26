@@ -175,3 +175,16 @@ export interface ObjectPreview {
   total_size: number | null;
   truncated: boolean;
 }
+
+export interface CorsRule {
+  id: string | null;
+  allowed_origins: string[];
+  allowed_methods: string[];
+  allowed_headers: string[];
+  expose_headers: string[];
+  max_age_seconds: number | null;
+}
+
+export interface CorsConfig {
+  rules: CorsRule[];
+}

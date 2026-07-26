@@ -1,0 +1,157 @@
+/* Object version history modal: version list with per-row actions. */
+
+.modal.vh-modal {
+  width: 760px;
+  max-width: 96vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vh-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vh-close-x { flex: 0 0 auto; }
+
+.vh-key {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.vh-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vh-loading,
+.vh-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 12px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.vh-truncated {
+  font-size: 11px;
+  color: var(--warn);
+  padding: 6px 2px 0;
+}
+
+/* ── version rows ────────────────────────────────────────────────────────── */
+
+.vh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vh-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.vh-row.latest { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+.vh-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vh-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vh-vid {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.vh-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.vh-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.vh-badge.latest {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.vh-badge.delete-marker {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+.vh-row-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* ── mobile / narrow viewports ─────────────────────────────────────────── */
+/* Base .modal becomes a full-width bottom sheet under 768px (mobile-forms.css).
+   Here we relax the 760px width and stack each row so the action buttons wrap
+   below the metadata instead of overflowing off-screen. */
+@media (max-width: 768px) {
+  .modal.vh-modal {
+    width: 100%;
+    max-width: 100%;
+    /* Sheet itself scrolls (mobile-forms.css); clip stray x overflow. */
+    overflow-x: hidden;
+  }
+
+  /* Let the bottom-sheet be the only scroller. A nested overflow here produced
+     a second scrollbar down the middle of the modal. */
+  .vh-body {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  /* Rows stay horizontal: the 3 icon actions (36px each) fit beside the info.
+     Keep them pinned right and never shrinking; the info column shrinks. */
+  .vh-row {
+    gap: 10px;
+    align-items: center;
+  }
+  .vh-row-main { min-width: 0; }
+  .vh-row-actions { flex: 0 0 auto; }
+
+  /* Long version-id / key must wrap, not force horizontal scroll. */
+  .vh-vid { word-break: break-all; }
+}

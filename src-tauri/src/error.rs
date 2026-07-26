@@ -85,6 +85,13 @@ pub enum AppError {
     #[error("network unreachable: {0}")]
     NetworkUnreachable(String),
 
+    /// The provider does not implement this operation (`NotImplemented` / HTTP
+    /// 501). Common on non-AWS S3-compatibles (B2, R2) for bucket policy or
+    /// CORS. FE should switch on this to hide the feature rather than surface a
+    /// generic error.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
+
     /// Bucket has encryption configured but no identity is present in the OS
     /// keychain (keychain wiped, new machine, different OS user). FE should
     /// prompt the user to import a previously exported identity file.
@@ -114,6 +121,7 @@ impl AppError {
             AppError::Canceled(_) => "canceled",
             AppError::RegionRedirect(_) => "region_redirect",
             AppError::NetworkUnreachable(_) => "network_unreachable",
+            AppError::Unsupported(_) => "unsupported",
             AppError::EncryptionIdentityMissing(_) => "encryption_identity_missing",
             AppError::Internal(_) => "internal",
         }

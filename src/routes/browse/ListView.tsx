@@ -5,7 +5,7 @@ import { goUpPrefix, navigateToPrefix } from "../../state/app";
 import { formatBytes, formatDate, basename } from "../../utils/fmt";
 import {
   FileIcon, fileTypeLabel,
-  IconBack, IconDownload, IconLink, IconTrash, IconBucket,
+  IconBack, IconDownload, IconLink, IconTrash, IconBucket, IconMore,
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
@@ -158,7 +158,6 @@ export function ListView(props: {
                               <div
                                 class={`obj-row ${props.selected.has(obj().key) ? "selected" : ""}`}
                                 style={`height:${LIST_ROW_H}px`}
-                                onContextMenu={(e) => props.onCtxFile(e, obj())}
                                 onClick={(e) => {
                                   if (e.metaKey || e.ctrlKey) props.onToggleSel(obj().key);
                                   else props.onPreview(obj());
@@ -180,6 +179,13 @@ export function ListView(props: {
                                   <button class="icon-btn" onClick={() => props.onCopyLink(obj())}><IconLink size={15} /></button>
                                   <button class="icon-btn danger" onClick={() => props.onDelete(obj())}><IconTrash size={15} /></button>
                                 </div>
+                                <button
+                                  class="obj-kebab icon-btn"
+                                  title="Actions"
+                                  onClick={(e) => { e.stopPropagation(); props.onCtxFile(e, obj()); }}
+                                >
+                                  <IconMore size={16} />
+                                </button>
                               </div>
                             );
                           })()}

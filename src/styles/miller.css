@@ -58,6 +58,31 @@
 }
 .col-pane-scroll.loading { opacity: 0.45; }
 .col-pane-item.fill-cell { height: 100%; width: 100%; }
+
+/* File row = selectable item + always-visible kebab (opens the context menu).
+   Same affordance on desktop and mobile. */
+.col-pane-row {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.col-pane-row .col-pane-item.fill-cell { flex: 1; width: auto; min-width: 0; }
+.col-pane-row .col-kebab {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  border-radius: 7px;
+}
+.col-pane-row .col-kebab:hover { color: var(--text); background: var(--panel-2); }
 .col-pane-loadmore.fill-cell { justify-content: center; color: var(--muted); }
 .col-pane-empty {
   overflow-y: auto;

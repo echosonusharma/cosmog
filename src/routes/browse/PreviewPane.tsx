@@ -51,7 +51,7 @@ function PreviewErrorCard(props: { err: unknown }) {
 
 // ── preview pane ──────────────────────────────────────────────────────────────
 
-export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; }) {
+export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; }) {
   const ct = () => props.obj.content_type ?? "";
   const ext = () => extOf(props.obj.basename);
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
@@ -92,7 +92,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       if (props.encrypted === undefined) return null;
       if (!isImage()) return null;
       if (!(imageAutoLoad() || loadRequested())) return null;
-      return { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket, x: ext(), enc: props.encrypted };
+      return { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket, x: ext(), enc: props.encrypted, r: props.reloadToken ?? 0 };
     },
     async ({ a, b, k, x, enc }) => {
       if (x === "svg" || enc) {
@@ -136,7 +136,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const [loadedKey, setLoadedKey] = createSignal<string | null>(null);
   const textShouldFetch = () => isText() && !isImage() && (textAutoLoad() || loadRequested());
   const [preview, { refetch: refetchPreview }] = createResource(
-    () => (textShouldFetch() ? { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket } : null),
+    () => (textShouldFetch() ? { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket, r: props.reloadToken ?? 0 } : null),
     async ({ a, b, k }) => { try { const r = await previewObject(a, b, k, 256 * 1024); return r; } finally { setLoadedKey(k); } },
   );
 
@@ -241,7 +241,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               <Show when={!imageAutoLoad() && !loadRequested() && !displayUrl()}>
                 <div class="preview-load-hint">
                   <span class="muted text-xs">
-                    Encrypted image ({formatBytes(props.obj.size)}) — decrypts whole into memory.
+                    Encrypted image ({formatBytes(props.obj.size)}). Decrypts whole into memory.
                   </span>
                   <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
                     <IconEye size={15} /> Load preview

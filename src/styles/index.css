@@ -19,6 +19,8 @@
 
 @import "./objects.css";
 @import "./bucket-grid.css";
+@import "./bucket-config.css";
+@import "./version-history.css";
 @import "./miller.css";
 @import "./view-mode.css";
 @import "./search.css";
