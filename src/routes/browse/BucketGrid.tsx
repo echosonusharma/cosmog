@@ -3,16 +3,18 @@ import { listBuckets, deleteBucket } from "../../api/buckets";
 import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
 import { listEncryptedBuckets } from "../../api/encryption";
 import { notify } from "../../utils/notify";
-import { setBrowseState, bumpBucketsRefresh } from "../../state/app";
+import { accounts, setBrowseState, bumpBucketsRefresh } from "../../state/app";
+import { detectProvider } from "../../providers";
 import { toast } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
 import {
-  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX, IconLock,
+  IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX, IconLock, IconSettings,
 } from "../../utils/icons";
 import type { Bucket } from "../../types";
 import { ErrorPopup } from "../../utils/ErrorPopup";
 import { NewBucketModal } from "./modals";
+import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
 
 // ── bucket grid ───────────────────────────────────────────────────────────────
 
@@ -31,6 +33,11 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     async ({ a }) => new Set(await listEncryptedBuckets(a).catch(() => [] as string[])),
   );
   const [showNew, setShowNew] = createSignal(false);
+  const [configBucket, setConfigBucket] = createSignal<string | null>(null);
+  // Provider drives which bucket-config APIs are known to be supported.
+  const provider = createMemo(() =>
+    detectProvider(accounts().find((a) => a.id === props.accountId) ?? { endpoint: null }),
+  );
   const [filter, setFilter] = createSignal("");
   const filtered = createMemo(() => {
     const q = filter().trim().toLowerCase();
@@ -157,6 +164,9 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                       </Show>
                       <span class="truncate">{b.name}</span>
                     </button>
+                    <button class="icon-btn bucket-cfg"
+                            title="Bucket config"
+                            onClick={() => setConfigBucket(b.name)}><IconSettings size={15} /></button>
                     <button class="icon-btn danger bucket-del"
                             onClick={() => handleDelete(b.name)}><IconTrash size={15} /></button>
                   </div>
@@ -170,6 +180,19 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       <Show when={showNew()}>
         <NewBucketModal accountId={props.accountId} onClose={() => setShowNew(false)}
                         onDone={() => { setRefresh((n) => n + 1); bumpBucketsRefresh(); }} />
+      </Show>
+
+      <Show when={configBucket()}>
+        {(name) => (
+          <BucketConfigModal
+            accountId={props.accountId}
+            bucket={name()}
+            providerId={provider().id}
+            providerLabel={provider().label}
+            onClose={() => setConfigBucket(null)}
+            onChanged={() => { setRefresh((n) => n + 1); bumpBucketsRefresh(); }}
+          />
+        )}
       </Show>
     </div>
   );

@@ -19,8 +19,9 @@ use crate::db::request_logs::NewRequestLog;
 use crate::db::Db;
 use crate::error::AppResult;
 use crate::store::{
-    Bucket, CannedAcl, DeleteObjectsResult, GetOptions, ListOptions, ListPage, ObjectMeta,
-    ObjectPreview, ObjectStore, ObjectTag, ObjectVersion, PendingMultipartUpload, PutOptions,
+    Bucket, CannedAcl, CorsConfig, DeleteObjectsResult, GetOptions, ListOptions, ListPage,
+    ObjectMeta, ObjectPreview, ObjectStore, ObjectTag, ObjectVersion, PendingMultipartUpload,
+    PutOptions,
 };
 use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 
@@ -91,7 +92,7 @@ impl LoggingStore {
     fn success_status(op: &str) -> i64 {
         match op {
             "delete_object" | "delete_object_version" | "delete_object_tagging"
-            | "abort_multipart_upload" => 204,
+            | "abort_multipart_upload" | "delete_bucket_policy" | "delete_bucket_cors" => 204,
             "head_bucket" | "head_object" => 200,
             "delete_objects" => 200, // S3 DeleteObjects is a POST, returns 200 with XML body
             _ => 200,
@@ -240,6 +241,68 @@ impl ObjectStore for LoggingStore {
         r
     }
 
+    async fn get_bucket_policy(&self, name: &str) -> AppResult<Option<String>> {
+        let start = Instant::now();
+        let r = self.inner.get_bucket_policy(name).await;
+        let meta = r.as_ref().ok().map(|p| json!({ "has_policy": p.is_some() }));
+        self.record("get_bucket_policy", "GET",
+            self.build_url(Some(name), None, Some("policy")),
+            None, meta, Some(name), None, start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn put_bucket_policy(&self, name: &str, policy: String) -> AppResult<()> {
+        let start = Instant::now();
+        let size = policy.len();
+        let r = self.inner.put_bucket_policy(name, policy).await;
+        self.record("put_bucket_policy", "PUT",
+            self.build_url(Some(name), None, Some("policy")),
+            Some(json!({ "policy_length": size })), None, Some(name), None,
+            start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn delete_bucket_policy(&self, name: &str) -> AppResult<()> {
+        let start = Instant::now();
+        let r = self.inner.delete_bucket_policy(name).await;
+        self.record("delete_bucket_policy", "DELETE",
+            self.build_url(Some(name), None, Some("policy")),
+            None, None, Some(name), None, start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn get_bucket_cors(&self, name: &str) -> AppResult<Option<CorsConfig>> {
+        let start = Instant::now();
+        let r = self.inner.get_bucket_cors(name).await;
+        let meta = r.as_ref().ok().map(|c| json!({
+            "rule_count": c.as_ref().map(|cfg| cfg.rules.len()).unwrap_or(0),
+        }));
+        self.record("get_bucket_cors", "GET",
+            self.build_url(Some(name), None, Some("cors")),
+            None, meta, Some(name), None, start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn put_bucket_cors(&self, name: &str, cors: CorsConfig) -> AppResult<()> {
+        let start = Instant::now();
+        let rule_count = cors.rules.len();
+        let r = self.inner.put_bucket_cors(name, cors).await;
+        self.record("put_bucket_cors", "PUT",
+            self.build_url(Some(name), None, Some("cors")),
+            Some(json!({ "rule_count": rule_count })), None, Some(name), None,
+            start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn delete_bucket_cors(&self, name: &str) -> AppResult<()> {
+        let start = Instant::now();
+        let r = self.inner.delete_bucket_cors(name).await;
+        self.record("delete_bucket_cors", "DELETE",
+            self.build_url(Some(name), None, Some("cors")),
+            None, None, Some(name), None, start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage> {
         let prefix = opts.prefix.clone().unwrap_or_default();
         let cache_key = (bucket.to_string(), prefix.clone());
@@ -333,6 +396,21 @@ impl ObjectStore for LoggingStore {
         self.record("delete_object_version", "DELETE",
             self.build_url(Some(bucket), Some(key), Some(&format!("versionId={version_id}"))),
             Some(json!({ "version_id": version_id })), None, Some(bucket), Some(key),
+            start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
+    async fn restore_object_version(
+        &self, bucket: &str, key: &str, version_id: &str,
+    ) -> AppResult<()> {
+        let start = Instant::now();
+        let r = self.inner.restore_object_version(bucket, key, version_id).await;
+        self.record("restore_object_version", "PUT",
+            self.build_url(Some(bucket), Some(key), None),
+            Some(json!({
+                "copy_source": format!("{bucket}/{key}?versionId={version_id}"),
+                "version_id": version_id,
+            })), None, Some(bucket), Some(key),
             start, r.is_ok(), r.as_ref().err());
         r
     }

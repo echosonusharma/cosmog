@@ -14,7 +14,13 @@
       "tile_fill": true,
       "detect": [
         "amazonaws.com"
-      ]
+      ],
+      "caps": { "policy": "yes", "cors": "yes", "versioning": "yes" },
+      "docs": {
+        "policy": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html",
+        "cors": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/cors.html",
+        "versioning": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html"
+      }
     },
     {
       "id": "backblaze",
@@ -30,6 +36,7 @@
       "detect": [
         "backblazeb2.com"
       ],
+      "caps": { "policy": "no", "cors": "no", "versioning": "unknown" },
       "tile_fill": false
     },
     {
@@ -46,7 +53,12 @@
       "detect": [
         "r2.cloudflarestorage.com"
       ],
-      "tile_fill": false
+      "caps": { "policy": "no", "cors": "yes", "versioning": "unknown" },
+      "tile_fill": false,
+      "docs": {
+        "cors": "https://developers.cloudflare.com/r2/buckets/cors/",
+        "versioning": "https://developers.cloudflare.com/r2/buckets/object-versioning/"
+      }
     },
     {
       "id": "wasabi",
@@ -62,7 +74,11 @@
       "detect": [
         "wasabisys.com"
       ],
-      "tile_fill": false
+      "caps": { "policy": "yes", "cors": "yes", "versioning": "yes" },
+      "tile_fill": false,
+      "docs": {
+        "cors": "https://docs.wasabi.com/docs/how-do-i-set-up-cors-on-a-bucket"
+      }
     },
     {
       "id": "digitalocean",
@@ -78,7 +94,11 @@
       "detect": [
         "digitaloceanspaces.com"
       ],
-      "tile_fill": false
+      "caps": { "policy": "unknown", "cors": "yes", "versioning": "no" },
+      "tile_fill": false,
+      "docs": {
+        "cors": "https://docs.digitalocean.com/products/spaces/how-to/configure-cors/"
+      }
     },
     {
       "id": "minio",
@@ -97,7 +117,12 @@
         "0.0.0.0",
         ":9000"
       ],
-      "tile_fill": false
+      "caps": { "policy": "yes", "cors": "no", "versioning": "yes" },
+      "tile_fill": false,
+      "docs": {
+        "policy": "https://min.io/docs/minio/linux/administration/identity-access-management/policy-based-access-control.html",
+        "versioning": "https://min.io/docs/minio/linux/administration/object-management/object-versioning.html"
+      }
     },
     {
       "id": "s3",

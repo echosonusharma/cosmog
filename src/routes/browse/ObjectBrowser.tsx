@@ -20,6 +20,7 @@ import { confirmDialog } from "../../state/confirm";
 import type { CachedObjectMeta } from "../../types";
 import { DownloadModal, UploadModal, NewFolderModal, RenameModal } from "./modals";
 import { EncryptionModal } from "./EncryptionModal";
+import { VersionHistoryModal } from "./versionHistory/VersionHistoryModal";
 import { PreviewPane } from "./PreviewPane";
 import { ColumnPane } from "./ColumnPane";
 import { Toolbar } from "./Toolbar";
@@ -149,7 +150,11 @@ export function ObjectBrowser(props: {
   const [showNewFolder, setShowNewFolder] = createSignal<string | null>(null);
   const [downloadTarget, setDownloadTarget] = createSignal<CachedObjectMeta | null>(null);
   const [renameTarget, setRenameTarget] = createSignal<CachedObjectMeta | null>(null);
+  const [versionTarget, setVersionTarget] = createSignal<CachedObjectMeta | null>(null);
   const [previewTarget, setPreviewTarget] = createSignal<CachedObjectMeta | null>(null);
+  // Bumped to force the open preview to refetch when its object content changes
+  // underneath it (e.g. a version restore) without the key changing.
+  const [previewReload, setPreviewReload] = createSignal(0);
   const [ctxMenu, setCtxMenu] = createSignal<CtxMenu | null>(null);
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
@@ -159,6 +164,7 @@ export function ObjectBrowser(props: {
   // handles view/prefix navigation. Most-modal first; selection clears last.
   useBackHandler(() => true, () => {
     if (ctxMenu()) { setCtxMenu(null); return true; }
+    if (versionTarget()) { setVersionTarget(null); return true; }
     if (previewTarget()) { setPreviewTarget(null); return true; }
     if (renameTarget()) { setRenameTarget(null); return true; }
     if (downloadTarget()) { setDownloadTarget(null); return true; }
@@ -308,18 +314,36 @@ export function ObjectBrowser(props: {
     setShowUpload(props.prefix);
   }
 
+  // Keep the menu on-screen: clicking a row-end kebab (or long-pressing near an
+  // edge) can put the anchor point flush against the viewport border.
+  function clampMenu(x: number, y: number): { x: number; y: number } {
+    const MENU_W = 210, MENU_H = 320, PAD = 8;
+    return {
+      x: Math.max(PAD, Math.min(x, window.innerWidth - MENU_W - PAD)),
+      y: Math.max(PAD, Math.min(y, window.innerHeight - MENU_H - PAD)),
+    };
+  }
+
   function openCtx(e: MouseEvent, obj: CachedObjectMeta) {
     e.preventDefault(); e.stopPropagation();
-    setCtxMenu({ kind: "file", x: e.clientX, y: e.clientY, obj });
+    const { x, y } = clampMenu(e.clientX, e.clientY);
+    setCtxMenu({ kind: "file", x, y, obj });
   }
 
   function openCtxFolder(e: MouseEvent, sub: string) {
     e.preventDefault(); e.stopPropagation();
-    setCtxMenu({ kind: "folder", x: e.clientX, y: e.clientY, sub });
+    const { x, y } = clampMenu(e.clientX, e.clientY);
+    setCtxMenu({ kind: "folder", x, y, sub });
   }
 
   onMount(() => {
-    const close = () => setCtxMenu(null);
+    // Close on any click EXCEPT the kebab that opens it (that same click would
+    // otherwise close the menu the instant it opened) or clicks inside the menu.
+    const close = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".col-kebab, .obj-kebab, .context-menu")) return;
+      setCtxMenu(null);
+    };
     document.addEventListener("click", close);
     onCleanup(() => document.removeEventListener("click", close));
 
@@ -507,6 +531,7 @@ export function ObjectBrowser(props: {
             onDownload={() => { const o = previewTarget(); if (o) setDownloadTarget(o); }}
             onCopyLink={() => { const o = previewTarget(); if (o) handleCopyLink(o); }}
             encrypted={(encStatus.latest ?? encStatus())?.enabled}
+            reloadToken={previewReload()}
           />
         </ErrorBoundary>
       </Show>
@@ -529,6 +554,7 @@ export function ObjectBrowser(props: {
             onDownload={(obj) => setDownloadTarget(obj)}
             onCopyLink={handleCopyLink}
             onRename={(obj) => setRenameTarget(obj)}
+            onVersionHistory={(obj) => setVersionTarget(obj)}
             onDelete={handleDelete}
           />
         )}
@@ -566,6 +592,20 @@ export function ObjectBrowser(props: {
       <Show when={renameTarget()}>
         {(obj) => <RenameModal obj={obj()} onClose={() => setRenameTarget(null)}
                                 onDone={() => setRefresh((n) => n + 1)} />}
+      </Show>
+
+      <Show when={versionTarget()}>
+        {(obj) => <VersionHistoryModal
+                    accountId={props.accountId}
+                    bucket={props.bucket}
+                    objectKey={obj().key}
+                    onClose={() => setVersionTarget(null)}
+                    onChanged={() => {
+                      setRefresh((n) => n + 1);
+                      // If the object whose versions changed is the one on screen,
+                      // force the preview to re-download the new latest content.
+                      if (previewTarget()?.key === obj().key) setPreviewReload((n) => n + 1);
+                    }} />}
       </Show>
 
       <Show when={showEncryption()}>

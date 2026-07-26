@@ -99,3 +99,11 @@ export const deleteObjectVersion = (
   versionId: string,
 ): Promise<void> =>
   invoke("delete_object_version", { accountId, bucket, key, versionId });
+
+export const restoreObjectVersion = (
+  accountId: string,
+  bucket: string,
+  key: string,
+  versionId: string,
+): Promise<void> =>
+  invoke("restore_object_version", { accountId, bucket, key, versionId });

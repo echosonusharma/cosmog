@@ -143,15 +143,19 @@
     display: none;
   }
   .obj-row {
-    grid-template-columns: 1fr 90px;
+    grid-template-columns: 1fr auto;
     gap: 8px;
     padding: 0 8px;
     font-size: 12.5px;
-    height: 40px;
+    height: 44px;
   }
   .obj-row > *:nth-child(n+3) {
     display: none;
   }
+  /* Re-show the kebab (child 6) and let it own the second column, at a
+     comfortable touch size. */
+  .obj-kebab { display: inline-flex !important; }
+  .obj-kebab.icon-btn { width: 36px; height: 36px; }
   .obj-type,
   .obj-date {
     display: none;

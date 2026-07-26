@@ -23,8 +23,9 @@ use crate::db::accounts::Account;
 use crate::error::{AppError, AppResult};
 use crate::providers::{build_probe_store, build_store_with_region};
 use crate::store::{
-    Bucket, CannedAcl, DeleteObjectsResult, GetOptions, ListOptions, ListPage, ObjectMeta,
-    ObjectPreview, ObjectStore, ObjectTag, ObjectVersion, PendingMultipartUpload, PutOptions,
+    Bucket, CannedAcl, CorsConfig, DeleteObjectsResult, GetOptions, ListOptions, ListPage,
+    ObjectMeta, ObjectPreview, ObjectStore, ObjectTag, ObjectVersion, PendingMultipartUpload,
+    PutOptions,
 };
 use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 
@@ -151,6 +152,30 @@ impl ObjectStore for RegionRetryStore {
         with_retry!(self, name, s, s.put_bucket_versioning(name, enabled).await)
     }
 
+    async fn get_bucket_policy(&self, name: &str) -> AppResult<Option<String>> {
+        with_retry!(self, name, s, s.get_bucket_policy(name).await)
+    }
+
+    async fn put_bucket_policy(&self, name: &str, policy: String) -> AppResult<()> {
+        with_retry!(self, name, s, s.put_bucket_policy(name, policy.clone()).await)
+    }
+
+    async fn delete_bucket_policy(&self, name: &str) -> AppResult<()> {
+        with_retry!(self, name, s, s.delete_bucket_policy(name).await)
+    }
+
+    async fn get_bucket_cors(&self, name: &str) -> AppResult<Option<CorsConfig>> {
+        with_retry!(self, name, s, s.get_bucket_cors(name).await)
+    }
+
+    async fn put_bucket_cors(&self, name: &str, cors: CorsConfig) -> AppResult<()> {
+        with_retry!(self, name, s, s.put_bucket_cors(name, cors.clone()).await)
+    }
+
+    async fn delete_bucket_cors(&self, name: &str) -> AppResult<()> {
+        with_retry!(self, name, s, s.delete_bucket_cors(name).await)
+    }
+
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage> {
         with_retry!(self, bucket, s, s.list_objects(bucket, opts.clone()).await)
     }
@@ -182,6 +207,15 @@ impl ObjectStore for RegionRetryStore {
         version_id: &str,
     ) -> AppResult<()> {
         with_retry!(self, bucket, s, s.delete_object_version(bucket, key, version_id).await)
+    }
+
+    async fn restore_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> AppResult<()> {
+        with_retry!(self, bucket, s, s.restore_object_version(bucket, key, version_id).await)
     }
 
     async fn list_object_versions(

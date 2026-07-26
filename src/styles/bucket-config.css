@@ -1,0 +1,424 @@
+/* Per-bucket S3 configuration editor (Policy / CORS / Versioning tabs). */
+
+.modal.bcfg-modal {
+  width: 960px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── header ────────────────────────────────────────────────────────────── */
+
+.bcfg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bcfg-close-x { flex: 0 0 auto; }
+
+/* ── tab strip ─────────────────────────────────────────────────────────── */
+
+.bcfg-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bcfg-tab-btn {
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.bcfg-tab-btn:hover { color: var(--text); }
+
+.bcfg-tab-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ── tab body ──────────────────────────────────────────────────────────── */
+
+.bcfg-tab-body {
+  flex: 1;
+  /* Modest floor so short tabs (versioning) do not collapse the modal to a
+     sliver; tall tabs (policy editor) grow past it. Panes are kept mounted, so
+     switching no longer flickers even where the height differs. */
+  min-height: 260px;
+  overflow-y: auto;
+}
+
+/* Kept-mounted panes; inactive ones hidden without unmounting. */
+.bcfg-pane.hidden { display: none; }
+
+.bcfg-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Centered loading state so the spinner sits in the body, not cramped top-left. */
+.bcfg-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 240px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.bcfg-hint { line-height: 1.5; }
+
+.bcfg-provider-warn { margin-bottom: 2px; }
+
+.bcfg-doc-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bcfg-doc-link:hover { text-decoration: underline; }
+
+.bcfg-status { margin: 2px 0; }
+
+.bcfg-actions {
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bcfg-actions-grp {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Buttons size to content here; base .btn-primary is width:100% which would
+   stretch Save across the whole row. */
+.bcfg-actions button { width: auto; flex: 0 0 auto; }
+
+.bcfg-danger-btn { flex: 0 0 auto; }
+
+/* ── policy editor ─────────────────────────────────────────────────────── */
+
+.bcfg-editor {
+  height: 440px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.bcfg-editor .code-editor-host {
+  height: 100%;
+}
+
+/* ── CORS form ─────────────────────────────────────────────────────────── */
+
+.bcfg-cors-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bcfg-cors-empty {
+  padding: 16px;
+  font-size: 12px;
+}
+
+.bcfg-cors-rule {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+}
+
+.bcfg-cors-rule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bcfg-cors-rule-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bcfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bcfg-field-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.bcfg-textarea,
+.bcfg-input {
+  width: 100%;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.bcfg-textarea:focus,
+.bcfg-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.bcfg-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Method checkboxes rendered as themed pill toggles. */
+.bcfg-method {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.bcfg-method:hover { border-color: var(--border-focus); color: var(--text); }
+
+.bcfg-method:has(input:checked) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.bcfg-method input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+.bcfg-cors-row {
+  display: flex;
+  gap: 12px;
+}
+
+.bcfg-field-inline { flex: 1; }
+
+/* ── themed number stepper (replaces native spin buttons) ──────────────── */
+
+.bcfg-stepper { position: relative; }
+
+/* Kill the native spinner across engines; make room for our buttons. */
+.bcfg-stepper-input {
+  padding-right: 30px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.bcfg-stepper-input::-webkit-outer-spin-button,
+.bcfg-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.bcfg-stepper-btns {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+.bcfg-step-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-elev-2);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.bcfg-step-btn:first-child { border-bottom: 1px solid var(--border); border-top-right-radius: var(--radius-sm); }
+.bcfg-step-btn:last-child { border-bottom-right-radius: var(--radius-sm); }
+.bcfg-step-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
+.bcfg-step-btn:active:not(:disabled) { color: var(--accent); }
+.bcfg-step-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.bcfg-step-up { transform: rotate(180deg); }
+
+.bcfg-add-rule {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── versioning ────────────────────────────────────────────────────────── */
+
+.bcfg-versioning-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.bcfg-versioning-state { font-size: 13px; color: var(--text); }
+
+.bcfg-on { color: var(--ok); }
+.bcfg-off { color: var(--text-muted); }
+
+.bcfg-toggle {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.bcfg-toggle.on { background: var(--accent); border-color: var(--accent); }
+
+.bcfg-toggle:disabled { opacity: 0.6; cursor: default; }
+
+.bcfg-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.bcfg-toggle.on .bcfg-toggle-knob { transform: translateX(20px); }
+
+/* ── settings icon on bucket card ──────────────────────────────────────── */
+
+.bucket-cfg { flex: 0 0 auto; }
+
+/* ── mobile / narrow viewports ─────────────────────────────────────────── */
+/* Base .modal already becomes a full-width bottom sheet under 768px (see
+   mobile-forms.css). Here we relax the wide 960px layout and stack the
+   internal rows so nothing overflows or gets clipped on touch screens. */
+@media (max-width: 768px) {
+  .modal.bcfg-modal {
+    width: 100%;
+    max-width: 100%;
+    gap: 10px;
+    /* The sheet itself scrolls vertically (mobile-forms.css). Clip any stray
+       horizontal overflow so no x-axis scrollbar appears. */
+    overflow-x: hidden;
+  }
+
+  /* Tab strip: allow horizontal scroll instead of cutting tabs off. */
+  .bcfg-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .bcfg-tabs::-webkit-scrollbar { display: none; }
+  .bcfg-tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 10px 14px;
+  }
+
+  /* Let the bottom-sheet be the only scroll container. A nested overflow here
+     produced a second scrollbar in the middle of the modal (both axes). */
+  .bcfg-tab-body {
+    min-height: 0;
+    overflow: visible;
+  }
+  .bcfg-tab { min-width: 0; }
+
+  /* Action rows: each group is a full-width row of equal-width buttons. */
+  .bcfg-modal .bcfg-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .bcfg-modal .bcfg-actions-grp {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+  }
+  .bcfg-modal .bcfg-actions-grp button {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    min-height: 42px;
+  }
+
+  /* Policy editor: shrink so the action row stays reachable. */
+  .bcfg-editor { height: 46vh; }
+
+  /* CORS row: stack the two inline fields vertically. */
+  .bcfg-cors-row { flex-direction: column; }
+
+  /* Compact controls must NOT inherit the global 40px min tap-height, which
+     stretches and breaks them. Keep their designed sizes. */
+  .bcfg-toggle {
+    min-height: 0;
+    flex: 0 0 auto;
+  }
+  .bcfg-step-btn { min-height: 0; }
+  .bcfg-stepper-btns { width: 34px; }
+
+  /* Inline "Learn more" link is a <button>; the global 40px min-height would
+     balloon the hint line it sits in, looking like a blank line. */
+  .bcfg-doc-link { min-height: 0; }
+
+  /* Allowed-methods pills: the checkbox <input> inside inherits the global
+     40px min-height/16px font, making the pills tall. Keep them thin. */
+  .bcfg-method { padding: 6px 12px; }
+  .bcfg-method input {
+    min-height: 0;
+    width: 15px;
+    height: 15px;
+    font-size: initial;
+  }
+
+  /* Versioning row: let the label shrink instead of shoving the toggle out. */
+  .bcfg-versioning-row { gap: 12px; }
+  .bcfg-versioning-state { min-width: 0; }
+}

@@ -206,6 +206,24 @@ pub async fn delete_object_version(
     // We don't touch the cache here: only the live/latest version is mirrored.
 }
 
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn restore_object_version(
+    state: State<'_, AppState>,
+    account_id: String,
+    bucket: String,
+    key: String,
+    version_id: String,
+) -> AppResult<()> {
+    state
+        .store_for(&account_id)
+        .await?
+        .restore_object_version(&bucket, &key, &version_id)
+        .await
+    // No cache write: the restore only affects remote version state, and a
+    // subsequent list/head refreshes the mirrored latest version.
+}
+
 #[derive(serde::Serialize)]
 pub struct VersionsPage {
     pub versions: Vec<ObjectVersion>,

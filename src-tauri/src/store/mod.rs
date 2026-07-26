@@ -161,6 +161,26 @@ pub struct ObjectTag {
     pub value: String,
 }
 
+/// One CORS rule as stored on a bucket. Mirrors an S3 `CORSRule`. Field names
+/// serialize snake_case for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CorsRule {
+    pub id: Option<String>,
+    pub allowed_origins: Vec<String>,
+    pub allowed_methods: Vec<String>,
+    pub allowed_headers: Vec<String>,
+    pub expose_headers: Vec<String>,
+    pub max_age_seconds: Option<i32>,
+}
+
+/// A bucket's full CORS configuration (its list of rules).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct CorsConfig {
+    pub rules: Vec<CorsRule>,
+}
+
 /// Bounded in-memory preview of an object. `truncated = true` when the
 /// stored object is larger than the requested cap.
 #[derive(Debug, Clone, Serialize)]
@@ -203,6 +223,16 @@ pub trait ObjectStore: Send + Sync {
     async fn put_bucket_acl(&self, name: &str, acl: CannedAcl) -> AppResult<()>;
     async fn get_bucket_versioning(&self, name: &str) -> AppResult<bool>;
     async fn put_bucket_versioning(&self, name: &str, enabled: bool) -> AppResult<()>;
+    /// Fetch the bucket policy JSON. Returns `Ok(None)` when no policy is set.
+    async fn get_bucket_policy(&self, name: &str) -> AppResult<Option<String>>;
+    async fn put_bucket_policy(&self, name: &str, policy: String) -> AppResult<()>;
+    /// Delete the bucket policy. Treats "no policy present" as success.
+    async fn delete_bucket_policy(&self, name: &str) -> AppResult<()>;
+    /// Fetch the bucket CORS config. Returns `Ok(None)` when none is set.
+    async fn get_bucket_cors(&self, name: &str) -> AppResult<Option<CorsConfig>>;
+    async fn put_bucket_cors(&self, name: &str, cors: CorsConfig) -> AppResult<()>;
+    /// Delete the bucket CORS config. Treats "no config present" as success.
+    async fn delete_bucket_cors(&self, name: &str) -> AppResult<()>;
 
     // Object metadata ops
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage>;
@@ -220,6 +250,18 @@ pub trait ObjectStore: Send + Sync {
         keys: &[String],
     ) -> AppResult<DeleteObjectsResult>;
     async fn delete_object_version(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: &str,
+    ) -> AppResult<()>;
+    /// Restore a previous object version by making it the current/latest
+    /// version. Implemented as a server-side copy whose source is
+    /// `bucket/key?versionId=<version_id>` and whose destination is the same
+    /// `bucket/key`; on a versioned bucket this writes a new latest version
+    /// whose content equals the chosen old version (also un-deleting an object
+    /// whose latest version is a delete marker).
+    async fn restore_object_version(
         &self,
         bucket: &str,
         key: &str,
