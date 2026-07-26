@@ -3,7 +3,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import { errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
-import { FileIcon, IconChevronR } from "../../utils/icons";
+import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 
 // ── column pane (miller columns view) ────────────────────────────────────────
@@ -67,14 +67,27 @@ function ColumnPaneVirtual(props: {
                     </button>
                   </Show>
                   <Show when={item().kind === "file"}>
-                    <button
-                      class={`col-pane-item fill-cell ${props.selectedKey === (item() as { kind: "file"; obj: CachedObjectMeta }).obj.key ? "selected" : ""}`}
-                      onClick={() => props.onSelectFile((item() as { kind: "file"; obj: CachedObjectMeta }).obj)}
-                      onContextMenu={(e) => props.onCtxFile?.(e, (item() as { kind: "file"; obj: CachedObjectMeta }).obj)}
-                    >
-                      <FileIcon name={(item() as { kind: "file"; obj: CachedObjectMeta }).obj.basename} />
-                      <span class="col-pane-name">{(item() as { kind: "file"; obj: CachedObjectMeta }).obj.basename}</span>
-                    </button>
+                    {(() => {
+                      const obj = () => (item() as { kind: "file"; obj: CachedObjectMeta }).obj;
+                      return (
+                        <div class="col-pane-row">
+                          <button
+                            class={`col-pane-item fill-cell ${props.selectedKey === obj().key ? "selected" : ""}`}
+                            onClick={() => props.onSelectFile(obj())}
+                          >
+                            <FileIcon name={obj().basename} />
+                            <span class="col-pane-name">{obj().basename}</span>
+                          </button>
+                          <button
+                            class="col-kebab icon-btn"
+                            title="Actions"
+                            onClick={(e) => { e.stopPropagation(); props.onCtxFile?.(e, obj()); }}
+                          >
+                            <IconMore size={16} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </Show>
                   <Show when={item().kind === "loadmore"}>
                     <button

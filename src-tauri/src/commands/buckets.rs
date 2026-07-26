@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::error::AppResult;
 use crate::state::AppState;
-use crate::store::{Bucket, CannedAcl, PendingMultipartUpload};
+use crate::store::{Bucket, CannedAcl, CorsConfig, PendingMultipartUpload};
 
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
@@ -207,5 +207,91 @@ pub async fn put_bucket_versioning(
         .store_for(&account_id)
         .await?
         .put_bucket_versioning(&name, enabled)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn get_bucket_policy(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+) -> AppResult<Option<String>> {
+    state
+        .store_for(&account_id)
+        .await?
+        .get_bucket_policy(&name)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn put_bucket_policy(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+    policy: String,
+) -> AppResult<()> {
+    state
+        .store_for(&account_id)
+        .await?
+        .put_bucket_policy(&name, policy)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn delete_bucket_policy(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+) -> AppResult<()> {
+    state
+        .store_for(&account_id)
+        .await?
+        .delete_bucket_policy(&name)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn get_bucket_cors(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+) -> AppResult<Option<CorsConfig>> {
+    state
+        .store_for(&account_id)
+        .await?
+        .get_bucket_cors(&name)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn put_bucket_cors(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+    cors: CorsConfig,
+) -> AppResult<()> {
+    state
+        .store_for(&account_id)
+        .await?
+        .put_bucket_cors(&name, cors)
+        .await
+}
+
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn delete_bucket_cors(
+    state: State<'_, AppState>,
+    account_id: String,
+    name: String,
+) -> AppResult<()> {
+    state
+        .store_for(&account_id)
+        .await?
+        .delete_bucket_cors(&name)
         .await
 }

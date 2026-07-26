@@ -2,7 +2,7 @@
 
 .col-header {
   display: grid;
-  grid-template-columns: 1fr 100px 100px 160px 130px;
+  grid-template-columns: 1fr 100px 100px 160px 130px 30px;
   gap: 14px;
   padding: 10px 10px;
   font-size: 11px;
@@ -98,7 +98,7 @@
 
 .obj-row {
   display: grid;
-  grid-template-columns: 1fr 100px 100px 160px 130px;
+  grid-template-columns: 1fr 100px 100px 160px 130px 30px;
   gap: 14px;
   align-items: center;
   height: 30px;
@@ -158,6 +158,17 @@
   transition: opacity 0.1s;
 }
 .obj-row:hover .obj-actions { opacity: 1; }
+
+/* Row-end kebab: opens the full context menu (Preview / Download / Copy link /
+   Rename / Version history / Delete). Always visible so the menu is reachable
+   without long-press or right-click, on desktop and mobile alike. */
+.obj-kebab.icon-btn {
+  flex: 0 0 auto;
+  justify-self: end;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
 
 /* ── bulk select bar ────────────────────────────────────────────────────── */
 

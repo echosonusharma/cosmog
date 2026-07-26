@@ -13,7 +13,15 @@ export interface ProviderDef {
   monochrome_icon: boolean;
   tile_fill: boolean;
   detect: string[];
+  caps?: { policy?: Support; cors?: Support; versioning?: Support };
+  docs?: { policy?: string; cors?: string; versioning?: string };
 }
+
+// Whether a provider supports a given bucket-config S3 API.
+//   "yes"     - known to work
+//   "no"      - known NOT to be implemented (warn before the user does work)
+//   "unknown" - not verified; show a soft warning, let the attempt decide
+export type Support = "yes" | "no" | "unknown";
 
 export const PROVIDERS: ProviderDef[] = data.providers as ProviderDef[];
 

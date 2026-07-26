@@ -58,6 +58,7 @@ export const IconBug          = I("bug");
 export const IconLock         = I("lock");
 export const IconLockOpen     = I("lock-open");
 export const IconKey          = I("key");
+export const IconMore         = I("more-vertical");
 
 // ── theme toggle ──────────────────────────────────────────────────────────────
 
