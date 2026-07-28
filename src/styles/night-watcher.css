@@ -1,0 +1,169 @@
+/* ── night watcher ──────────────────────────────────────────────────────── */
+
+.nw-body {
+  flex: 1; overflow-y: auto;
+  padding: 24px 28px;
+  display: flex; flex-direction: column;
+  gap: 28px;
+  width: 100%;
+}
+
+.nw-empty {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  padding: 14px 0;
+}
+
+.nw-note {
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.5;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-elev-1);
+}
+.nw-note-warn {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, var(--bg-elev-1));
+}
+
+/* ── watch list ─────────────────────────────────────────────────────────── */
+
+.nw-list { display: flex; flex-direction: column; gap: 10px; }
+
+.nw-item {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev-1);
+}
+.nw-item.disabled { opacity: 0.6; }
+
+.nw-item-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+
+.nw-item-dir {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nw-item-target { font-size: 12px; color: var(--text-soft); }
+.nw-item-prefix { color: var(--text-muted); }
+
+.nw-item-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.nw-meta-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.nw-item-error {
+  font-size: 11.5px;
+  color: var(--red);
+  margin-top: 3px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.nw-item-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.nw-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.nw-toggle-label { font-size: 12px; color: var(--text-soft); }
+
+.nw-delete-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+.nw-delete-btn:hover {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, var(--bg));
+}
+
+/* ── add form ───────────────────────────────────────────────────────────── */
+
+.nw-dir-field { display: flex; gap: 8px; }
+.nw-dir-field .field { flex: 1; }
+.nw-dir-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px; height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text-soft);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.1s, background 0.1s;
+}
+.nw-dir-btn:hover { background: var(--elev); color: var(--text); }
+.nw-dir-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.nw-policy-field .field:disabled { opacity: 0.7; }
+
+/* Android SAF folder pick */
+.nw-pick-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nw-chosen-folder {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── quit background sync ────────────────────────────────────────────────── */
+
+.nw-quit-btn {
+  margin-left: auto;
+  padding: 0 12px; height: 30px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text-soft);
+  font: inherit; font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+.nw-quit-btn:hover {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, var(--panel-2));
+}
+
+.nw-quit-caption {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 10px;
+}
+
+/* ── mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .nw-body { padding: 12px 14px; gap: 20px; }
+
+  /* stack the dir/target block above its actions on narrow screens */
+  .nw-item { flex-direction: column; align-items: stretch; gap: 10px; }
+  .nw-item-actions { justify-content: space-between; }
+
+  /* keep the Browse button from crushing the path input */
+  .nw-dir-field { flex-wrap: wrap; }
+  .nw-dir-field .field { flex: 1 1 100%; }
+  .nw-dir-btn { flex: 1 1 auto; justify-content: center; height: 40px; }
+
+  /* full-width folder pick, chosen name wraps to its own line */
+  .nw-pick-field { flex-direction: column; align-items: stretch; }
+  .nw-pick-field .nw-dir-btn { height: 40px; }
+  .nw-chosen-folder { white-space: normal; }
+}

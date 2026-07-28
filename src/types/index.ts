@@ -17,6 +17,28 @@ export interface Bucket {
   created_at: number | null;
 }
 
+export interface NightWatch {
+  id: string;
+  account_id: string;
+  bucket: string;
+  local_dir: string;
+  tree_uri: string | null;
+  key_prefix: string;
+  ignore_file: string | null;
+  delete_policy: string;
+  full_scan_secs: number;
+  enabled: boolean;
+  created_at: number;
+}
+
+export interface WatchStatus {
+  id: string;
+  enabled: boolean;
+  last_scan_at: number | null;
+  files_tracked: number;
+  last_error: string | null;
+}
+
 export interface CachedObjectMeta {
   account_id: string;
   bucket: string;

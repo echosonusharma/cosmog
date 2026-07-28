@@ -25,6 +25,17 @@ fn jni_err(env: &mut jni::JNIEnv, what: &str, e: jni::errors::Error) -> String {
     format!("{what}: {e}")
 }
 
+/// Convert a Java `String` to an owned Rust `String`. Taking `s` by value keeps
+/// it alive for the whole body so the borrowed `JavaStr` never outlives it (the
+/// inline `get_string(&s)?.into()` form trips NLL as a block-tail expression).
+#[cfg(target_os = "android")]
+fn jstring_owned(env: &mut jni::JNIEnv, s: jni::objects::JString) -> Result<String, String> {
+    match env.get_string(&s) {
+        Ok(js) => Ok(js.into()),
+        Err(e) => Err(jni_err(env, "get_string", e)),
+    }
+}
+
 /// SAF display names come from arbitrary DocumentsProviders; a malicious one
 /// can return `../../databases/x.db` and walk out of the staging directory.
 /// Strip path separators and reject dot-only names.
@@ -568,4 +579,774 @@ fn query_display_name(
         let _ = jni_err(env, "Cursor.close", e);
     }
     result
+}
+
+// ---------------------------------------------------------------------------
+// Night Watcher SAF/JNI helpers.
+//
+// These back the "Night Watcher" background folder-sync feature. They talk to
+// the Kotlin `com/sonus/cosmog/NightWatchService` foreground service and the
+// `com/sonus/cosmog/NwTreePicker` singleton (a Kotlin `object`, reached via its
+// `INSTANCE` static field). Same jni-exception-clearing discipline as above:
+// every fallible JNI call routes through `jni_err`.
+// ---------------------------------------------------------------------------
+
+// Cached app-class GlobalRefs. find_class for app classes FAILS from a native
+// (spawn_blocking) thread because it uses the system ClassLoader, not the app
+// one. Same pattern as secrets.rs SECRET_STORE_CLASS: cache on the JVM thread
+// during nw init, then reuse everywhere. Framework classes (android/net/Uri,
+// DocumentsContract) still resolve fine via find_class from any thread.
+#[cfg(target_os = "android")]
+pub(crate) static NIGHTWATCH_SERVICE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
+    std::sync::OnceLock::new();
+#[cfg(target_os = "android")]
+pub(crate) static NW_TREE_PICKER_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
+    std::sync::OnceLock::new();
+
+/// Cache the Night Watcher app-class GlobalRefs. Called from
+/// `Java_com_sonus_cosmog_CosmogApp_initNwClasses` on the main/JVM thread (see
+/// CosmogApp.onCreate + MainActivity.onCreate), where find_class uses the app
+/// ClassLoader. Idempotent: OnceLock.set is a no-op once populated, so a second
+/// call from MainActivity after the Application init does not re-cache or leak.
+#[cfg(target_os = "android")]
+fn cache_nw_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<jni::objects::GlobalRef>) {
+    if slot.get().is_some() {
+        return;
+    }
+    match env.find_class(name) {
+        Ok(cls) => match env.new_global_ref(cls) {
+            Ok(g) => {
+                let _ = slot.set(g);
+            }
+            Err(e) => {
+                let _ = jni_err(env, "new_global_ref(nw class)", e);
+            }
+        },
+        Err(e) => {
+            let _ = jni_err(env, "find_class(nw class)", e);
+        }
+    }
+}
+
+/// JNI entrypoint invoked from CosmogApp/MainActivity on the JVM thread to cache
+/// the NW app classes as GlobalRefs (bug #3). Idempotent (bug: init not
+/// idempotent) via the OnceLock guards in `cache_nw_class`.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_sonus_cosmog_CosmogApp_initNwClasses(
+    mut env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) {
+    cache_nw_class(&mut env, "com/sonus/cosmog/NightWatchService", &NIGHTWATCH_SERVICE_CLASS);
+    cache_nw_class(&mut env, "com/sonus/cosmog/NwTreePicker", &NW_TREE_PICKER_CLASS);
+}
+
+/// A picked SAF tree: `uri` is the persisted tree `content://` URI,
+/// `display_name` is the human folder name for UI.
+#[derive(serde::Serialize)]
+pub struct SafTree {
+    pub uri: String,
+    pub display_name: String,
+}
+
+/// One entry found while walking a SAF tree. `rel_path` is the path relative to
+/// the tree root (forward-slash separated, no leading slash). `doc_uri` is a
+/// document `content://` URI usable with ContentResolver.openInputStream.
+/// `mtime` is in SECONDS (DocumentsContract reports COLUMN_LAST_MODIFIED in ms).
+#[derive(serde::Serialize)]
+pub struct SafEntry {
+    pub rel_path: String,
+    pub doc_uri: String,
+    pub size: i64,
+    pub mtime: i64,
+    pub is_dir: bool,
+}
+
+/// Start (or stop) the NightWatchService foreground service. Verbatim shape of
+/// `set_transfer_service` for a different class.
+#[cfg(target_os = "android")]
+pub fn set_nightwatch_service(active: bool) -> Result<(), String> {
+    use jni::objects::{JObject, JValue};
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    if ctx.vm().is_null() || ctx.context().is_null() {
+        return Err("android context not initialized".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("attach_current_thread: {e}"))?;
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+    // Use the cached class ref: find_class for app classes fails from this
+    // native thread (bug #3).
+    let cls_ref = NIGHTWATCH_SERVICE_CLASS
+        .get()
+        .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
+    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+    let method = if active { "start" } else { "stop" };
+    env.call_static_method(
+        cls,
+        method,
+        "(Landroid/content/Context;)V",
+        &[JValue::Object(&context)],
+    )
+    .map_err(|e| jni_err(&mut env, method, e))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn set_nightwatch_service(_active: bool) -> Result<(), String> {
+    Ok(())
+}
+
+/// Persist the "start Night Watcher on boot" flag on the Kotlin side. Calls
+/// NightWatchService.setBootFlag(context, enabled).
+#[cfg(target_os = "android")]
+pub fn set_nightwatch_boot_flag(enabled: bool) -> Result<(), String> {
+    use jni::objects::{JObject, JValue};
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    if ctx.vm().is_null() || ctx.context().is_null() {
+        return Err("android context not initialized".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("attach_current_thread: {e}"))?;
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+    // Cached class ref (bug #3): find_class for app classes fails on this thread.
+    let cls_ref = NIGHTWATCH_SERVICE_CLASS
+        .get()
+        .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
+    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+    env.call_static_method(
+        cls,
+        "setBootFlag",
+        "(Landroid/content/Context;Z)V",
+        &[JValue::Object(&context), JValue::Bool(enabled as u8)],
+    )
+    .map_err(|e| jni_err(&mut env, "setBootFlag", e))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn set_nightwatch_boot_flag(_enabled: bool) -> Result<(), String> {
+    Ok(())
+}
+
+/// Fetch the `NwTreePicker` singleton (`INSTANCE` static field). Kotlin `object`
+/// compiles to a public static final `INSTANCE` field of the object's own type,
+/// so this is the reliable way to reach its instance methods.
+#[cfg(target_os = "android")]
+fn nw_picker_instance<'a>(
+    env: &mut jni::JNIEnv<'a>,
+) -> Result<jni::objects::JObject<'a>, String> {
+    // Cached class ref (bug #3): find_class for app classes fails on the native
+    // spawn_blocking thread this runs on.
+    let cls_ref = NW_TREE_PICKER_CLASS
+        .get()
+        .ok_or("NwTreePicker class not cached (initNwClasses not called)")?;
+    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+    let instance = env
+        .get_static_field(cls, "INSTANCE", "Lcom/sonus/cosmog/NwTreePicker;")
+        .map_err(|e| jni_err(env, "get_static_field(INSTANCE)", e))?
+        .l()
+        .map_err(|e| format!("INSTANCE.l: {e}"))?;
+    Ok(instance)
+}
+
+/// Launch the system tree picker (ACTION_OPEN_DOCUMENT_TREE) and poll for the
+/// result.
+///
+/// Sentinel scheme (KOTLIN MUST ALIGN):
+/// - `NwTreePicker.poll()` returns `null` while the pick is still pending.
+/// - On success it returns `"<treeUri>\n<displayName>"` (result and name joined
+///   by a single '\n'; only the FIRST '\n' is treated as the separator, so a
+///   name may itself contain newlines).
+/// - On user cancel it returns the literal string `"__NW_CANCELED__"`, which
+///   cannot collide with a real tree URI (those start with a scheme like
+///   `content://`). This maps to `Err("canceled")`.
+/// - If nothing arrives within ~120s we give up with `Err("tree pick timed out")`.
+#[cfg(target_os = "android")]
+pub async fn nw_pick_tree() -> Result<SafTree, String> {
+    tokio::task::spawn_blocking(move || -> Result<SafTree, String> {
+        use jni::JavaVM;
+
+        const POLL_INTERVAL_MS: u64 = 250;
+        const MAX_POLLS: u32 = 480; // ~120s at 250ms.
+        const CANCEL_SENTINEL: &str = "__NW_CANCELED__";
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+
+        // reset() clears any stale result from a previous pick.
+        {
+            let picker = nw_picker_instance(&mut env)?;
+            env.call_method(&picker, "reset", "()V", &[])
+                .map_err(|e| jni_err(&mut env, "NwTreePicker.reset", e))?;
+        }
+        // launch() fires the ACTION_OPEN_DOCUMENT_TREE intent.
+        {
+            let picker = nw_picker_instance(&mut env)?;
+            env.call_method(&picker, "launch", "()V", &[])
+                .map_err(|e| jni_err(&mut env, "NwTreePicker.launch", e))?;
+        }
+
+        // Poll on this single attached thread. std::thread::sleep is fine here
+        // because we are inside spawn_blocking.
+        let mut polls = 0u32;
+        loop {
+            let result: Option<String> = {
+                let picker = nw_picker_instance(&mut env)?;
+                let v = env
+                    .call_method(&picker, "poll", "()Ljava/lang/String;", &[])
+                    .map_err(|e| jni_err(&mut env, "NwTreePicker.poll", e))?
+                    .l()
+                    .map_err(|e| format!("poll.l: {e}"))?;
+                if v.is_null() {
+                    None
+                } else {
+                    Some(jstring_owned(&mut env, v.into())?)
+                }
+            };
+
+            if let Some(s) = result {
+                if s == CANCEL_SENTINEL {
+                    return Err("canceled".into());
+                }
+                let (uri, display_name) = match s.split_once('\n') {
+                    Some((u, n)) => (u.to_string(), n.to_string()),
+                    None => (s.clone(), String::new()),
+                };
+                return Ok(SafTree { uri, display_name });
+            }
+
+            polls += 1;
+            if polls >= MAX_POLLS {
+                return Err("tree pick timed out".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+        }
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn nw_pick_tree() -> Result<SafTree, String> {
+    Err("tree pick is Android-only".into())
+}
+
+/// Recursively walk a SAF tree via DocumentsContract, returning every file
+/// (is_dir = false). The walk runs inside a single spawn_blocking on one
+/// attached thread, using an explicit stack (not async recursion) so the whole
+/// traversal shares one JNIEnv attach.
+#[cfg(target_os = "android")]
+pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, String> {
+    tokio::task::spawn_blocking(move || -> Result<Vec<SafEntry>, String> {
+        use jni::objects::{JObject, JObjectArray, JString, JValue};
+        use jni::JavaVM;
+
+        const MIME_DIR: &str = "vnd.android.document/directory";
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let resolver = env
+            .call_method(
+                &context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| jni_err(&mut env, "getContentResolver", e))?
+            .l()
+            .map_err(|e| format!("getContentResolver.l: {e}"))?;
+
+        // Parse the tree URI string into an android.net.Uri.
+        let tree_uri_obj = {
+            let uri_jstr: JString = env
+                .new_string(&tree_uri)
+                .map_err(|e| jni_err(&mut env, "new_string(tree_uri)", e))?;
+            let uri_class = env
+                .find_class("android/net/Uri")
+                .map_err(|e| jni_err(&mut env, "find_class(Uri)", e))?;
+            env.call_static_method(
+                uri_class,
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_jstr))],
+            )
+            .map_err(|e| jni_err(&mut env, "Uri.parse", e))?
+            .l()
+            .map_err(|e| format!("Uri.parse.l: {e}"))?
+        };
+
+        // Hoist DocumentsContract find_class out of the walk loop (bug #2): one
+        // lookup reused for every row instead of leaking a local ref per row.
+        let dc_class = env
+            .find_class("android/provider/DocumentsContract")
+            .map_err(|e| jni_err(&mut env, "find_class(DocumentsContract)", e))?;
+
+        // getTreeDocumentId(treeUri) -> root document id.
+        let root_doc_id: String = {
+            let s_obj = env
+                .call_static_method(
+                    &dc_class,
+                    "getTreeDocumentId",
+                    "(Landroid/net/Uri;)Ljava/lang/String;",
+                    &[JValue::Object(&tree_uri_obj)],
+                )
+                .map_err(|e| jni_err(&mut env, "getTreeDocumentId", e))?
+                .l()
+                .map_err(|e| format!("getTreeDocumentId.l: {e}"))?;
+            if s_obj.is_null() {
+                return Err("getTreeDocumentId returned null".into());
+            }
+            jstring_owned(&mut env, s_obj.into())?
+        };
+
+        // Projection reused for every children query.
+        let projection: JObjectArray = {
+            let arr = env
+                .new_object_array(5, "java/lang/String", JObject::null())
+                .map_err(|e| jni_err(&mut env, "new_object_array(projection)", e))?;
+            let cols = [
+                "document_id",   // COLUMN_DOCUMENT_ID
+                "_display_name", // COLUMN_DISPLAY_NAME
+                "mime_type",     // COLUMN_MIME_TYPE
+                "_size",         // COLUMN_SIZE
+                "last_modified", // COLUMN_LAST_MODIFIED
+            ];
+            for (i, c) in cols.iter().enumerate() {
+                let s: JString = env
+                    .new_string(c)
+                    .map_err(|e| jni_err(&mut env, "new_string(col)", e))?;
+                env.set_object_array_element(&arr, i as i32, &JObject::from(s))
+                    .map_err(|e| jni_err(&mut env, "set_object_array_element", e))?;
+            }
+            arr
+        };
+
+        let mut out: Vec<SafEntry> = Vec::new();
+        // Explicit DFS stack: (parent doc id, rel_path prefix for this dir).
+        let mut stack: Vec<(String, String)> = vec![(root_doc_id, String::new())];
+
+        // Fatal error surfaced from inside a local frame. The frame closure
+        // returns `Result<_, jni::errors::Error>` (its E: From<Error> bound
+        // rules out String), so fatal String errors are stashed here and the
+        // outer loop breaks after the frame pops cleanly.
+        let mut fatal: Option<String> = None;
+
+        while let Some((parent_doc_id, prefix)) = stack.pop() {
+            // Bug #2: every row would leak JNI local refs (strings, cursors,
+            // uris) into a table capped at ~512, aborting the process on any
+            // real folder. Process each directory inside its own local frame so
+            // all those refs are freed when the frame pops. Owned Rust data
+            // (SafEntry, stack entries) escapes the frame just fine. Capacity is
+            // generous: refs churn within the frame, they do not accumulate.
+            let frame_res: Result<(), jni::errors::Error> = env.with_local_frame(64, |env| {
+                // buildChildDocumentsUriUsingTree(treeUri, parentDocId).
+                let parent_jstr: JString = match env.new_string(&parent_doc_id) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        fatal = Some(jni_err(env, "new_string(parentDocId)", e));
+                        return Ok(());
+                    }
+                };
+                let children_uri = match env.call_static_method(
+                    &dc_class,
+                    "buildChildDocumentsUriUsingTree",
+                    "(Landroid/net/Uri;Ljava/lang/String;)Landroid/net/Uri;",
+                    &[
+                        JValue::Object(&tree_uri_obj),
+                        JValue::Object(&JObject::from(parent_jstr)),
+                    ],
+                ) {
+                    Ok(v) => match v.l() {
+                        Ok(o) => o,
+                        Err(e) => {
+                            fatal = Some(format!("buildChildDocumentsUriUsingTree.l: {e}"));
+                            return Ok(());
+                        }
+                    },
+                    Err(e) => {
+                        fatal = Some(jni_err(env, "buildChildDocumentsUriUsingTree", e));
+                        return Ok(());
+                    }
+                };
+
+                // resolver.query(childrenUri, projection, null, null, null).
+                let cursor = {
+                    let r = env.call_method(
+                        &resolver,
+                        "query",
+                        "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+                        &[
+                            JValue::Object(&children_uri),
+                            JValue::Object(&projection),
+                            JValue::Object(&JObject::null()),
+                            JValue::Object(&JObject::null()),
+                            JValue::Object(&JObject::null()),
+                        ],
+                    );
+                    match r {
+                        Ok(v) => match v.l() {
+                            Ok(o) => o,
+                            Err(_) => return Ok(()),
+                        },
+                        Err(e) => {
+                            // A single unreadable dir should not abort the walk.
+                            let _ = jni_err(env, "ContentResolver.query(children)", e);
+                            return Ok(());
+                        }
+                    }
+                };
+                if cursor.is_null() {
+                    return Ok(());
+                }
+
+                // Iterate rows. Column order matches `projection` (0..=4). Each
+                // row runs in its own nested frame so a directory with thousands
+                // of files never fills the outer frame (bug #2): all per-row
+                // refs (id/name/mime strings, the built doc uri) are freed per
+                // iteration. `break_out` propagates a fatal error out of the
+                // frame closure (which returns Ok to pop the frame cleanly).
+                loop {
+                    let has_next = match env.call_method(&cursor, "moveToNext", "()Z", &[]) {
+                        Ok(v) => v.z().unwrap_or(false),
+                        Err(e) => {
+                            let _ = jni_err(env, "Cursor.moveToNext", e);
+                            false
+                        }
+                    };
+                    if !has_next {
+                        break;
+                    }
+
+                    let mut break_out = false;
+                    let row_res: Result<(), jni::errors::Error> = env.with_local_frame(16, |env| {
+                        let doc_id = cursor_get_string(env, &cursor, 0).unwrap_or_default();
+                        let name = cursor_get_string(env, &cursor, 1).unwrap_or_default();
+                        let mime = cursor_get_string(env, &cursor, 2).unwrap_or_default();
+                        // Null size/mtime fall back to -1 / 0.
+                        let size = cursor_get_long(env, &cursor, 3).unwrap_or(-1);
+                        let mtime_ms = cursor_get_long(env, &cursor, 4).unwrap_or(0);
+                        let mtime = mtime_ms / 1000; // ms -> seconds.
+
+                        if doc_id.is_empty() {
+                            return Ok(());
+                        }
+                        let rel_path = if prefix.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{prefix}/{name}")
+                        };
+
+                        if mime == MIME_DIR {
+                            // Recurse via the explicit stack (owned data escapes).
+                            stack.push((doc_id, rel_path));
+                            return Ok(());
+                        }
+
+                        // buildDocumentUriUsingTree(treeUri, childDocId).
+                        let id_jstr: JString = match env.new_string(&doc_id) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                fatal = Some(jni_err(env, "new_string(childDocId)", e));
+                                break_out = true;
+                                return Ok(());
+                            }
+                        };
+                        let uri_obj = match env.call_static_method(
+                            &dc_class,
+                            "buildDocumentUriUsingTree",
+                            "(Landroid/net/Uri;Ljava/lang/String;)Landroid/net/Uri;",
+                            &[
+                                JValue::Object(&tree_uri_obj),
+                                JValue::Object(&JObject::from(id_jstr)),
+                            ],
+                        ) {
+                            Ok(v) => match v.l() {
+                                Ok(o) => o,
+                                Err(e) => {
+                                    fatal = Some(format!("buildDocumentUriUsingTree.l: {e}"));
+                                    break_out = true;
+                                    return Ok(());
+                                }
+                            },
+                            Err(e) => {
+                                fatal = Some(jni_err(env, "buildDocumentUriUsingTree", e));
+                                break_out = true;
+                                return Ok(());
+                            }
+                        };
+                        let s_obj = match env
+                            .call_method(&uri_obj, "toString", "()Ljava/lang/String;", &[])
+                        {
+                            Ok(v) => match v.l() {
+                                Ok(o) => o,
+                                Err(e) => {
+                                    fatal = Some(format!("Uri.toString.l: {e}"));
+                                    break_out = true;
+                                    return Ok(());
+                                }
+                            },
+                            Err(e) => {
+                                fatal = Some(jni_err(env, "Uri.toString", e));
+                                break_out = true;
+                                return Ok(());
+                            }
+                        };
+                        let doc_uri = match jstring_owned(env, s_obj.into()) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                fatal = Some(e);
+                                break_out = true;
+                                return Ok(());
+                            }
+                        };
+
+                        out.push(SafEntry {
+                            rel_path,
+                            doc_uri,
+                            size,
+                            mtime,
+                            is_dir: false,
+                        });
+                        Ok(())
+                    });
+                    if let Err(e) = row_res {
+                        fatal = Some(jni_err(env, "with_local_frame(row)", e));
+                        break;
+                    }
+                    if break_out {
+                        break;
+                    }
+                }
+
+                if let Err(e) = env.call_method(&cursor, "close", "()V", &[]) {
+                    let _ = jni_err(env, "Cursor.close", e);
+                }
+                Ok(())
+            });
+
+            // Frame push/pop itself can fail (OOM allocating the frame).
+            if let Err(e) = frame_res {
+                return Err(jni_err(&mut env, "with_local_frame(dir)", e));
+            }
+            if let Some(e) = fatal {
+                return Err(e);
+            }
+        }
+
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn collect_tree_files(_tree_uri: String) -> Result<Vec<SafEntry>, String> {
+    Err("SAF tree walk is Android-only".into())
+}
+
+/// Read a Cursor string column by index, clearing any pending exception.
+/// Returns None on null column or error.
+#[cfg(target_os = "android")]
+fn cursor_get_string(
+    env: &mut jni::JNIEnv,
+    cursor: &jni::objects::JObject,
+    col: i32,
+) -> Option<String> {
+    use jni::objects::JValue;
+
+    // Guard against null columns; getString on some providers returns null.
+    let is_null = match env.call_method(cursor, "isNull", "(I)Z", &[JValue::Int(col)]) {
+        Ok(v) => v.z().unwrap_or(true),
+        Err(e) => {
+            let _ = jni_err(env, "Cursor.isNull", e);
+            return None;
+        }
+    };
+    if is_null {
+        return None;
+    }
+    let v = match env.call_method(
+        cursor,
+        "getString",
+        "(I)Ljava/lang/String;",
+        &[JValue::Int(col)],
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = jni_err(env, "Cursor.getString", e);
+            return None;
+        }
+    };
+    let s_obj = v.l().ok()?;
+    if s_obj.is_null() {
+        return None;
+    }
+    jstring_owned(env, s_obj.into()).ok()
+}
+
+/// Read a Cursor long column by index, clearing any pending exception.
+/// Returns None on null column or error.
+#[cfg(target_os = "android")]
+fn cursor_get_long(
+    env: &mut jni::JNIEnv,
+    cursor: &jni::objects::JObject,
+    col: i32,
+) -> Option<i64> {
+    use jni::objects::JValue;
+
+    let is_null = match env.call_method(cursor, "isNull", "(I)Z", &[JValue::Int(col)]) {
+        Ok(v) => v.z().unwrap_or(true),
+        Err(e) => {
+            let _ = jni_err(env, "Cursor.isNull", e);
+            return None;
+        }
+    };
+    if is_null {
+        return None;
+    }
+    match env.call_method(cursor, "getLong", "(I)J", &[JValue::Int(col)]) {
+        Ok(v) => v.j().ok(),
+        Err(e) => {
+            let _ = jni_err(env, "Cursor.getLong", e);
+            None
+        }
+    }
+}
+
+/// Stream a SAF document through blake3 and return the lowercase hex digest.
+/// Reuses the openInputStream + read-loop shape from `stage_saf_upload`.
+#[cfg(target_os = "android")]
+pub async fn hash_saf_document(doc_uri: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || -> Result<String, String> {
+        use jni::objects::{JObject, JString, JValue};
+        use jni::JavaVM;
+
+        const CHUNK: usize = 1024 * 1024;
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let uri_jstr: JString = env
+            .new_string(&doc_uri)
+            .map_err(|e| jni_err(&mut env, "new_string(uri)", e))?;
+        let uri_class = env
+            .find_class("android/net/Uri")
+            .map_err(|e| jni_err(&mut env, "find_class(Uri)", e))?;
+        let uri_obj = env
+            .call_static_method(
+                uri_class,
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_jstr))],
+            )
+            .map_err(|e| jni_err(&mut env, "Uri.parse", e))?
+            .l()
+            .map_err(|e| format!("Uri.parse.l: {e}"))?;
+
+        let resolver = env
+            .call_method(
+                &context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| jni_err(&mut env, "getContentResolver", e))?
+            .l()
+            .map_err(|e| format!("getContentResolver.l: {e}"))?;
+
+        let in_stream = env
+            .call_method(
+                &resolver,
+                "openInputStream",
+                "(Landroid/net/Uri;)Ljava/io/InputStream;",
+                &[JValue::Object(&uri_obj)],
+            )
+            .map_err(|e| jni_err(&mut env, "openInputStream", e))?
+            .l()
+            .map_err(|e| format!("openInputStream.l: {e}"))?;
+        if in_stream.is_null() {
+            return Err("openInputStream returned null".into());
+        }
+
+        let jbuf = env
+            .new_byte_array(CHUNK as i32)
+            .map_err(|e| jni_err(&mut env, "new_byte_array", e))?;
+        let mut buf = vec![0u8; CHUNK];
+        let mut hasher = blake3::Hasher::new();
+        let mut hash_err: Option<String> = None;
+
+        loop {
+            let read_res = env.call_method(&in_stream, "read", "([B)I", &[JValue::Object(&jbuf)]);
+            let n = match read_res {
+                Ok(v) => v.i().unwrap_or(-1),
+                Err(e) => {
+                    hash_err = Some(jni_err(&mut env, "InputStream.read", e));
+                    break;
+                }
+            };
+            if n <= 0 {
+                break;
+            }
+            let signed: &mut [i8] =
+                unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut i8, n as usize) };
+            if let Err(e) = env.get_byte_array_region(&jbuf, 0, signed) {
+                hash_err = Some(jni_err(&mut env, "get_byte_array_region", e));
+                break;
+            }
+            hasher.update(&buf[..n as usize]);
+        }
+
+        if let Err(e) = env.call_method(&in_stream, "close", "()V", &[]) {
+            let _ = jni_err(&mut env, "InputStream.close", e);
+        }
+
+        if let Some(e) = hash_err {
+            return Err(e);
+        }
+
+        Ok(hasher.finalize().to_hex().to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn hash_saf_document(_doc_uri: String) -> Result<String, String> {
+    Err("SAF document hashing is Android-only".into())
 }

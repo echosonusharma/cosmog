@@ -8,6 +8,7 @@
 //!   and [`crate::store::ObjectStore::get_object`]
 //! - [`TransferManager`]: see [`manager`]
 
+pub mod encrypt;
 pub mod manager;
 
 use std::sync::Arc;

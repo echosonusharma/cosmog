@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { Account, Bucket, CachedObjectMeta, Transfer } from "../types";
 
-export type View = "browse" | "transfers" | "settings" | "logs";
+export type View = "browse" | "transfers" | "settings" | "logs" | "night-watcher";
 
 export interface BrowseState {
   accountId: string | null;

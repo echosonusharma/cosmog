@@ -14,6 +14,7 @@
 //! truth is the DB.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
@@ -391,7 +392,11 @@ impl TransferManager {
         let cancel = CancellationToken::new();
         self.cancels.insert(id.clone(), cancel.clone());
 
-        let sink = self.composite_sink(id.clone(), external_sink);
+        // Tracks whether a terminal event (Done/Failed/Canceled) reached the
+        // external sink via the store. The worker's terminal block emits a
+        // fallback terminal only if none did, guaranteeing exactly-once.
+        let term_emitted = Arc::new(AtomicBool::new(false));
+        let sink = self.composite_sink(id.clone(), external_sink.clone(), term_emitted.clone());
         // Pull per-transfer tunables from user settings so the FE can
         // influence them without touching backend code.
         let settings = self.db.settings_load().await?;
@@ -415,6 +420,8 @@ impl TransferManager {
         let store_for_task = store.clone();
         let bucket_for_cache = bucket_for_row;
         let key_for_cache = key_for_row;
+        let external_for_task = external_sink;
+        let term_emitted_for_task = term_emitted;
 
         tokio::spawn(async move {
             let _permit = match sem.acquire().await {
@@ -635,6 +642,31 @@ impl TransferManager {
                 Err(AppError::Canceled(_)) => TransferStatus::Canceled,
                 Err(_) => TransferStatus::Failed,
             };
+            // Guarantee exactly-once terminal emission to the external sink.
+            // The store emits a terminal on most paths (e.g. put_multipart
+            // failure, put_single done); several error-return paths do not. If
+            // no terminal reached the external sink, emit one here so downstream
+            // sinks (Night Watcher claim release + stage cleanup) always fire.
+            if !term_emitted_for_task.load(Ordering::SeqCst) {
+                let event = match &terminal {
+                    TransferStatus::Done => TransferEvent::Done {
+                        transfer_id: id_for_task.clone(),
+                        etag: None,
+                    },
+                    TransferStatus::Canceled => TransferEvent::Canceled {
+                        transfer_id: id_for_task.clone(),
+                    },
+                    _ => TransferEvent::Failed {
+                        transfer_id: id_for_task.clone(),
+                        error: result
+                            .as_ref()
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| "upload failed".into()),
+                    },
+                };
+                external_for_task.emit(event);
+            }
             // Canceled downloads leave a partial (often 0-byte) file at the
             // destination; the user explicitly aborted, so remove it. Failed
             // downloads keep the partial so a retry can range-resume.
@@ -674,7 +706,12 @@ impl TransferManager {
     /// progress to the database. The DB-persistence half intentionally batches
     /// the parts list in an in-memory buffer to avoid touching SQLite on every
     /// chunk.
-    fn composite_sink(&self, transfer_id: String, external: ProgressSink) -> ProgressSink {
+    fn composite_sink(
+        &self,
+        transfer_id: String,
+        external: ProgressSink,
+        term_emitted: Arc<AtomicBool>,
+    ) -> ProgressSink {
         let db = self.db.clone();
         let parts: Arc<Mutex<Vec<CompletedPart>>> = Arc::new(Mutex::new(Vec::new()));
         // Serialize DB writes for this transfer's PartCompleted snapshots.
@@ -684,6 +721,16 @@ impl TransferManager {
         let parts_db_lock: Arc<AsyncMutex<()>> = Arc::new(AsyncMutex::new(()));
 
         ProgressSink::from_fn(move |event: TransferEvent| {
+            // Record terminal events so the worker knows the store already
+            // emitted one and can skip its fallback emission.
+            if matches!(
+                event,
+                TransferEvent::Done { .. }
+                    | TransferEvent::Failed { .. }
+                    | TransferEvent::Canceled { .. }
+            ) {
+                term_emitted.store(true, Ordering::SeqCst);
+            }
             external.emit(event.clone());
 
             let db = db.clone();
