@@ -3,6 +3,7 @@ import { accounts, browseState, setBrowseState, setCurrentView } from "../state/
 import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
+import { ReauthPanel } from "./browse/ReauthPanel";
 import { isCredentialError, isNetworkError, parseWireError } from "../utils/errors";
 
 // ── root ──────────────────────────────────────────────────────────────────────
@@ -55,7 +56,16 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                 const { code, message } = parseWireError(err);
                 const credErr = isCredentialError(code);
                 const netErr  = isNetworkError(code);
-                const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
+                if (credErr) {
+                  return (
+                    <div class="browse-err-fallback">
+                      <div class="err-popup err-popup-boot">
+                        <ReauthPanel accountId={accountId} accountName={accountName()} onDone={reset} />
+                      </div>
+                    </div>
+                  );
+                }
+                const title = netErr ? "Service unreachable" : "Something went wrong";
                 return (
                   <div class="browse-err-fallback">
                     <div class="err-popup err-popup-boot">
@@ -83,7 +93,20 @@ export default function Browse(props: { defaultDownloadDir: string }) {
               const { code, message } = parseWireError(err);
               const credErr = isCredentialError(code);
               const netErr  = isNetworkError(code);
-              const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
+              if (credErr) {
+                return (
+                  <div class="browse-err-fallback">
+                    <div class="err-popup err-popup-boot">
+                      <ReauthPanel
+                        accountId={stableAccountId()}
+                        accountName={accountName()}
+                        onDone={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+              const title = netErr ? "Service unreachable" : "Something went wrong";
               return (
                 <div class="browse-err-fallback">
                   <div class="err-popup err-popup-boot">
