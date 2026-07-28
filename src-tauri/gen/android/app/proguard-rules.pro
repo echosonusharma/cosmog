@@ -2,6 +2,10 @@
 # and would strip or rename the methods without these rules.
 -keep class com.sonus.cosmog.SecretStore { *; }
 -keep class com.sonus.cosmog.TransferService { *; }
+-keep class com.sonus.cosmog.NwTreePicker { *; }
+-keep class com.sonus.cosmog.NightWatchService { *; }
+-keep class com.sonus.cosmog.CosmogApp { *; }
+-keep class com.sonus.cosmog.BootReceiver { *; }
 
 # Tink (used by EncryptedSharedPreferences) references javax.annotation at
 # compile time only; suppress R8 warnings about missing annotation classes.
