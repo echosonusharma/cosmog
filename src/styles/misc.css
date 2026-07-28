@@ -104,6 +104,10 @@
 }
 .browse-err-fallback .err-popup { position: static; box-shadow: none; }
 .err-popup-hint { opacity: 0.65; margin-top: -8px; }
+
+/* inline account re-auth (missing secret after reinstall) */
+.reauth-panel { display: flex; flex-direction: column; gap: 10px; }
+.reauth-panel .field { width: 100%; }
 .btn-xs { font-size: 12px; }
 .view-slot-fill { display: flex; flex: 1; min-height: 0; }
 

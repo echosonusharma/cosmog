@@ -8,6 +8,8 @@ export interface Account {
   addressing_style: string;
   created_at: number;
   updated_at: number;
+  /** Set by list_accounts when the secret is missing from this device's keychain. */
+  needs_reauth?: boolean;
 }
 
 export interface Bucket {

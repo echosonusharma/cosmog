@@ -61,10 +61,17 @@ export function AccountsList() {
               <div class="account-row-item">
                 <ProviderIcon account={a} size={32} />
                 <div class="account-row-info">
-                  <span class="account-name">{a.name}</span>
+                  <span class="account-name">
+                    {a.name}
+                    <Show when={a.needs_reauth}>
+                      <span class="account-reauth-badge">Reconnect</span>
+                    </Show>
+                  </span>
                   <span class="account-meta">
-                    {providerLabel(a)} · {a.region}
-                    {a.endpoint ? ` · ${a.endpoint}` : ""}
+                    <Show when={a.needs_reauth}
+                          fallback={<>{providerLabel(a)} · {a.region}{a.endpoint ? ` · ${a.endpoint}` : ""}</>}>
+                      Credentials missing on this device. Edit to re-enter the secret key.
+                    </Show>
                   </span>
                 </div>
                 <button class="icon-btn"

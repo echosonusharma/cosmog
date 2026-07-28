@@ -63,10 +63,26 @@ pub async fn add_account(
     Ok(acct)
 }
 
+/// Account row + whether its secret is still in the keychain.
+#[derive(Debug, serde::Serialize)]
+pub struct AccountView {
+    #[serde(flatten)]
+    pub account: Account,
+    pub needs_reauth: bool,
+}
+
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
-pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<Account>> {
-    state.db.list_accounts().await
+pub async fn list_accounts(state: State<'_, AppState>) -> AppResult<Vec<AccountView>> {
+    let accounts = state.db.list_accounts().await?;
+    Ok(accounts
+        .into_iter()
+        .map(|account| {
+            // unwrap_or(true): transient probe failure = assume present, don't flag.
+            let needs_reauth = !secrets::secret_present(&account.id).unwrap_or(true);
+            AccountView { account, needs_reauth }
+        })
+        .collect())
 }
 
 #[tracing::instrument(skip_all, err)]

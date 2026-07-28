@@ -198,6 +198,12 @@ pub fn delete_secret(account_id: &str) -> AppResult<()> {
     backend::delete(account_id)
 }
 
+/// `Ok(true)` present, `Ok(false)` absent, `Err` transient (treat as unknown,
+/// not missing).
+pub fn secret_present(account_id: &str) -> AppResult<bool> {
+    Ok(backend::get(account_id)?.is_some())
+}
+
 // ── per-bucket encryption identities (age X25519 secret keys) ─────────────────
 
 fn enc_key(account_id: &str, bucket: &str) -> String {
