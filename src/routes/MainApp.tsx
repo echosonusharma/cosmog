@@ -3,6 +3,7 @@ import Browse from "./Browse";
 import Transfers from "./Transfers";
 import Settings from "./Settings";
 import Logs from "./Logs";
+import NightWatcher from "./NightWatcher";
 import {
   currentView, setCurrentView,
   setAccounts, accounts, browseState, setBrowseState, selectAccount,
@@ -325,6 +326,9 @@ export default function MainApp() {
         </div>
         <div class="view-slot" classList={{ hidden: currentView() !== "transfers" }}>
           <Transfers />
+        </div>
+        <div class="view-slot" classList={{ hidden: currentView() !== "night-watcher" }}>
+          <NightWatcher />
         </div>
         <div class="view-slot" classList={{ hidden: currentView() !== "settings" }}>
           <Settings />

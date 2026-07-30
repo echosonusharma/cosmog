@@ -48,6 +48,12 @@ mod backend {
 pub(crate) static SECRET_STORE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
 
+// Guards the one-shot ndk_context init. CosmogApp.onCreate + MainActivity.onCreate
+// both call initNdkContext; ndk_context::initialize_android_context asserts it is
+// only called once and aborts on the second, so re-entry must be a no-op.
+#[cfg(target_os = "android")]
+static NDK_CTX_INIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
@@ -55,6 +61,9 @@ pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
     _class: jni::objects::JClass,
     context: jni::objects::JObject,
 ) {
+    if NDK_CTX_INIT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     eprintln!("initNdkContext: entered");
     let vm = match env.get_java_vm() {
         Ok(vm) => vm,

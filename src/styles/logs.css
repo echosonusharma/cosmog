@@ -439,3 +439,45 @@
 .duration-fast   { color: #22c55e; }
 .duration-medium { color: #f59e0b; }
 .duration-slow   { color: #ef4444; }
+
+/* ── log source chips ────────────────────────────────────────────────────── */
+
+.log-source {
+  --src-color: var(--muted);
+  font-family: inherit;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 7px; border-radius: 20px;
+  flex-shrink: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--src-color) 14%, transparent);
+  color: var(--src-color);
+  border: 1px solid color-mix(in srgb, var(--src-color) 30%, transparent);
+  transition: background 0.1s, box-shadow 0.1s;
+}
+.log-source:hover { background: color-mix(in srgb, var(--src-color) 24%, transparent); }
+.log-source.active {
+  background: color-mix(in srgb, var(--src-color) 28%, transparent);
+  box-shadow: 0 0 0 1px var(--src-color);
+}
+
+.logs-active-source {
+  --src-color: var(--accent);
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px; font-weight: 600;
+  padding: 4px 10px; border-radius: 20px;
+  flex-shrink: 0;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--src-color) 16%, transparent);
+  color: var(--src-color);
+  border: 1px solid color-mix(in srgb, var(--src-color) 34%, transparent);
+}
+.logs-active-source:hover { background: color-mix(in srgb, var(--src-color) 26%, transparent); }
+.logs-source-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--src-color);
+  flex-shrink: 0;
+}
+.logs-active-source-x { font-size: 10px; opacity: 0.7; }

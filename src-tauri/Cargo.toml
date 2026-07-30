@@ -17,11 +17,17 @@ edition = "2021"
 name = "cosmog_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Test-only: exposes `reconcile_file_for_test` / `reconcile_watch_for_test`
+# so integration tests can drive the real Night Watcher reconcile path with an
+# injected store/db. Never enabled in production builds.
+nw-test-hooks = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -55,10 +61,19 @@ tauri-plugin-fs = "2"
 age = { version = "0.11", features = ["armor"] }
 rand = "0.8"
 zeroize = { version = "1", features = ["zeroize_derive"] }
+blake3 = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.notify]
+version = "6"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.ignore]
+version = "0.4"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 os_info = { version = "3", default-features = false }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

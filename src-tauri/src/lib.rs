@@ -26,12 +26,17 @@
 // Modules are exposed pub so the integration-tests crate (under tests/) can
 // reach into the backend internals. None of these are FE-callable; only the
 // `commands::*` functions actually serve as the Tauri API surface.
+#[cfg(not(target_os = "android"))]
+pub mod app_lifecycle;
 pub mod bulk;
 pub mod commands;
 pub mod crypto;
 pub mod db;
 pub mod device;
 pub mod error;
+pub mod night_watcher;
+#[cfg(target_os = "android")]
+pub mod night_watcher_headless;
 pub mod providers;
 pub mod scheduler;
 pub mod saf;
@@ -132,9 +137,40 @@ fn get_device_info() -> Result<crate::device::DeviceInfo, String> {
     crate::device::get_device_info()
 }
 
+/// Guaranteed quit path for background running. Called by the FE quit button,
+/// primarily for no-tray hosts (e.g. Wayland) where there is no tray Quit item.
+/// Marks quit as requested so the close-guard steps aside, then exits.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn nw_quit_background(app: tauri::AppHandle) {
+    app_lifecycle::request_quit();
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Desktop-only plugins, registered FIRST. single-instance must be the very
+    // first plugin so a second launch is routed to the running instance before
+    // any other plugin initializes. autostart is launched hidden via --hidden.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A second launch focuses the existing window instead of opening a
+            // new process.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ));
+
+    builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -225,8 +261,11 @@ pub fn run() {
                 }
 
                 let db = Db::open(&db_path).await.expect("open db");
-                // Reap any transfers left as Active/Pending by a previous
-                // crash so the UI doesn't show ghost-running rows.
+                // Reap transfers left Active/Pending by a previous crash so the
+                // UI doesn't show ghost-running rows. Desktop only: on Android
+                // the sibling :nightwatch process may hold genuinely-live rows,
+                // and this blind UPDATE has no owner column to spare them.
+                #[cfg(not(target_os = "android"))]
                 if let Err(e) = db.reap_orphan_transfers().await {
                     tracing::warn!("reap_orphan_transfers failed: {e}");
                 }
@@ -234,31 +273,8 @@ pub fn run() {
                 // made via update_settings only take effect on next launch
                 // because the Semaphore is not resizable in place.
                 let settings = db.settings_load().await.unwrap_or_default();
-                // Apply network env from settings BEFORE the SDK client is
-                // ever constructed. Takes effect on next call (SDK reads env
-                // at builder time).
-                // `set_var` is `unsafe` on Rust 1.80+ because env mutation is
-                // process-global and could race with other threads reading
-                // env. We run this once at boot before the SDK client (or
-                // anyone else) reads the relevant variables, so the race
-                // window is zero in practice.
-                if let Some(proxy) = &settings.http_proxy {
-                    if !proxy.trim().is_empty() {
-                        // SAFETY: see comment above.
-                        unsafe {
-                            std::env::set_var("HTTPS_PROXY", proxy);
-                            std::env::set_var("HTTP_PROXY", proxy);
-                        }
-                    }
-                }
-                if let Some(ca) = &settings.custom_ca_path {
-                    if !ca.trim().is_empty() {
-                        // SAFETY: see comment above.
-                        unsafe {
-                            std::env::set_var("SSL_CERT_FILE", ca);
-                        }
-                    }
-                }
+                // Apply proxy / custom-CA env BEFORE any SDK client is built.
+                crate::db::settings::apply_network_env(&settings);
                 let concurrency = settings.transfer_concurrency as usize;
                 // Prune request logs older than the configured TTL.
                 let ttl_cutoff = chrono::Utc::now().timestamp()
@@ -300,7 +316,49 @@ pub fn run() {
                 static SCHEDULER_CANCEL: std::sync::OnceLock<tokio_util::sync::CancellationToken> =
                     std::sync::OnceLock::new();
                 let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
+                // Night Watcher: background local-dir -> S3 sync. Sibling of the
+                // scheduler; its cancel token is likewise parked for the process
+                // lifetime.
+                //
+                // Android: the sync loop runs in the separate `:nightwatch`
+                // service process (night_watcher_headless), NOT here. wry exits
+                // this process when the Activity is destroyed, and a second loop
+                // in this process would double-scan + race the service's writes
+                // to nw_file_state. The main process only edits watch config.
+                #[cfg(not(target_os = "android"))]
+                {
+                    static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
+                        tokio_util::sync::CancellationToken,
+                    > = std::sync::OnceLock::new();
+                    let _ = NIGHT_WATCHER_CANCEL.set(night_watcher::spawn(state.clone()));
+                }
+
+                // Arm/disarm desktop background running based on whether any
+                // watch is enabled, then let the SAF twin start/stop the
+                // Android FGS (no-op on desktop).
+                #[cfg(not(target_os = "android"))]
+                {
+                    let enabled = state
+                        .db
+                        .list_enabled_watches()
+                        .await
+                        .map(|v| !v.is_empty())
+                        .unwrap_or(false);
+                    app_lifecycle::apply(app.handle(), enabled);
+                }
+                commands::night_watcher::nw_refresh_service(&state).await;
+
                 handle.manage(state);
+
+                // Show the window unless launched hidden (autostart passes
+                // --hidden). With visible:false in the config, doing nothing
+                // keeps it hidden.
+                #[cfg(not(target_os = "android"))]
+                if !std::env::args().any(|a| a == "--hidden") {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                    }
+                }
             });
             Ok(())
         })
@@ -423,6 +481,15 @@ pub fn run() {
             // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,
 
+            // -------- night watcher: background local-dir -> S3 sync --------
+            commands::night_watcher::nw_list_watches,
+            commands::night_watcher::nw_add_watch,
+            commands::night_watcher::nw_update_watch,
+            commands::night_watcher::nw_delete_watch,
+            commands::night_watcher::nw_set_watch_enabled,
+            commands::night_watcher::nw_get_status,
+            commands::night_watcher::nw_pick_tree,
+
             // -------- device: native OS/arch/model for bug reports --------
             get_device_info,
 
@@ -435,10 +502,47 @@ pub fn run() {
             stage_saf_upload,
             set_transfer_service,
 
+            // -------- desktop: guaranteed background-run quit path --------
+            #[cfg(not(target_os = "android"))]
+            nw_quit_background,
+
             // -------- dev: debug helpers --------
             #[cfg(debug_assertions)]
             open_devtools,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, _event| {
+            // Desktop close-guard: while a watch is enabled and a tray exists,
+            // closing the main window hides it instead of quitting so the
+            // Night Watcher loop keeps running. On a no-tray host the guard is
+            // disabled (close == real quit) so the user is never trapped.
+            #[cfg(not(target_os = "android"))]
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } = &_event
+            {
+                if label == "main"
+                    && app_lifecycle::has_enabled_watch()
+                    && !app_lifecycle::quit_requested()
+                {
+                    if app_lifecycle::tray_available() {
+                        // Tray present: hide to keep the loop running.
+                        api.prevent_close();
+                        if let Some(w) = _app_handle.get_webview_window("main") {
+                            let _ = w.hide();
+                        }
+                    } else {
+                        // No tray to restore from: let the close proceed as a
+                        // real quit so the user is not trapped. Background sync
+                        // stops with the process.
+                        tracing::warn!(
+                            "closing window quits: no system tray, background sync stops"
+                        );
+                    }
+                }
+            }
+        });
 }

@@ -35,6 +35,7 @@
 @import "./context-menu.css";
 @import "./misc.css";
 @import "./active-transfers.css";
+@import "./night-watcher.css";
 
 /* mobile overrides — loaded last so media queries win */
 @import "./mobile-sidebar.css";

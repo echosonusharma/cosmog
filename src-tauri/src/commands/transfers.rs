@@ -51,30 +51,9 @@ pub async fn enqueue_upload(
     // If the bucket has encryption enabled, encrypt the source file to a temp
     // path before enqueuing. The transfer worker deletes the temp file via
     // opts.cleanup_path once the upload finishes (success or failure).
-    let (upload_path, cleanup_on_err) = if let Some(enc_cfg) = state.db.get_encryption_config(&account_id, &bucket).await? {
-        // Stream-encrypt the source file to a temp path using the bucket's
-        // age recipient. Constant-memory: age streams 64 KiB chunks with
-        // per-chunk nonces + last-chunk marker.
-        let recipient = crate::crypto::parse_recipient(&enc_cfg.recipient)?;
-
-        let tmp_dir = state.db_path.parent()
-            .ok_or_else(|| crate::error::AppError::Internal("db_path has no parent".into()))?
-            .join("enc_tmp");
-        tokio::fs::create_dir_all(&tmp_dir).await?;
-        let tmp_path = tmp_dir.join(format!("{}.age", uuid::Uuid::new_v4()));
-
-        crate::crypto::encrypt_file(&path, &tmp_path, recipient).await?;
-
-        opts.cleanup_path = Some(tmp_path.clone());
-        // Mark the object so download + UI know it's client-encrypted, and
-        // record the payload format so future format changes stay unambiguous.
-        opts.user_metadata.insert("cosmog-encrypted".into(), "1".into());
-        opts.user_metadata.insert("cosmog-format".into(), crate::crypto::FORMAT_TAG.into());
-        opts.user_metadata.insert("cosmog-recipient".into(), enc_cfg.recipient);
-        (tmp_path.clone(), Some(tmp_path))
-    } else {
-        (path, None)
-    };
+    let (upload_path, cleanup_on_err) =
+        crate::transfer::encrypt::encrypt_for_bucket_if_needed(&state, &account_id, &bucket, &path, &mut opts)
+            .await?;
 
     let result: AppResult<EnqueueResult> = async {
         let store = state.store_for(&account_id).await?;

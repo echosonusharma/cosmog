@@ -16,6 +16,7 @@ pub mod accounts;
 pub mod cache;
 pub mod capabilities;
 pub mod encryption;
+pub mod night_watcher;
 pub mod request_logs;
 pub mod settings;
 pub mod transfers;
@@ -52,7 +53,8 @@ impl Db {
             .call(|conn| {
                 conn.execute_batch(
                     "PRAGMA journal_mode = WAL; \
-                     PRAGMA foreign_keys = ON;",
+                     PRAGMA foreign_keys = ON; \
+                     PRAGMA busy_timeout = 5000;",
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(())
             })
@@ -405,6 +407,46 @@ const MIGRATIONS: &[Migration] = &[
                 PRIMARY KEY (account_id, bucket),
                 FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
+        "#,
+    },
+    Migration {
+        version: 15,
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS nw_watch (
+                id            TEXT PRIMARY KEY,
+                account_id    TEXT NOT NULL,
+                bucket        TEXT NOT NULL,
+                local_dir     TEXT NOT NULL,
+                key_prefix    TEXT NOT NULL DEFAULT '',
+                ignore_file   TEXT,
+                delete_policy TEXT NOT NULL DEFAULT 'keep',
+                full_scan_secs INTEGER NOT NULL DEFAULT 300,
+                enabled       INTEGER NOT NULL DEFAULT 1,
+                last_scan_at  INTEGER,
+                last_error    TEXT,
+                created_at    INTEGER NOT NULL,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS nw_file_state (
+                watch_id    TEXT NOT NULL,
+                rel_path    TEXT NOT NULL,
+                hash        TEXT NOT NULL,
+                mtime       INTEGER NOT NULL,
+                size        INTEGER NOT NULL,
+                synced_etag TEXT,
+                synced_at   INTEGER NOT NULL,
+                PRIMARY KEY (watch_id, rel_path),
+                FOREIGN KEY(watch_id) REFERENCES nw_watch(id) ON DELETE CASCADE
+            );
+        "#,
+    },
+    Migration {
+        version: 16,
+        // Android: a watched location is a SAF tree content:// URI, not an fs
+        // path. NULL on desktop (fs watches never set it).
+        sql: r#"
+            ALTER TABLE nw_watch ADD COLUMN tree_uri TEXT;
         "#,
     },
 ];

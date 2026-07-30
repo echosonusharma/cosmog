@@ -66,6 +66,12 @@ pub struct AppState {
     /// bucket encryption. Prevents two concurrent enables from generating
     /// two identities and overwriting each other in the keychain.
     encryption_locks: Arc<DashMap<(String, String), Arc<AsyncMutex<()>>>>,
+    /// Night Watcher per-file in-flight claims: (watch_id, rel_path). Stops the
+    /// notify watcher and the periodic full-scan from double-enqueuing the same
+    /// file. Same TOCTOU-safe `DashSet::insert` claim as `prefix_syncs`.
+    nw_inflight: Arc<DashSet<(String, String)>>,
+    /// Night Watcher per-watch scan-in-flight guard, keyed by watch id.
+    nw_scan_inflight: Arc<DashSet<String>>,
 }
 
 impl AppState {
@@ -84,7 +90,30 @@ impl AppState {
             prefix_sync_errors: Arc::new(DashMap::new()),
             settings_cache: Arc::new(RwLock::new(None)),
             encryption_locks: Arc::new(DashMap::new()),
+            nw_inflight: Arc::new(DashSet::new()),
+            nw_scan_inflight: Arc::new(DashSet::new()),
         }
+    }
+
+    /// Atomically claim a Night Watcher file slot. Returns `true` if won.
+    pub fn nw_claim(&self, watch_id: &str, rel_path: &str) -> bool {
+        self.nw_inflight
+            .insert((watch_id.to_string(), rel_path.to_string()))
+    }
+
+    pub fn nw_unclaim(&self, watch_id: &str, rel_path: &str) {
+        self.nw_inflight
+            .remove(&(watch_id.to_string(), rel_path.to_string()));
+    }
+
+    /// Atomically claim a Night Watcher full-scan slot for a watch. Returns
+    /// `true` if won (this caller should run the scan).
+    pub fn nw_scan_claim(&self, watch_id: &str) -> bool {
+        self.nw_scan_inflight.insert(watch_id.to_string())
+    }
+
+    pub fn nw_scan_unclaim(&self, watch_id: &str) {
+        self.nw_scan_inflight.remove(watch_id);
     }
 
     /// Serialize encryption enable/rotate/disable on a single bucket.

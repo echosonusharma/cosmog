@@ -12,7 +12,7 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock, IconEye,
 } from "../../utils/icons";
 import { listEncryptedBuckets } from "../../api/encryption";
 import type { JSX } from "solid-js";
@@ -137,6 +137,7 @@ function BugReportModal(props: { onClose: () => void }) {
 const NAV: { view: View; label: string; icon: () => JSX.Element }[] = [
   { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
   { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },
+  { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} /> },
   { view: "logs",      label: "Logs",      icon: () => <IconActivity size={16} /> },
   { view: "settings",  label: "Settings",  icon: () => <IconSettings size={16} /> },
 ];

@@ -13,12 +13,14 @@
     "withGlobalTauri": false,
     "windows": [
       {
+        "label": "main",
         "title": "Cosmog",
         "width": 1200,
         "height": 740,
         "minWidth": 820,
         "minHeight": 560,
-        "decorations": false
+        "decorations": false,
+        "visible": false
       }
     ],
     "security": {

@@ -16,6 +16,7 @@ pub mod bulk;
 pub mod capabilities;
 pub mod encryption;
 pub mod logs;
+pub mod night_watcher;
 pub mod objects;
 pub mod portable;
 pub mod request_logs;
