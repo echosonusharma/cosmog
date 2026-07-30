@@ -30,6 +30,7 @@
 - 🔍 **Search** across your entire bucket with full-text search
 - 🔗 **Share** files instantly with presigned links
 - 🔒 **Encrypt** entire buckets client-side with per-bucket keys
+- 🌙 **Night Watcher** one-way backup: keep a local folder auto-synced to a bucket in the background
 - 👤 **Manage** multiple accounts and providers side by side
 
 ## Why Cosmog
@@ -45,6 +46,7 @@
 | Client-side encryption | ✅ | ❌ | ✅ (Cryptomator) | ❌ |
 | In-app file preview | ✅ | ❌ | ❌ | Limited |
 | In-app editor | ✅ | ❌ | ❌ | ❌ |
+| Background auto-sync (one-way backup) | ✅ | ❌ | ❌ | ❌ |
 | Multiple accounts | ✅ | ✅ | ✅ | ✅ |
 
 ## Works with your provider

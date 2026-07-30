@@ -34,16 +34,21 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.13.
 | tracing + tracing-appender | Structured logging, rolling files |
 | thiserror / anyhow | Error handling |
 
-**Tauri plugins:** `dialog`, `fs`, `notification`, `opener`
+**Tauri plugins:** `dialog`, `fs`, `notification`, `opener`, `single-instance`, `autostart` (desktop background-run)
 
 ### Android (Kotlin / JNI)
 
 | Component | Purpose |
 |-----------|---------|
 | `MainActivity.kt` | Tauri entry point |
+| `CosmogApp.kt` | Application subclass; per-process native init (ndk_context + JNI class cache). Runs in every process. |
 | `TransferService.kt` | Foreground service (dataSync); keeps transfers alive when backgrounded |
+| `NightWatchService.kt` | Foreground service in its own `:nightwatch` process; hosts the headless Night Watcher sync loop (see below) |
+| `BootReceiver.kt` | Re-arms Night Watcher after reboot (defers the dataSync FGS start to first foreground on Android 12+) |
+| `NwTreePicker.kt` | SAF tree picker (`ACTION_OPEN_DOCUMENT_TREE`) bridge, polled from Rust |
 | `SecretStore.kt` | EncryptedSharedPreferences backed by Android Keystore |
-| `saf.rs` | JNI bridge for Storage Access Framework (upload staging, download finalize, delete placeholder) |
+| `saf.rs` | JNI bridge for Storage Access Framework (upload staging, download finalize, delete placeholder, SAF tree walk) |
+| `night_watcher_headless.rs` | Headless Rust sync host for the `:nightwatch` process (no Tauri/webview) |
 
 ---
 
@@ -92,7 +97,10 @@ cosmog/
     |   +-- store/              # ObjectStore trait + S3Store
     |   +-- transfer/           # TransferManager, worker pool
     |   +-- crypto.rs           # age streaming encrypt/decrypt + magic probe
-    |   +-- saf.rs              # Android JNI: SAF upload/download/delete
+    |   +-- saf.rs              # Android JNI: SAF upload/download/delete + tree walk
+    |   +-- night_watcher.rs    # One-way folder->bucket sync core (reconcile loop, NwCtx trait)
+    |   +-- night_watcher_headless.rs  # Android: headless sync host for the :nightwatch process
+    |   +-- app_lifecycle.rs    # Desktop background-run (tray, close-to-hide, autostart)
     |   +-- scheduler.rs        # Auto-reindex background loop
     |   +-- secrets.rs          # OS keyring read/write
     |   +-- state.rs            # AppState
@@ -134,6 +142,9 @@ cosmog/
 ### Encryption (per-bucket, client-side)
 `enable_bucket_encryption`, `disable_bucket_encryption`, `get_bucket_encryption_status`, `export_encryption_key`, `save_encryption_key_export`, `import_encryption_identity`, `import_encryption_identity_from_file`, `has_encryption_identity`
 
+### Night Watcher
+`nw_list_watches`, `nw_add_watch`, `nw_update_watch`, `nw_delete_watch`, `nw_set_watch_enabled`, `nw_get_status`, `nw_pick_tree` (Android SAF tree picker), `nw_quit_background` (desktop)
+
 ### Android only
 `notify_ex`, `set_transfer_service`, `stage_saf_upload`, `finalize_saf_download`, `delete_saf_document`, `query_display_name`
 
@@ -149,7 +160,7 @@ Events: `Started`, `Progress`, `PartCompleted`, `Done`, `Failed`, `Canceled`
 Key behaviors:
 - Multipart upload with part-level resume on retry
 - `CancellationToken` per transfer
-- Orphan transfers (Active/Pending at crash) reaped at startup
+- Orphan transfers (Active/Pending at crash) reaped at startup (desktop only; on Android the `:nightwatch` process may hold genuinely-live rows the blind reap would clobber)
 - Encrypted buckets: uploads stream through age to `enc_tmp/<uuid>.age`, cleaned after worker settles; downloads probe age magic then stream-decrypt in place
 - Retry on encrypted downloads always re-fetches the full range (age requires full stream to authenticate)
 
@@ -174,6 +185,51 @@ Per-bucket, transparent, uses [age file format](https://age-encryption.org) (X25
 
 ---
 
+## Night Watcher
+
+One-way background sync: mirror a local directory to an S3 prefix. A locally
+deleted file only drops its state row (`delete_policy = "keep"`); the remote
+object is never deleted.
+
+**Core (`night_watcher.rs`, cross-platform):** a periodic full scan is the
+source of truth. Per watch, when `last_scan_at + full_scan_secs` has elapsed, it
+walks the tree and reconciles each file. Change detection is a cheap `mtime + size`
+fast-path; only on a miss is the file hashed (blake3) to decide if content
+actually changed. Changed files feed the existing encrypt/enqueue upload path;
+`nw_file_state` records the synced fingerprint on upload completion. The
+reconcile core is generic over an `NwCtx` trait (Db + TransferManager + store
+cache + claim sets) so it runs without a `tauri::AppHandle`.
+
+**Desktop:** the loop runs in-process (`night_watcher::spawn`), plus a `notify`
+filesystem watcher as a near-instant accelerator. The process is kept alive
+after the window closes via `app_lifecycle.rs` (tray + close-to-hide +
+`autostart --hidden`), gated on there being at least one enabled watch. On a
+host with no system tray, closing the window quits (background sync stops).
+
+**Android:** arbitrary user dirs are SAF `content://` trees (no inotify, no
+real path), so the loop relies on the periodic scan. It runs in a dedicated
+`NightWatchService` **process** (`android:process=":nightwatch"`), NOT the main
+Tauri process: wry calls `std::process::exit(0)` when the Activity is destroyed
+(swipe / reclaim), which would kill an in-process loop and its foreground
+service. `night_watcher_headless.rs` (JNI `startNwSync` / `stopNwSync`) builds a
+headless `NwCtx` on its own tokio runtime and drives the same reconcile core.
+
+- DB path resolved via JNI `context.getDataDir()` (the same call Tauri's
+  `app_data_dir()` makes), so both processes open the same sqlite file. WAL +
+  `busy_timeout` cover the two-process access. The main process does NOT run the
+  loop on Android, so `nw_file_state` has a single writer.
+- SAF scan enumerates the tree via `DocumentsContract` (JNI in `saf.rs`);
+  changed documents are staged to a real fs path under `<data_dir>/nw_stage/`
+  before upload. Persisted tree URI permission is package-scoped, so the service
+  process can read it.
+- `NwTreePicker` fires `ACTION_OPEN_DOCUMENT_TREE` from `MainActivity`, polled by
+  `nw_pick_tree`. `START_STICKY` so an LMK-killed service process is recreated;
+  `BootReceiver` re-arms after reboot.
+- Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8
+  cannot see JNI call sites).
+
+---
+
 ## Database
 
 SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode, foreign keys on.
@@ -186,8 +242,11 @@ SQLite at `{app_data_dir}/cosmog.sqlite`. WAL mode, foreign keys on.
 | `db/settings.rs` | App settings |
 | `db/capabilities.rs` | Cached provider capability probes |
 | `db/encryption.rs` | `bucket_encryption` (recipient per bucket) |
+| `db/night_watcher.rs` | `nw_watch` (watch config), `nw_file_state` (per-file synced fingerprint) |
 
 Migration rules: append-only to `MIGRATIONS` in `db/mod.rs`. Never edit or reorder.
+
+WAL mode with `busy_timeout=5000` so the Android `:nightwatch` process and the main process can share the file (see Night Watcher below).
 
 ---
 
@@ -239,11 +298,12 @@ rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-and
 2. Check `pending_wipe` marker - if present, wipe and recreate data dir
 3. Init tracing (console + rolling log file)
 4. Check `cosmog.sqlite.restore_pending`, apply if present
-5. Open SQLite, apply pending migrations
-6. Reap orphan transfers
-7. Load settings, apply proxy/CA env vars
+5. Open SQLite (WAL, `busy_timeout`), apply pending migrations
+6. Reap orphan transfers (desktop only)
+7. Load settings, apply proxy/CA env vars (`apply_network_env`)
 8. Prune old request logs
 9. Sweep `enc_tmp/`
 10. Build `AppState`
-11. Spawn background scheduler
-12. Register commands and run Tauri event loop
+11. Spawn background scheduler; spawn Night Watcher loop (desktop) / arm the `:nightwatch` service (Android)
+12. Arm desktop background-run (`app_lifecycle`) based on enabled-watch count
+13. Register commands and run Tauri event loop
