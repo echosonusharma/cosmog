@@ -44,9 +44,14 @@ pub trait NwCtx: Clone + Send + Sync + 'static {
     fn db(&self) -> &Db;
     fn db_path(&self) -> &Path;
     fn transfers(&self) -> &TransferManager;
-    async fn store_for(&self, account_id: &str) -> AppResult<Arc<dyn ObjectStore>>;
+    fn store_for(
+        &self,
+        account_id: &str,
+    ) -> impl std::future::Future<Output = AppResult<Arc<dyn ObjectStore>>> + Send;
     fn nw_claim(&self, watch_id: &str, rel_path: &str) -> bool;
     fn nw_unclaim(&self, watch_id: &str, rel_path: &str);
+    fn nw_scan_claim(&self, watch_id: &str) -> bool;
+    fn nw_scan_unclaim(&self, watch_id: &str);
 }
 
 impl NwCtx for AppState {
@@ -68,6 +73,12 @@ impl NwCtx for AppState {
     fn nw_unclaim(&self, watch_id: &str, rel_path: &str) {
         AppState::nw_unclaim(self, watch_id, rel_path)
     }
+    fn nw_scan_claim(&self, watch_id: &str) -> bool {
+        AppState::nw_scan_claim(self, watch_id)
+    }
+    fn nw_scan_unclaim(&self, watch_id: &str) {
+        AppState::nw_scan_unclaim(self, watch_id)
+    }
 }
 
 /// How often the loop checks whether any watch is due for a full scan. The
@@ -76,11 +87,14 @@ const TICK_SECS: u64 = 30;
 
 /// Spawn the Night Watcher. Returns immediately; the caller keeps the
 /// [`CancellationToken`] alive for the process lifetime.
+// Desktop only. On Android the loop runs in the :nightwatch service process
+// (night_watcher_headless), never here, so this in-process spawn is gated off
+// to keep a second reconcile loop from racing the service's writes.
+#[cfg(not(target_os = "android"))]
 pub fn spawn(state: AppState) -> CancellationToken {
     let cancel = CancellationToken::new();
 
-    // Desktop-only near-instant watcher task.
-    #[cfg(not(target_os = "android"))]
+    // Near-instant filesystem watcher task (accelerator; scan is source of truth).
     {
         let token = cancel.clone();
         let st = state.clone();
@@ -88,45 +102,50 @@ pub fn spawn(state: AppState) -> CancellationToken {
     }
 
     let token = cancel.clone();
-    tokio::spawn(async move {
-        info!("night watcher started");
-        let mut tick = tokio::time::interval(Duration::from_secs(TICK_SECS));
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => {
-                    info!("night watcher stopped");
-                    return;
-                }
-                _ = tick.tick() => {
-                    if let Err(e) = run_once(&state).await {
-                        warn!("night watcher tick failed: {e}");
-                    }
-                }
-            }
-        }
-    });
+    tokio::spawn(run_loop(state, token));
 
     cancel
 }
 
-/// RAII guard that releases a watch's full-scan claim on drop, so a panic or
-/// early return in the scan task can never strand the claim.
-struct ScanClaimGuard<'a> {
-    state: &'a AppState,
-    watch_id: &'a str,
+/// The periodic full-scan loop shared by every host. Generic over [`NwCtx`] so
+/// the Android headless service process can drive the *same* reconcile core
+/// with a lightweight (no `AppHandle`) context. Runs until the token cancels.
+pub async fn run_loop<S: NwCtx>(ctx: S, token: CancellationToken) {
+    info!("night watcher started");
+    let mut tick = tokio::time::interval(Duration::from_secs(TICK_SECS));
+    loop {
+        tokio::select! {
+            _ = token.cancelled() => {
+                info!("night watcher stopped");
+                return;
+            }
+            _ = tick.tick() => {
+                if let Err(e) = run_once(&ctx).await {
+                    warn!("night watcher tick failed: {e}");
+                }
+            }
+        }
+    }
 }
 
-impl Drop for ScanClaimGuard<'_> {
+/// RAII guard that releases a watch's full-scan claim on drop, so a panic or
+/// early return in the scan task can never strand the claim.
+struct ScanClaimGuard<S: NwCtx> {
+    state: S,
+    watch_id: String,
+}
+
+impl<S: NwCtx> Drop for ScanClaimGuard<S> {
     fn drop(&mut self) {
-        self.state.nw_scan_unclaim(self.watch_id);
+        self.state.nw_scan_unclaim(&self.watch_id);
     }
 }
 
 /// Trigger a full scan for every enabled watch whose interval has elapsed.
 /// Each scan runs in its own task, guarded so the same watch never scans twice
 /// concurrently.
-async fn run_once(state: &AppState) -> AppResult<()> {
-    let watches = state.db.list_enabled_watches().await?;
+async fn run_once<S: NwCtx>(state: &S) -> AppResult<()> {
+    let watches = state.db().list_enabled_watches().await?;
     let now = Utc::now().timestamp();
     for w in watches {
         let due = w
@@ -144,8 +163,8 @@ async fn run_once(state: &AppState) -> AppResult<()> {
             // Drop-guard: releases the scan claim even if reconcile_watch panics
             // or the task is aborted, so a crashed scan never strands the watch.
             let _guard = ScanClaimGuard {
-                state: &state,
-                watch_id: &w.id,
+                state: state.clone(),
+                watch_id: w.id.clone(),
             };
             let res = reconcile_watch(&state, &w).await;
             let err = res.as_ref().err().map(|e| e.to_string());
@@ -153,7 +172,7 @@ async fn run_once(state: &AppState) -> AppResult<()> {
                 warn!(watch = %w.id, "night watcher scan failed: {e}");
             }
             let _ = state
-                .db
+                .db()
                 .set_watch_scan_result(&w.id, Utc::now().timestamp(), err)
                 .await;
         });

@@ -35,6 +35,8 @@ pub mod db;
 pub mod device;
 pub mod error;
 pub mod night_watcher;
+#[cfg(target_os = "android")]
+pub mod night_watcher_headless;
 pub mod providers;
 pub mod scheduler;
 pub mod saf;
@@ -259,8 +261,11 @@ pub fn run() {
                 }
 
                 let db = Db::open(&db_path).await.expect("open db");
-                // Reap any transfers left as Active/Pending by a previous
-                // crash so the UI doesn't show ghost-running rows.
+                // Reap transfers left Active/Pending by a previous crash so the
+                // UI doesn't show ghost-running rows. Desktop only: on Android
+                // the sibling :nightwatch process may hold genuinely-live rows,
+                // and this blind UPDATE has no owner column to spare them.
+                #[cfg(not(target_os = "android"))]
                 if let Err(e) = db.reap_orphan_transfers().await {
                     tracing::warn!("reap_orphan_transfers failed: {e}");
                 }
@@ -268,31 +273,8 @@ pub fn run() {
                 // made via update_settings only take effect on next launch
                 // because the Semaphore is not resizable in place.
                 let settings = db.settings_load().await.unwrap_or_default();
-                // Apply network env from settings BEFORE the SDK client is
-                // ever constructed. Takes effect on next call (SDK reads env
-                // at builder time).
-                // `set_var` is `unsafe` on Rust 1.80+ because env mutation is
-                // process-global and could race with other threads reading
-                // env. We run this once at boot before the SDK client (or
-                // anyone else) reads the relevant variables, so the race
-                // window is zero in practice.
-                if let Some(proxy) = &settings.http_proxy {
-                    if !proxy.trim().is_empty() {
-                        // SAFETY: see comment above.
-                        unsafe {
-                            std::env::set_var("HTTPS_PROXY", proxy);
-                            std::env::set_var("HTTP_PROXY", proxy);
-                        }
-                    }
-                }
-                if let Some(ca) = &settings.custom_ca_path {
-                    if !ca.trim().is_empty() {
-                        // SAFETY: see comment above.
-                        unsafe {
-                            std::env::set_var("SSL_CERT_FILE", ca);
-                        }
-                    }
-                }
+                // Apply proxy / custom-CA env BEFORE any SDK client is built.
+                crate::db::settings::apply_network_env(&settings);
                 let concurrency = settings.transfer_concurrency as usize;
                 // Prune request logs older than the configured TTL.
                 let ttl_cutoff = chrono::Utc::now().timestamp()
@@ -337,10 +319,19 @@ pub fn run() {
                 // Night Watcher: background local-dir -> S3 sync. Sibling of the
                 // scheduler; its cancel token is likewise parked for the process
                 // lifetime.
-                static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
-                    tokio_util::sync::CancellationToken,
-                > = std::sync::OnceLock::new();
-                let _ = NIGHT_WATCHER_CANCEL.set(night_watcher::spawn(state.clone()));
+                //
+                // Android: the sync loop runs in the separate `:nightwatch`
+                // service process (night_watcher_headless), NOT here. wry exits
+                // this process when the Activity is destroyed, and a second loop
+                // in this process would double-scan + race the service's writes
+                // to nw_file_state. The main process only edits watch config.
+                #[cfg(not(target_os = "android"))]
+                {
+                    static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
+                        tokio_util::sync::CancellationToken,
+                    > = std::sync::OnceLock::new();
+                    let _ = NIGHT_WATCHER_CANCEL.set(night_watcher::spawn(state.clone()));
+                }
 
                 // Arm/disarm desktop background running based on whether any
                 // watch is enabled, then let the SAF twin start/stop the

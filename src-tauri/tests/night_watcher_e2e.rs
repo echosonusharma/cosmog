@@ -67,6 +67,7 @@ struct TestCtx {
     transfers: TransferManager,
     store: Arc<dyn ObjectStore>,
     claims: Arc<Mutex<HashSet<(String, String)>>>,
+    scan_claims: Arc<Mutex<HashSet<String>>>,
 }
 
 impl NwCtx for TestCtx {
@@ -93,6 +94,12 @@ impl NwCtx for TestCtx {
             .lock()
             .unwrap()
             .remove(&(watch_id.to_string(), rel_path.to_string()));
+    }
+    fn nw_scan_claim(&self, watch_id: &str) -> bool {
+        self.scan_claims.lock().unwrap().insert(watch_id.to_string())
+    }
+    fn nw_scan_unclaim(&self, watch_id: &str) {
+        self.scan_claims.lock().unwrap().remove(watch_id);
     }
 }
 
@@ -135,6 +142,7 @@ async fn make_ctx(store: Arc<dyn ObjectStore>) -> (TestCtx, tempfile::TempDir, S
         transfers,
         store,
         claims: Arc::new(Mutex::new(HashSet::new())),
+        scan_claims: Arc::new(Mutex::new(HashSet::new())),
     };
     (ctx, dir, acct.id)
 }

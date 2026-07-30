@@ -292,3 +292,29 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
     }
 }
 
+
+/// Apply network-related settings to the process environment: proxy and custom
+/// CA. The AWS SDK / rustls read these env vars at client-build time, so this
+/// must run before any store is constructed. Called once at main-process boot
+/// and once when the Android headless service builds its context.
+///
+/// SAFETY: `set_var` is process-global and `unsafe` on Rust 1.80+ because it can
+/// race a concurrent `getenv`. Both call sites run this before any SDK client
+/// (or other reader) exists, so the race window is zero in practice.
+pub fn apply_network_env(settings: &AppSettings) {
+    if let Some(proxy) = settings.http_proxy.as_deref() {
+        if !proxy.trim().is_empty() {
+            unsafe {
+                std::env::set_var("HTTPS_PROXY", proxy);
+                std::env::set_var("HTTP_PROXY", proxy);
+            }
+        }
+    }
+    if let Some(ca) = settings.custom_ca_path.as_deref() {
+        if !ca.trim().is_empty() {
+            unsafe {
+                std::env::set_var("SSL_CERT_FILE", ca);
+            }
+        }
+    }
+}

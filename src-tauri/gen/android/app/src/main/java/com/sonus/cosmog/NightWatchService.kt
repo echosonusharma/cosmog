@@ -25,6 +25,12 @@ class NightWatchService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // Implemented in Rust (night_watcher_headless.rs). Runs in THIS (:nightwatch)
+    // process, independent of the Tauri/wry Activity, so background sync survives
+    // the Activity being destroyed. Idempotent on the Rust side.
+    private external fun startNwSync()
+    private external fun stopNwSync()
+
     override fun onCreate() {
         super.onCreate()
         ensureChannel(this)
@@ -51,14 +57,29 @@ class NightWatchService : Service() {
             }
         } catch (t: Throwable) {
             android.util.Log.w("NightWatchService", "startForeground refused: $t")
+            try {
+                wakeLock?.takeIf { it.isHeld }?.release()
+            } catch (_: Throwable) {}
+            wakeLock = null
             stopSelf()
+            return
+        }
+
+        // Kick the headless Rust sync loop in this process. Guarded so a native
+        // failure never crashes the service.
+        try {
+            startNwSync()
+        } catch (t: Throwable) {
+            android.util.Log.w("NightWatchService", "startNwSync failed: $t")
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Mirror TransferService for v1: not sticky. A relaunch after a process
-        // kill is driven by BootReceiver / the app itself, not the OS restart.
-        return START_NOT_STICKY
+        // Sticky: this runs in its own :nightwatch process with no Activity, so
+        // an LMK kill would otherwise leave background sync dead until the user
+        // reopens the app. START_STICKY has the OS recreate the service (onCreate
+        // re-runs startNwSync). Sync is idempotent + resumes from nw_file_state.
+        return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -69,6 +90,11 @@ class NightWatchService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            stopNwSync()
+        } catch (t: Throwable) {
+            android.util.Log.w("NightWatchService", "stopNwSync failed: $t")
+        }
         try {
             wakeLock?.takeIf { it.isHeld }?.release()
         } catch (_: Throwable) {}

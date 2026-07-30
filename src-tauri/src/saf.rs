@@ -586,8 +586,8 @@ fn query_display_name(
 //
 // These back the "Night Watcher" background folder-sync feature. They talk to
 // the Kotlin `com/sonus/cosmog/NightWatchService` foreground service and the
-// `com/sonus/cosmog/NwTreePicker` singleton (a Kotlin `object`, reached via its
-// `INSTANCE` static field). Same jni-exception-clearing discipline as above:
+// `com/sonus/cosmog/NwTreePicker` (a Kotlin `object` whose `launch`/`poll`/`reset`
+// are `@JvmStatic`, invoked as static methods). Same jni-exception-clearing discipline as above:
 // every fallible JNI call routes through `jni_err`.
 // ---------------------------------------------------------------------------
 
@@ -740,25 +740,15 @@ pub fn set_nightwatch_boot_flag(_enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Fetch the `NwTreePicker` singleton (`INSTANCE` static field). Kotlin `object`
-/// compiles to a public static final `INSTANCE` field of the object's own type,
-/// so this is the reliable way to reach its instance methods.
+/// The cached `NwTreePicker` class ref. `launch`/`poll`/`reset` are `@JvmStatic`,
+/// so they are invoked as static methods on this class (not instance methods on
+/// INSTANCE). find_class for app classes fails on the native spawn_blocking
+/// thread these calls run on, hence the cached GlobalRef (bug #3).
 #[cfg(target_os = "android")]
-fn nw_picker_instance<'a>(
-    env: &mut jni::JNIEnv<'a>,
-) -> Result<jni::objects::JObject<'a>, String> {
-    // Cached class ref (bug #3): find_class for app classes fails on the native
-    // spawn_blocking thread this runs on.
-    let cls_ref = NW_TREE_PICKER_CLASS
+fn nw_picker_class() -> Result<&'static jni::objects::GlobalRef, String> {
+    NW_TREE_PICKER_CLASS
         .get()
-        .ok_or("NwTreePicker class not cached (initNwClasses not called)")?;
-    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
-    let instance = env
-        .get_static_field(cls, "INSTANCE", "Lcom/sonus/cosmog/NwTreePicker;")
-        .map_err(|e| jni_err(env, "get_static_field(INSTANCE)", e))?
-        .l()
-        .map_err(|e| format!("INSTANCE.l: {e}"))?;
-    Ok(instance)
+        .ok_or_else(|| "NwTreePicker class not cached (initNwClasses not called)".to_string())
 }
 
 /// Launch the system tree picker (ACTION_OPEN_DOCUMENT_TREE) and poll for the
@@ -794,14 +784,16 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
 
         // reset() clears any stale result from a previous pick.
         {
-            let picker = nw_picker_instance(&mut env)?;
-            env.call_method(&picker, "reset", "()V", &[])
+            let cls_ref = nw_picker_class()?;
+            let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+            env.call_static_method(cls, "reset", "()V", &[])
                 .map_err(|e| jni_err(&mut env, "NwTreePicker.reset", e))?;
         }
         // launch() fires the ACTION_OPEN_DOCUMENT_TREE intent.
         {
-            let picker = nw_picker_instance(&mut env)?;
-            env.call_method(&picker, "launch", "()V", &[])
+            let cls_ref = nw_picker_class()?;
+            let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+            env.call_static_method(cls, "launch", "()V", &[])
                 .map_err(|e| jni_err(&mut env, "NwTreePicker.launch", e))?;
         }
 
@@ -810,9 +802,10 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
         let mut polls = 0u32;
         loop {
             let result: Option<String> = {
-                let picker = nw_picker_instance(&mut env)?;
+                let cls_ref = nw_picker_class()?;
+                let cls: &jni::objects::JClass = cls_ref.as_obj().into();
                 let v = env
-                    .call_method(&picker, "poll", "()Ljava/lang/String;", &[])
+                    .call_static_method(cls, "poll", "()Ljava/lang/String;", &[])
                     .map_err(|e| jni_err(&mut env, "NwTreePicker.poll", e))?
                     .l()
                     .map_err(|e| format!("poll.l: {e}"))?;
