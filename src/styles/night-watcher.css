@@ -8,6 +8,47 @@
   width: 100%;
 }
 
+.nw-intro {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-line);
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--accent-soft), transparent 62%);
+}
+
+.nw-intro-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.nw-intro-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nw-intro-lead {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.nw-intro-body {
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .nw-empty {
   font-size: 12.5px;
   color: var(--text-soft);
@@ -152,6 +193,9 @@
 
 @media (max-width: 768px) {
   .nw-body { padding: 12px 14px; gap: 20px; }
+
+  /* badge aligns to first line when the copy wraps on narrow screens */
+  .nw-intro { align-items: flex-start; gap: 12px; padding: 12px 13px; }
 
   /* stack the dir/target block above its actions on narrow screens */
   .nw-item { flex-direction: column; align-items: stretch; gap: 10px; }

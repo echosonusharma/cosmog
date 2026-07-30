@@ -2,7 +2,7 @@ import { createSignal, createResource, createMemo, createEffect, onCleanup, For,
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { currentView } from "../state/app";
 import { Select } from "../utils/Select";
-import { IconTrash, IconFolder } from "../utils/icons";
+import { IconTrash, IconFolder, IconEye } from "../utils/icons";
 import { toast } from "../state/toast";
 import { confirmDialog } from "../state/confirm";
 import { formatRelative } from "../utils/fmt";
@@ -172,6 +172,17 @@ export default function NightWatcher() {
       </div>
 
       <div class="nw-body">
+        <div class="nw-intro">
+          <div class="nw-intro-badge"><IconEye size={18} /></div>
+          <div class="nw-intro-text">
+            <span class="nw-intro-lead">The watch that never sleeps</span>
+            <span class="nw-intro-body">
+              Night Watcher guards a directory by keeping a safe copy in your bucket,
+              syncing every change one-way as it happens.
+            </span>
+          </div>
+        </div>
+
         {/* existing watches */}
         <div class="settings-section">
           <div class="settings-section-title">Watched directories</div>
