@@ -232,6 +232,7 @@ pub async fn upload_directory(
                     path.clone(),
                     crate::store::PutOptions::default(),
                     sink,
+                    crate::db::transfers::TransferOrigin::User,
                 )
                 .await?;
             out.enqueued.push(id);

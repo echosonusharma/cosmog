@@ -67,6 +67,7 @@ pub async fn enqueue_upload(
                 upload_path,
                 opts,
                 channel_sink(on_event),
+                crate::db::transfers::TransferOrigin::User,
             )
             .await?;
         Ok(EnqueueResult { transfer_id: id })

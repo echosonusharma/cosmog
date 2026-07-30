@@ -85,6 +85,11 @@ impl NwCtx for AppState {
 /// per-watch cadence is governed by `full_scan_secs`, not this tick.
 const TICK_SECS: u64 = 30;
 
+/// Max consecutive upload failures for one file before it is paused.
+const MAX_UPLOAD_RETRIES: i64 = 3;
+/// How long a file is skipped after hitting [`MAX_UPLOAD_RETRIES`] failures.
+const RETRY_PAUSE_SECS: i64 = 3600;
+
 /// Spawn the Night Watcher. Returns immediately; the caller keeps the
 /// [`CancellationToken`] alive for the process lifetime.
 // Desktop only. On Android the loop runs in the :nightwatch service process
@@ -203,8 +208,9 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(state: &S, watch: &NightWatch) -> 
         )));
     }
     let matcher = Matcher::build(watch);
-    let files = collect_files(root.clone()).await?;
-    let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, 0u64);
+    // read_errors seeds `errors` so a subdir vanishing mid-scan blocks the sweep.
+    let (files, read_errors) = collect_files(root.clone()).await?;
+    let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for rel in files {
         scanned += 1;
@@ -283,12 +289,14 @@ async fn sweep_deleted<S: NwCtx>(
 /// (`stage_saf_upload`) before feeding the existing encrypt/enqueue path.
 async fn reconcile_watch_saf<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
     let uri = watch.tree_uri.clone().expect("tree_uri present");
-    let entries = crate::saf::collect_tree_files(uri)
+    // read_errors seeds `errors` so an unreadable subtree blocks the sweep,
+    // matching the desktop path. A revoked/deleted root still hard-errors above.
+    let (entries, read_errors) = crate::saf::collect_tree_files(uri)
         .await
         .map_err(AppError::Internal)?;
 
     let matcher = Matcher::build(watch);
-    let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, 0u64);
+    let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for entry in entries {
         if entry.is_dir {
@@ -524,6 +532,22 @@ where
         Decision::Upload => {}
     }
 
+    // Retry backoff: a file that failed to upload MAX_UPLOAD_RETRIES times is
+    // paused for RETRY_PAUSE_SECS so a broken file/endpoint stops re-enqueuing
+    // every scan. Once the pause elapses, clear the row for a fresh set of tries.
+    if let Some((fail_count, retry_after)) =
+        state.db().file_retry_get(&watch.id, rel_path).await?
+    {
+        if fail_count >= MAX_UPLOAD_RETRIES {
+            let now = chrono::Utc::now().timestamp();
+            if retry_after > now {
+                debug!(watch = %watch.id, rel = %rel_path, retry_after, "night watcher: upload paused after repeated failures");
+                return Ok(false);
+            }
+            state.db().file_retry_clear(&watch.id, rel_path).await?;
+        }
+    }
+
     // Content changed (or new). Claim the file so the watcher and the full
     // scan can't double-enqueue it.
     if !state.nw_claim(&watch.id, rel_path) {
@@ -637,6 +661,7 @@ async fn enqueue_upload_for<S: NwCtx>(
                 upload_path,
                 opts,
                 sink,
+                crate::db::transfers::TransferOrigin::NightWatch,
             )
             .await
     }
@@ -695,13 +720,31 @@ fn persist_sink<S: NwCtx>(
                 } else {
                     info!(watch = %watch_id, rel = %rel_path, "night watcher: synced");
                 }
+                // Success clears any accumulated retry backoff for this file.
+                let _ = state.db().file_retry_clear(&watch_id, &rel_path).await;
                 state.nw_unclaim(&watch_id, &rel_path);
             });
         }
         TransferEvent::Failed { error, .. } => {
             warn!(watch = %watch_id, rel = %rel_path, "night watcher: upload failed: {error}");
             cleanup_stage();
-            state.nw_unclaim(&watch_id, &rel_path);
+            let state = state.clone();
+            let watch_id = watch_id.clone();
+            let rel_path = rel_path.clone();
+            tokio::spawn(async move {
+                match state
+                    .db()
+                    .file_retry_record_failure(&watch_id, &rel_path, MAX_UPLOAD_RETRIES, RETRY_PAUSE_SECS)
+                    .await
+                {
+                    Ok(n) if n >= MAX_UPLOAD_RETRIES => {
+                        warn!(watch = %watch_id, rel = %rel_path, fails = n, pause_secs = RETRY_PAUSE_SECS, "night watcher: pausing file after repeated upload failures");
+                    }
+                    Ok(_) => {}
+                    Err(e) => warn!(watch = %watch_id, rel = %rel_path, "night watcher: record retry failed: {e}"),
+                }
+                state.nw_unclaim(&watch_id, &rel_path);
+            });
         }
         TransferEvent::Canceled { .. } => {
             debug!(watch = %watch_id, rel = %rel_path, "night watcher: upload canceled");
@@ -728,16 +771,27 @@ async fn hash_file(path: &Path) -> AppResult<String> {
 }
 
 /// Recursively list every regular file under `root`, returning paths relative
-/// to `root` with `/` separators. Runs on a blocking thread.
-async fn collect_files(root: PathBuf) -> AppResult<Vec<String>> {
-    tokio::task::spawn_blocking(move || -> AppResult<Vec<String>> {
+/// to `root` with `/` separators, plus a count of subdir read failures.
+/// A read failure on `root` itself is a hard error (the watched dir vanished
+/// mid-scan): return Err so the caller stops instead of silently pruning state.
+/// Runs on a blocking thread.
+async fn collect_files(root: PathBuf) -> AppResult<(Vec<String>, u64)> {
+    tokio::task::spawn_blocking(move || -> AppResult<(Vec<String>, u64)> {
         let mut out = Vec::new();
+        let mut read_errors = 0u64;
         let mut stack = vec![root.clone()];
         while let Some(dir) = stack.pop() {
             let rd = match std::fs::read_dir(&dir) {
                 Ok(rd) => rd,
                 Err(e) => {
+                    if dir == root {
+                        return Err(AppError::InvalidInput(format!(
+                            "watched dir vanished during scan: {}: {e}",
+                            dir.display()
+                        )));
+                    }
                     warn!(dir = %dir.display(), "read_dir failed: {e}");
+                    read_errors += 1;
                     continue;
                 }
             };
@@ -754,7 +808,7 @@ async fn collect_files(root: PathBuf) -> AppResult<Vec<String>> {
                 }
             }
         }
-        Ok(out)
+        Ok((out, read_errors))
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?

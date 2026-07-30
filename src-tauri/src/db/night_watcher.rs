@@ -340,4 +340,84 @@ impl Db {
             .await
             .map_err(Into::into)
     }
+
+    /// Read the retry backoff row for a file: `(fail_count, retry_after)`.
+    /// `None` means no failures recorded (clear to upload).
+    pub async fn file_retry_get(
+        &self,
+        watch_id: &str,
+        rel_path: &str,
+    ) -> AppResult<Option<(i64, i64)>> {
+        let watch_id = watch_id.to_string();
+        let rel_path = rel_path.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT fail_count, retry_after FROM nw_file_retry \
+                     WHERE watch_id=?1 AND rel_path=?2",
+                    params![watch_id, rel_path],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(tokio_rusqlite::Error::from)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Record an upload failure: bump `fail_count` and set `retry_after`. Once
+    /// the count reaches `max_retries`, `retry_after` = now + `pause_secs` so the
+    /// file is skipped until the pause elapses. Returns the new fail_count.
+    pub async fn file_retry_record_failure(
+        &self,
+        watch_id: &str,
+        rel_path: &str,
+        max_retries: i64,
+        pause_secs: i64,
+    ) -> AppResult<i64> {
+        let watch_id = watch_id.to_string();
+        let rel_path = rel_path.to_string();
+        let now = chrono::Utc::now().timestamp();
+        self.conn
+            .call(move |conn| {
+                let prev: i64 = conn
+                    .query_row(
+                        "SELECT fail_count FROM nw_file_retry WHERE watch_id=?1 AND rel_path=?2",
+                        params![watch_id, rel_path],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0);
+                let count = prev + 1;
+                let retry_after = if count >= max_retries { now + pause_secs } else { 0 };
+                conn.execute(
+                    "INSERT INTO nw_file_retry(watch_id, rel_path, fail_count, retry_after, updated_at) \
+                     VALUES(?1,?2,?3,?4,?5) \
+                     ON CONFLICT(watch_id, rel_path) DO UPDATE SET \
+                        fail_count=excluded.fail_count, retry_after=excluded.retry_after, \
+                        updated_at=excluded.updated_at",
+                    params![watch_id, rel_path, count, retry_after, now],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(count)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Clear the retry row for a file (on success or when the pause elapses).
+    pub async fn file_retry_clear(&self, watch_id: &str, rel_path: &str) -> AppResult<()> {
+        let watch_id = watch_id.to_string();
+        let rel_path = rel_path.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM nw_file_retry WHERE watch_id=?1 AND rel_path=?2",
+                    params![watch_id, rel_path],
+                )
+                .map(|_| ())
+                .map_err(tokio_rusqlite::Error::from)
+            })
+            .await
+            .map_err(Into::into)
+    }
 }

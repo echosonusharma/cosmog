@@ -147,6 +147,9 @@ export default function MainApp() {
         const nid  = notifId(t.id);
         const up   = t.direction === "upload";
         const dir  = up ? "Upload" : "Download";
+        // Night watcher is a silent background sync: skip start/progress/done
+        // notifications, surface only failures.
+        if (t.origin === "nightwatch" && t.status !== "failed") continue;
         // Title carries the human-relevant bits (verb + filename); body pins
         // the transfer to a specific account + bucket so the user can tell
         // parallel transfers apart at a glance in the notification tray.

@@ -1,8 +1,9 @@
 import { createSignal, createResource, createMemo, createEffect, onCleanup, For, Show } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { currentView } from "../state/app";
 import { Select } from "../utils/Select";
-import { IconTrash, IconFolder, IconEye } from "../utils/icons";
+import { IconTrash, IconFolder, IconEye, IconAlertCircle } from "../utils/icons";
 import { toast } from "../state/toast";
 import { confirmDialog } from "../state/confirm";
 import { formatRelative } from "../utils/fmt";
@@ -41,10 +42,27 @@ const EMPTY_FORM: AddForm = {
 };
 
 export default function NightWatcher() {
-  const [watches, { refetch: refetchWatches }] = createResource(nwListWatches);
-  const [status, { refetch: refetchStatus }] = createResource(nwGetStatus);
+  // Watches + status poll every 2.5s. Kept in reconciled stores (keyed by id)
+  // so unchanged rows keep their identity: the <For> below never recreates DOM
+  // on a poll, which is what caused the periodic loader/flicker.
+  const [watches, setWatches] = createStore<{ list: NightWatch[]; loaded: boolean }>({ list: [], loaded: false });
+  const [status, setStatus] = createStore<{ list: WatchStatus[] }>({ list: [] });
   const [accounts] = createResource(listAccounts);
   const [busy, setBusy] = createSignal(false);
+
+  async function refetchWatches() {
+    try {
+      const w = await nwListWatches();
+      setWatches("list", reconcile(w, { key: "id" }));
+      setWatches("loaded", true);
+    } catch { /* keep previous list on a transient poll error */ }
+  }
+  async function refetchStatus() {
+    try {
+      const s = await nwGetStatus();
+      setStatus("list", reconcile(s, { key: "id" }));
+    } catch { /* keep previous status */ }
+  }
 
   const [form, setForm] = createSignal<AddForm>({ ...EMPTY_FORM });
 
@@ -77,7 +95,7 @@ export default function NightWatcher() {
   });
 
   const statusFor = (id: string): WatchStatus | undefined =>
-    status()?.find((s) => s.id === id);
+    status.list.find((s) => s.id === id);
 
   const accountName = (id: string) =>
     accounts()?.find((a) => a.id === id)?.name ?? id;
@@ -164,7 +182,7 @@ export default function NightWatcher() {
     <div class="view-container">
       <div class="view-header">
         <span class="section-title">Night Watcher</span>
-        <Show when={!IS_MOBILE_OS && (watches.latest?.length ?? 0) > 0}>
+        <Show when={!IS_MOBILE_OS && watches.list.length > 0}>
           <button class="nw-quit-btn" onClick={quitBackground}>
             Quit background sync
           </button>
@@ -187,21 +205,21 @@ export default function NightWatcher() {
         <div class="settings-section">
           <div class="settings-section-title">Watched directories</div>
 
-          <Show when={watches.loading && !watches.latest}>
+          <Show when={!watches.loaded}>
             <div class="loading-row"><span class="spinner" /> Loading watches…</div>
           </Show>
 
-          <Show when={watches.latest && watches.latest.length === 0}>
+          <Show when={watches.loaded && watches.list.length === 0}>
             <div class="nw-empty">No directories are being watched yet. Add one below.</div>
           </Show>
 
-          <Show when={watches.latest && watches.latest.length > 0}>
+          <Show when={watches.list.length > 0}>
             <div class="nw-list">
-              <For each={watches.latest}>
+              <For each={watches.list}>
                 {(w) => {
                   const st = () => statusFor(w.id);
                   return (
-                    <div class="nw-item" classList={{ disabled: !w.enabled }}>
+                    <div class="nw-item" classList={{ disabled: !w.enabled, "has-error": !!st()?.last_error }}>
                       <div class="nw-item-main">
                         <div class="nw-item-dir" title={w.local_dir}>{w.local_dir}</div>
                         <div class="nw-item-target">
@@ -218,7 +236,10 @@ export default function NightWatcher() {
                           <span class="nw-meta-chip">Scan every {w.full_scan_secs}s</span>
                         </div>
                         <Show when={st()?.last_error}>
-                          <div class="nw-item-error">{st()!.last_error}</div>
+                          <div class="nw-item-error" role="alert">
+                            <IconAlertCircle size={13} />
+                            <span>{st()!.last_error}</span>
+                          </div>
                         </Show>
                       </div>
 
@@ -246,7 +267,7 @@ export default function NightWatcher() {
             </div>
           </Show>
 
-          <Show when={!IS_MOBILE_OS && (watches.latest?.length ?? 0) > 0}>
+          <Show when={!IS_MOBILE_OS && watches.list.length > 0}>
             <div class="nw-quit-caption">
               Closing the window keeps Cosmog syncing in the background. Use
               "Quit background sync" to fully quit.

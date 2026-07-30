@@ -83,6 +83,7 @@
   background: var(--bg-elev-1);
 }
 .nw-item.disabled { opacity: 0.6; }
+.nw-item.has-error { border-color: var(--red); }
 
 .nw-item-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 
@@ -104,12 +105,18 @@
 }
 
 .nw-item-error {
+  display: flex; align-items: flex-start; gap: 6px;
   font-size: 11.5px;
   color: var(--red);
-  margin-top: 3px;
+  margin-top: 5px;
+  padding: 6px 8px;
   line-height: 1.4;
   word-break: break-word;
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
 }
+.nw-item-error svg { flex-shrink: 0; margin-top: 1px; }
 
 .nw-item-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 

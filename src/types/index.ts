@@ -80,7 +80,10 @@ export interface Transfer {
   error: string | null;
   created_at: number;
   updated_at: number;
+  origin: TransferOrigin;
 }
+
+export type TransferOrigin = "user" | "nightwatch";
 
 export type TransferEvent =
   | { kind: "started"; transfer_id: string; bytes_total: number | null }

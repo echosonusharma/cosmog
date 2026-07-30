@@ -449,4 +449,29 @@ const MIGRATIONS: &[Migration] = &[
             ALTER TABLE nw_watch ADD COLUMN tree_uri TEXT;
         "#,
     },
+    Migration {
+        version: 17,
+        // Marks who started a transfer. 'nightwatch' rows are silent background
+        // syncs; the UI suppresses their notifications (only failures show).
+        sql: r#"
+            ALTER TABLE transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';
+        "#,
+    },
+    Migration {
+        version: 18,
+        // Per-file upload-retry backoff for Night Watcher. After MAX consecutive
+        // upload failures the file is paused until `retry_after`, so a broken
+        // file/endpoint stops re-enqueuing every scan. Cleared on success.
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS nw_file_retry (
+                watch_id    TEXT NOT NULL,
+                rel_path    TEXT NOT NULL,
+                fail_count  INTEGER NOT NULL,
+                retry_after INTEGER NOT NULL DEFAULT 0,
+                updated_at  INTEGER NOT NULL,
+                PRIMARY KEY (watch_id, rel_path),
+                FOREIGN KEY(watch_id) REFERENCES nw_watch(id) ON DELETE CASCADE
+            );
+        "#,
+    },
 ];

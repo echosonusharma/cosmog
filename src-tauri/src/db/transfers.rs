@@ -31,6 +31,33 @@ impl Direction {
     }
 }
 
+/// Who started a transfer. `NightWatch` rows are silent background syncs; the
+/// UI suppresses their notifications (only failures surface).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TransferOrigin {
+    #[default]
+    User,
+    #[serde(rename = "nightwatch")]
+    NightWatch,
+}
+
+impl TransferOrigin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TransferOrigin::User => "user",
+            TransferOrigin::NightWatch => "nightwatch",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "nightwatch" => TransferOrigin::NightWatch,
+            _ => TransferOrigin::User,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TransferStatus {
@@ -88,6 +115,7 @@ pub struct Transfer {
     pub error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub origin: TransferOrigin,
 }
 
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Transfer> {
@@ -123,6 +151,10 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Transfer> {
         error: row.get(12)?,
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
+        origin: {
+            let raw: String = row.get(15)?;
+            TransferOrigin::parse(&raw)
+        },
     })
 }
 
@@ -137,6 +169,7 @@ pub struct NewTransfer {
     /// JSON-serialized options blob (PutOptions or GetOptions). `None` to use
     /// defaults.
     pub options_json: Option<String>,
+    pub origin: TransferOrigin,
 }
 
 impl Db {
@@ -158,13 +191,14 @@ impl Db {
             error: None,
             created_at: now,
             updated_at: now,
+            origin: new.origin,
         };
         let r = row.clone();
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO transfers (id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                    "INSERT INTO transfers (id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                     params![
                         r.id,
                         r.account_id,
@@ -181,6 +215,7 @@ impl Db {
                         r.error,
                         r.created_at,
                         r.updated_at,
+                        r.origin.as_str(),
                     ],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(())
@@ -195,7 +230,7 @@ impl Db {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at FROM transfers WHERE id = ?1",
+                    "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers WHERE id = ?1",
                 )?;
                 let row = stmt.query_row(params![id], map_row).optional()?;
                 Ok::<_, tokio_rusqlite::Error>(row)
@@ -211,11 +246,11 @@ impl Db {
             .call(move |conn| {
                 let (sql, has_filter) = match status_str.as_deref() {
                     Some(_) => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at FROM transfers WHERE status = ?1 ORDER BY created_at DESC",
+                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers WHERE status = ?1 ORDER BY created_at DESC",
                         true,
                     ),
                     None => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at FROM transfers ORDER BY created_at DESC",
+                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers ORDER BY created_at DESC",
                         false,
                     ),
                 };

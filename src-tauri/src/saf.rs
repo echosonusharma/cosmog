@@ -848,8 +848,8 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
 /// attached thread, using an explicit stack (not async recursion) so the whole
 /// traversal shares one JNIEnv attach.
 #[cfg(target_os = "android")]
-pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, String> {
-    tokio::task::spawn_blocking(move || -> Result<Vec<SafEntry>, String> {
+pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64), String> {
+    tokio::task::spawn_blocking(move || -> Result<(Vec<SafEntry>, u64), String> {
         use jni::objects::{JObject, JObjectArray, JString, JValue};
         use jni::JavaVM;
 
@@ -952,6 +952,12 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, Strin
         // outer loop breaks after the frame pops cleanly.
         let mut fatal: Option<String> = None;
 
+        // Count of subdirs we could not fully read (unreadable/null cursor,
+        // truncated iteration). A non-zero count means enumeration is partial,
+        // so the caller must skip its mark-and-sweep to avoid pruning state for
+        // files that still exist under an unreadable subtree.
+        let mut read_errors = 0u64;
+
         while let Some((parent_doc_id, prefix)) = stack.pop() {
             // Bug #2: every row would leak JNI local refs (strings, cursors,
             // uris) into a table capped at ~512, aborting the process on any
@@ -1007,16 +1013,23 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, Strin
                     match r {
                         Ok(v) => match v.l() {
                             Ok(o) => o,
-                            Err(_) => return Ok(()),
+                            Err(_) => {
+                                read_errors += 1;
+                                return Ok(());
+                            }
                         },
                         Err(e) => {
-                            // A single unreadable dir should not abort the walk.
+                            // A single unreadable dir should not abort the walk,
+                            // but it makes enumeration partial: count it so the
+                            // caller skips the sweep.
                             let _ = jni_err(env, "ContentResolver.query(children)", e);
+                            read_errors += 1;
                             return Ok(());
                         }
                     }
                 };
                 if cursor.is_null() {
+                    read_errors += 1;
                     return Ok(());
                 }
 
@@ -1030,7 +1043,10 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, Strin
                     let has_next = match env.call_method(&cursor, "moveToNext", "()Z", &[]) {
                         Ok(v) => v.z().unwrap_or(false),
                         Err(e) => {
+                            // Iteration broke early: this dir's listing is
+                            // truncated, so treat it as a partial read.
                             let _ = jni_err(env, "Cursor.moveToNext", e);
+                            read_errors += 1;
                             false
                         }
                     };
@@ -1154,14 +1170,14 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<Vec<SafEntry>, Strin
             }
         }
 
-        Ok(out)
+        Ok((out, read_errors))
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 #[cfg(not(target_os = "android"))]
-pub async fn collect_tree_files(_tree_uri: String) -> Result<Vec<SafEntry>, String> {
+pub async fn collect_tree_files(_tree_uri: String) -> Result<(Vec<SafEntry>, u64), String> {
     Err("SAF tree walk is Android-only".into())
 }
 

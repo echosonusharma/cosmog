@@ -106,6 +106,22 @@ fn s3_err<E: std::fmt::Display>(ctx: &str, e: E) -> AppError {
     AppError::S3(format!("{ctx}: {e}"))
 }
 
+/// Flatten an error and its `source()` chain into one readable string. The AWS
+/// SDK hides the real network cause (DNS, refused, TLS) under a generic outer
+/// Display, so surfacing the chain makes dispatch failures actionable.
+fn error_chain<E: std::error::Error>(e: &E) -> String {
+    let mut parts = vec![e.to_string()];
+    let mut src = e.source();
+    while let Some(s) = src {
+        let msg = s.to_string();
+        if !parts.contains(&msg) {
+            parts.push(msg);
+        }
+        src = s.source();
+    }
+    parts.join(": ")
+}
+
 /// Classify an AWS SDK error into the most specific [`AppError`] variant
 /// available. Falls back to [`AppError::S3`] for unknown codes or non-service
 /// failures (timeouts, DNS, etc.).
@@ -118,11 +134,15 @@ where
 {
     let mut display = format!("{ctx}: {err}");
 
-    // Network-level failures: connection refused, DNS failure, TCP timeout.
-    // These fire before any HTTP response exists, so no service error code.
+    // Network-level failures: connection refused, DNS failure, TLS, TCP
+    // timeout. These fire before any HTTP response exists, so no service error
+    // code. The SDK's outer Display collapses to a bare "dispatch failure", so
+    // walk the source chain to surface the real cause (DNS, refused, TLS, ...).
     if let SdkError::DispatchFailure(ref df) = err {
         let msg = if df.is_timeout() {
             format!("{ctx}: connection timed out")
+        } else if let Some(ce) = df.as_connector_error() {
+            format!("{ctx}: {}", error_chain(ce))
         } else {
             display.clone()
         };

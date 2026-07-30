@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use std::time::Duration;
 
-use crate::db::transfers::{Direction, NewTransfer, Transfer, TransferStatus};
+use crate::db::transfers::{Direction, NewTransfer, Transfer, TransferOrigin, TransferStatus};
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::store::{GetOptions, ObjectStore, PutOptions};
@@ -148,6 +148,7 @@ impl TransferManager {
         local_path: PathBuf,
         opts: PutOptions,
         external_sink: ProgressSink,
+        origin: TransferOrigin,
     ) -> AppResult<String> {
         self.enqueue(
             store,
@@ -160,6 +161,7 @@ impl TransferManager {
             },
             external_sink,
             None,
+            origin,
         )
         .await
     }
@@ -186,6 +188,7 @@ impl TransferManager {
             },
             external_sink,
             None,
+            TransferOrigin::User,
         )
         .await
     }
@@ -339,7 +342,8 @@ impl TransferManager {
             }
         };
 
-        self.enqueue(store, row.account_id, job, external_sink, resume)
+        // Preserve the original origin so a retried night-watch upload stays silent.
+        self.enqueue(store, row.account_id, job, external_sink, resume, row.origin)
             .await
     }
 
@@ -351,6 +355,7 @@ impl TransferManager {
         job: WorkerJob,
         external_sink: ProgressSink,
         resume: Option<ResumeState>,
+        origin: TransferOrigin,
     ) -> AppResult<String> {
         let id = Uuid::new_v4().to_string();
         let direction = job.direction();
@@ -386,6 +391,7 @@ impl TransferManager {
                 direction,
                 local_path: path_for_row,
                 options_json,
+                origin,
             })
             .await?;
 
