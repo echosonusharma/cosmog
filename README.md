@@ -25,7 +25,7 @@
 
 - 🗂️ **Browse** buckets and folders with fast column navigation
 - 📤 **Upload and download** with a background queue, progress tracking, and retry
-- 👁️ **Preview** images, PDFs, spreadsheets, JSON, XML, text, and code without downloading
+- 👁️ **Preview** images, audio, PDFs, spreadsheets, JSON, XML, text, and code without downloading
 - ✏️ **Edit** text based files (md, json, txt, and more) & spreadsheets directly in the app
 - 🔍 **Search** across your entire bucket with full-text search
 - 🔗 **Share** files instantly with presigned links
