@@ -4,8 +4,6 @@ import { IconArrowUpLine, IconArrowDownLine, IconRefresh, IconX } from "../../ut
 import type { Transfer } from "../../types";
 import { actionVerb, pct, shortPath } from "./helpers";
 
-// ── row (card style) ─────────────────────────────────────────────────────────
-
 export function TransferRow(props: {
   t: Transfer;
   onCancel: () => void;

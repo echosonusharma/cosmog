@@ -40,8 +40,6 @@ import { ActiveTransfersBar } from "./mainapp/ActiveTransfersBar";
 import { isMobile } from "../utils/breakpoint";
 import { Show } from "solid-js";
 
-// ── main app ──────────────────────────────────────────────────────────────────
-
 export default function MainApp() {
   const [collapsed, setCollapsed] = createSignal(false);
   const [activeCount, setActiveCount] = createSignal(0);

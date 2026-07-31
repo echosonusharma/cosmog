@@ -2,11 +2,7 @@ import { Show, For } from "solid-js";
 import { type ProviderDef } from "../../providers";
 import { IconCheck } from "../../utils/icons";
 
-// ── types ─────────────────────────────────────────────────────────────────────
-
 export type Step = "provider" | "account-setup";
-
-// ── provider color tile ───────────────────────────────────────────────────────
 
 export function ProviderIconTile(props: { provider: ProviderDef; size?: number }) {
   const sz = props.size ?? 32;
@@ -19,8 +15,6 @@ export function ProviderIconTile(props: { provider: ProviderDef; size?: number }
     </span>
   );
 }
-
-// ── stepper ───────────────────────────────────────────────────────────────────
 
 export function Stepper(props: { step: Step }) {
   const steps: { id: Step; label: string }[] = [
@@ -53,8 +47,6 @@ export function Stepper(props: { step: Step }) {
     </div>
   );
 }
-
-// ── labeled field ─────────────────────────────────────────────────────────────
 
 export function LabeledField(props: {
   label: string;

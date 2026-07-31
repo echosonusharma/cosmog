@@ -921,10 +921,6 @@ pub enum SyncScope {
     PrefixRecursive { prefix: String },
 }
 
-// ---------------------------------------------------------------------------
-// Search / facet querying
-// ---------------------------------------------------------------------------
-
 /// User-supplied search parameters. See [`Db::search_objects`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchQuery {
@@ -1178,7 +1174,6 @@ impl Db {
                     )
                 };
 
-                // ---------- TOTAL ----------
                 let count_sql = format!(
                     "SELECT COUNT(*) FROM {from_sql} {where_sql} {like_clause}"
                 );
@@ -1193,7 +1188,6 @@ impl Db {
                     stmt.query_row(refs.as_slice(), |row| row.get(0))?
                 };
 
-                // ---------- RESULTS ----------
                 // When FTS active with default name sort, use BM25 relevance (fts.rank, lower = better).
                 // FTS+Name sort is always ASC (rank). cursor_clause and rowid_order must use the
                 // same effective direction to avoid pagination gaps.
@@ -1240,7 +1234,6 @@ impl Db {
                 }
                 let next_cursor = if objects.len() as i64 == limit { last_rowid } else { None };
 
-                // ---------- FACETS ----------
                 // Pass built FTS query (not raw input) so facets use same trigram matching.
                 let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, fts.as_deref())?;
 

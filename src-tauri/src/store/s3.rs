@@ -1252,7 +1252,6 @@ impl S3Store {
         opts: &GetOptions,
         ctx: &TransferCtx,
     ) -> AppResult<DownloadResult> {
-        // Pre-create and pre-allocate the file.
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -1316,7 +1315,6 @@ impl S3Store {
                 };
                 let data = body.to_vec();
 
-                // Write chunk at the correct offset.
                 let mut f = tokio::fs::OpenOptions::new()
                     .write(true)
                     .open(&dest)
@@ -1377,7 +1375,6 @@ impl S3Store {
         opts: PutOptions,
         ctx: TransferCtx,
     ) -> AppResult<UploadResult> {
-        // Cancel check before kicking off
         if ctx.cancel.is_cancelled() {
             ctx.progress.emit(TransferEvent::Canceled {
                 transfer_id: ctx.transfer_id.clone(),
@@ -1507,7 +1504,6 @@ impl S3Store {
 
         let to_upload: Vec<i32> = (1..=num_parts).filter(|p| !done_set.contains(p)).collect();
 
-        // Spawn concurrent uploads via buffer_unordered.
         let client = self.client.clone();
         let bucket_s = bucket.to_string();
         let key_s = key.to_string();
@@ -1594,7 +1590,6 @@ impl S3Store {
             match res {
                 Ok(p) => collected.push(p),
                 Err(e) => {
-                    // On any error: abort + emit + return.
                     let _ = self
                         .client
                         .abort_multipart_upload()

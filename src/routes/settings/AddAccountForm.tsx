@@ -8,8 +8,6 @@ import { bumpBucketsRefresh, bumpAccountsRefresh } from "../../state/app";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 
-// ── add / edit account ────────────────────────────────────────────────────────
-
 export function AddAccountForm(props: { onDone: () => void; onCancel: () => void; editing?: Account }) {
   const isEdit = !!props.editing;
   // All providers including the generic "s3" catch-all at the end

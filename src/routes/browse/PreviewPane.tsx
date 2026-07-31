@@ -49,8 +49,6 @@ function PreviewErrorCard(props: { err: unknown }) {
   );
 }
 
-// ── preview pane ──────────────────────────────────────────────────────────────
-
 export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; }) {
   const ct = () => props.obj.content_type ?? "";
   const ext = () => extOf(props.obj.basename);
@@ -80,7 +78,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     !(props.encrypted && props.obj.size > ENCRYPTED_IMAGE_AUTOLOAD_MAX);
   const textAutoLoad = () => isText() && props.obj.size <= 512 * 1024;
 
-  // Reset on object change
   createEffect(() => { void props.obj.key; setLoadRequested(false); setExpanded(false); setEditOpen(false); });
 
   // Images: presigned URL for raster images; blob/data URL for SVG and encrypted buckets.
@@ -132,7 +129,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const [imgLoaded, setImgLoaded] = createSignal(false);
   createEffect(() => { if (displayUrl()) setImgLoaded(false); });;
 
-  // Text: fetch bytes via backend
   const [loadedKey, setLoadedKey] = createSignal<string | null>(null);
   const textShouldFetch = () => isText() && !isImage() && (textAutoLoad() || loadRequested());
   const [preview, { refetch: refetchPreview }] = createResource(
@@ -235,7 +231,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <PreviewErrorCard err={preview.error} />
           </Show>
 
-          {/* Image preview via presigned URL */}
           <Show when={isImage()}>
             <div class="preview-img-area rel">
               <Show when={!imageAutoLoad() && !loadRequested() && !displayUrl()}>
@@ -326,12 +321,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             </Show>
           </Show>
 
-          {/* Spreadsheet preview */}
           <Show when={isSheet()}>
             <SheetPreview obj={props.obj} />
           </Show>
 
-          {/* PDF preview */}
           <Show when={isPdf()}>
             <PdfPreview obj={props.obj} />
           </Show>
@@ -351,7 +344,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         </div>
       </div>
 
-      {/* Lightbox */}
       <Lightbox
         open={expanded() && !!displayUrl()}
         src={imgSrc()}
@@ -359,7 +351,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         onClose={() => setExpanded(false)}
       />
 
-      {/* Full-screen text editor modal */}
       <Show when={editOpen() && cur()}>
         <EditorModal
           value={textContent()}

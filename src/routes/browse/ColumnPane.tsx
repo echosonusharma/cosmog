@@ -6,8 +6,6 @@ import { basename } from "../../utils/fmt";
 import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 
-// ── column pane (miller columns view) ────────────────────────────────────────
-
 export const COL_ITEM_H = 30; // px — must match .col-pane-item height in CSS
 
 type Row =

@@ -189,11 +189,9 @@ impl Db {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Internal (de)serialization. Each known field has a stable string key + a
 // JSON-encoded scalar for the value. Adding a new field = extend both halves
 // in lock-step; no DB migration needed.
-// ---------------------------------------------------------------------------
 
 fn serialize_settings(s: &AppSettings) -> Vec<(&'static str, String)> {
     fn enc<T: serde::Serialize>(v: &T) -> String {

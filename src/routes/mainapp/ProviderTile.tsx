@@ -1,7 +1,5 @@
 import { detectProvider } from "../../providers";
 
-// ── provider tile ─────────────────────────────────────────────────────────────
-
 export function ProviderTile(props: {
   account: { endpoint?: string | null; region?: string };
   size?: "small" | "normal" | "large";

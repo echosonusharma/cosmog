@@ -45,7 +45,6 @@ export function Toolbar(props: {
         />
       </div>
 
-      {/* search — center, takes flex space */}
       <div class={`toolbar-search ${!(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "toolbar-search-disabled" : ""}`}>
         <IconSearch size={13} class="toolbar-search-icon" />
         <input
@@ -60,7 +59,6 @@ export function Toolbar(props: {
         </Show>
       </div>
 
-      {/* index toggle */}
       <button
         class={`index-toggle-btn ${(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "on" : "off"}`}
 

@@ -6,8 +6,6 @@ import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import type { AppSettings } from "../../types";
 
-// ── general ────────────────────────────────────────────────────────────────────
-
 export function SettingsForm() {
   const [settings, { refetch }] = createResource(getSettings);
   const [busy, setBusy] = createSignal(false);

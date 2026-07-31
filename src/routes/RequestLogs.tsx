@@ -184,7 +184,6 @@ export function RequestLogs() {
 
   return (
     <div class="view-container min-h-0">
-      {/* toolbar */}
       <div class="logs-header">
         <div class="logs-search-wrap">
           <IconSearch size={13} class="logs-search-icon" />
@@ -196,7 +195,6 @@ export function RequestLogs() {
           />
         </div>
 
-        {/* operation filter */}
         <Select
           value={opFilter()}
           placeholder="All operations"
@@ -205,7 +203,6 @@ export function RequestLogs() {
           onChange={(v) => { setOpFilter(v); load(); }}
         />
 
-        {/* status filter */}
         <Select
           value={statusFilter()}
           placeholder="All statuses"
@@ -226,7 +223,6 @@ export function RequestLogs() {
         </Show>
       </div>
 
-      {/* list */}
       <Show when={loading()}>
         <div class="loading-row"><span class="spinner" /> Loading…</div>
       </Show>
@@ -263,12 +259,9 @@ export function RequestLogs() {
                     style={{ "--row-color": isErr ? "#ef4444" : color }}
                     onClick={() => setExpanded(isExpanded() ? null : log.id)}
                   >
-                    {/* ── collapsed row ── */}
                     <div class="req-log-main">
-                      {/* colored status dot */}
                       <span class="req-log-dot" style={{ background: isErr ? "#ef4444" : "#22c55e" }} />
 
-                      {/* timestamp */}
                       <span class="req-log-ts">
                         <Show when={dateLabel !== today()}>
                           <span class="req-log-ts-date">{dateLabel}</span>
@@ -276,7 +269,6 @@ export function RequestLogs() {
                         {fmtTime(log.created_at)}
                       </span>
 
-                      {/* operation badge */}
                       <span
                         class="req-log-op"
                         style={{ "--op-color": color }}
@@ -284,12 +276,10 @@ export function RequestLogs() {
                         {opLabel(log.operation)}
                       </span>
 
-                      {/* account pill */}
                       <Show when={log.account_name}>
                         <span class="req-log-account">{log.account_name}</span>
                       </Show>
 
-                      {/* bucket / key path */}
                       <span class="req-log-target">
                         <Show when={log.bucket}>
                           <span class="req-log-bucket">{log.bucket}</span>
@@ -302,21 +292,17 @@ export function RequestLogs() {
 
                       <div class="flex-1" />
 
-                      {/* duration, color-coded */}
                       <span class={`req-log-duration ${durationClass(log.duration_ms)}`}>
                         {fmtDuration(log.duration_ms)}
                       </span>
 
-                      {/* chevron */}
                       <span class="req-log-chevron">{isExpanded() ? "▾" : "▸"}</span>
                     </div>
 
-                    {/* ── expanded detail card ── */}
                     <Show when={isExpanded()}>
                       {/* stop propagation: text selection inside the card must
                           not bubble to the row's collapse toggle */}
                       <div class="req-log-detail" onClick={(e) => e.stopPropagation()}>
-                        {/* header strip */}
                         <div class="req-log-detail-header" style={{ "border-left-color": color }}>
                           <Show when={log.http_method}>
                             <span class="req-log-http-method">{log.http_method}</span>
@@ -338,7 +324,6 @@ export function RequestLogs() {
                           </span>
                         </div>
 
-                        {/* URL bar */}
                         <Show when={log.request_url}>
                           <div class="req-log-url-bar">
                             <span class="req-log-chip-label req-log-chip-label-url">URL</span>
@@ -351,7 +336,6 @@ export function RequestLogs() {
                           </div>
                         </Show>
 
-                        {/* meta chips */}
                         <div class="req-log-detail-chips">
                           <Show when={log.account_name}>
                             <span class="req-log-chip req-log-chip-account">
@@ -375,7 +359,6 @@ export function RequestLogs() {
                           </span>
                         </div>
 
-                        {/* object key */}
                         <Show when={log.key}>
                           <div class="req-log-detail-key-row">
                             <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
@@ -383,7 +366,6 @@ export function RequestLogs() {
                           </div>
                         </Show>
 
-                        {/* request params JSON */}
                         <Show when={log.request_params && log.request_params !== "null"}>
                           <div class="req-log-params-block">
                             <div class="req-log-params-header">
@@ -396,7 +378,6 @@ export function RequestLogs() {
                           </div>
                         </Show>
 
-                        {/* response metadata JSON */}
                         <Show when={log.response_meta && log.response_meta !== "null"}>
                           <div class="req-log-params-block">
                             <div class="req-log-params-header">
@@ -409,7 +390,6 @@ export function RequestLogs() {
                           </div>
                         </Show>
 
-                        {/* error box */}
                         <Show when={isErr}>
                           <div class="req-log-detail-error-box">
                             <div class="req-log-detail-error-header">

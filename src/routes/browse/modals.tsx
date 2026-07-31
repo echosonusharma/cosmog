@@ -16,8 +16,6 @@ function displayName(p: string): string {
   return basename(p);
 }
 
-// ── modals ────────────────────────────────────────────────────────────────────
-
 export function DownloadModal(props: {
   obj: CachedObjectMeta;
   defaultDir: string;

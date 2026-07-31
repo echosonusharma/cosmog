@@ -7,8 +7,6 @@ import { ProviderIcon, providerLabel, IconX, IconEdit } from "../../utils/icons"
 import type { Account } from "../../types";
 import { AddAccountForm } from "./AddAccountForm";
 
-// ── accounts list ─────────────────────────────────────────────────────────────
-
 export function AccountsList() {
   const [showAdd, setShowAdd] = createSignal(false);
   const [editing, setEditing] = createSignal<Account | null>(null);

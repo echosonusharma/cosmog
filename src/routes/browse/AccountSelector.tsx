@@ -2,8 +2,6 @@ import { For } from "solid-js";
 import { accounts, setBrowseState } from "../../state/app";
 import { ProviderIcon, providerLabel } from "../../utils/icons";
 
-// ── account picker ────────────────────────────────────────────────────────────
-
 export function AccountSelector() {
   return (
     <div class="account-selector">

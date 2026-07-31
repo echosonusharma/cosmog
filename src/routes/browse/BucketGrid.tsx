@@ -16,8 +16,6 @@ import { ErrorPopup } from "../../utils/ErrorPopup";
 import { NewBucketModal } from "./modals";
 import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
 
-// ── bucket grid ───────────────────────────────────────────────────────────────
-
 export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [refresh, setRefresh] = createSignal(0);
   const [errDismissed, setErrDismissed] = createSignal(false);

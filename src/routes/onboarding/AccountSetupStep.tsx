@@ -5,8 +5,6 @@ import { type ProviderDef } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 import { ProviderIconTile, LabeledField } from "./shared";
 
-// ── step 3: account setup ─────────────────────────────────────────────────────
-
 export function AccountSetupStep(props: {
   provider: ProviderDef;
   onBack: () => void;

@@ -847,7 +847,6 @@ fn build_key(prefix: &str, rel: &str) -> String {
     }
 }
 
-// ── ignore-file matcher (gitignore syntax) ──────────────────────────────────
 // Desktop uses the ripgrep `ignore` matcher. Android has no `ignore` dep, so
 // the matcher is a no-op there for the MVP.
 
@@ -964,8 +963,6 @@ mod tests {
         assert!(!m.is_ignored("keep.txt"));
     }
 }
-
-// ── desktop notify watcher ──────────────────────────────────────────────────
 
 #[cfg(not(target_os = "android"))]
 mod desktop {

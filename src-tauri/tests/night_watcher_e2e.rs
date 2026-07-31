@@ -195,7 +195,7 @@ async fn e2e_full_sync_lifecycle() {
     assert_eq!(watch.bucket, bucket);
     assert_eq!(watch.key_prefix, "photos");
 
-    // ── 1. initial full scan ─────────────────────────────────────────────
+    // 1. initial full scan
     reconcile_watch_for_test(&ctx, &watch).await.unwrap();
 
     // keep.txt -> photos/keep.txt
@@ -251,13 +251,13 @@ async fn e2e_full_sync_lifecycle() {
         "ignored file must not get a state row"
     );
 
-    // ── 2. re-scan with no changes: nothing re-uploaded ──────────────────
+    // 2. re-scan with no changes: nothing re-uploaded
     let did_upload = reconcile_file_for_test(&ctx, &watch, "keep.txt", &root.join("keep.txt"))
         .await
         .unwrap();
     assert!(!did_upload, "unchanged file must be Skip (no re-upload)");
 
-    // ── 3. modify keep.txt: must re-upload with new content + new etag ───
+    // 3. modify keep.txt: must re-upload with new content + new etag
     // Sleep so mtime (1s resolution) actually advances past the recorded value.
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
     tokio::fs::write(root.join("keep.txt"), b"alpha-CHANGED-longer").await.unwrap();
@@ -296,7 +296,7 @@ async fn e2e_full_sync_lifecycle() {
         .unwrap();
     assert_eq!(tokio::fs::read(&dl).await.unwrap(), b"alpha-CHANGED-longer");
 
-    // ── 4. add a new file matched by ignore: never uploaded ──────────────
+    // 4. add a new file matched by ignore: never uploaded
     tokio::fs::write(root.join("late.log"), b"nope").await.unwrap();
     reconcile_watch_for_test(&ctx, &watch).await.unwrap();
     // Give any (incorrect) upload a chance to land, then assert it did NOT.
@@ -306,7 +306,7 @@ async fn e2e_full_sync_lifecycle() {
         "newly-added ignored file must not upload"
     );
 
-    // ── 5. delete a local file: remote survives (keep), state row dropped ─
+    // 5. delete a local file: remote survives (keep), state row dropped
     // Deletion is detected by a COMPLETE full scan (mark-and-sweep), not by a
     // single-file reconcile: a lone stat failure is treated as transient and
     // must NOT drop state. So confirm the row survives a single-file reconcile,

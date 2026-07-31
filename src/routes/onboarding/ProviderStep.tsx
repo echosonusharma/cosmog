@@ -3,8 +3,6 @@ import { PICKABLE_PROVIDERS as PROVIDERS, type ProviderDef } from "../../provide
 import { IconCheck } from "../../utils/icons";
 import { ProviderIconTile } from "./shared";
 
-// ── step 2: provider select ───────────────────────────────────────────────────
-
 const PROVIDER_DESCS: Record<string, string> = {
   aws:          "s3.amazonaws.com",
   backblaze:    "S3-compatible · low cost",

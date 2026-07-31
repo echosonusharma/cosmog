@@ -36,8 +36,6 @@ pub fn is_age_ciphertext(bytes: &[u8]) -> bool {
 /// of plaintext. Streaming file paths (upload/download) do not use this cap.
 pub const MAX_INMEMORY_CRYPT_BYTES: u64 = 512 * 1024 * 1024;
 
-// ── identity lifecycle ────────────────────────────────────────────────────────
-
 /// Generate a fresh X25519 identity. The returned secret string is a bech32
 /// `AGE-SECRET-KEY-...` value suitable for storage in the OS keychain and for
 /// direct use with the `age` CLI (`age -d -i keyfile.txt`).
@@ -60,8 +58,6 @@ pub fn parse_recipient(public: &str) -> AppResult<x25519::Recipient> {
     x25519::Recipient::from_str(public)
         .map_err(|e| AppError::Internal(format!("parse recipient: {e}")))
 }
-
-// ── in-memory helpers ────────────────────────────────────────────────────────
 
 pub fn encrypt_bytes(recipient: &x25519::Recipient, plaintext: &[u8]) -> AppResult<Vec<u8>> {
     let enc = age::Encryptor::with_recipients(std::iter::once(recipient as &dyn age::Recipient))
@@ -91,8 +87,6 @@ pub fn decrypt_bytes(identity: &x25519::Identity, ciphertext: &[u8]) -> AppResul
         .map_err(|e| AppError::Internal(format!("age read: {e}")))?;
     Ok(out)
 }
-
-// ── streaming file helpers (constant RAM) ────────────────────────────────────
 
 /// Stream-encrypt `src` to `dst`. Runs on a blocking thread so tokio's runtime
 /// stays responsive during file IO + AEAD. Memory usage is O(64 KiB chunk).

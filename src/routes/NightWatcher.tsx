@@ -201,7 +201,6 @@ export default function NightWatcher() {
           </div>
         </div>
 
-        {/* existing watches */}
         <div class="settings-section">
           <div class="settings-section-title">Watched directories</div>
 
@@ -275,7 +274,6 @@ export default function NightWatcher() {
           </Show>
         </div>
 
-        {/* add watch */}
         <div class="settings-section">
           <div class="settings-section-title">Add watch</div>
 

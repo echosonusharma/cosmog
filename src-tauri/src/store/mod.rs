@@ -211,7 +211,6 @@ pub struct PendingMultipartUpload {
 /// hooks used by [`crate::transfer::TransferManager`].
 #[async_trait]
 pub trait ObjectStore: Send + Sync {
-    // Bucket ops
     async fn list_buckets(&self) -> AppResult<Vec<Bucket>>;
     /// Create a bucket. If `region` is `None` the underlying provider uses
     /// the client's default region (typical for non-AWS providers like B2
@@ -234,7 +233,6 @@ pub trait ObjectStore: Send + Sync {
     /// Delete the bucket CORS config. Treats "no config present" as success.
     async fn delete_bucket_cors(&self, name: &str) -> AppResult<()>;
 
-    // Object metadata ops
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage>;
     async fn head_object(&self, bucket: &str, key: &str) -> AppResult<ObjectMeta>;
     /// Create a virtual folder by putting a zero-byte object with key `prefix/`.
@@ -317,7 +315,6 @@ pub trait ObjectStore: Send + Sync {
     ) -> AppResult<()>;
     async fn delete_object_tagging(&self, bucket: &str, key: &str) -> AppResult<()>;
 
-    // Transfer ops (streaming)
     async fn put_object(
         &self,
         bucket: &str,

@@ -3,8 +3,6 @@ import { mkdir, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appCacheDir, join } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 function hasStringPath(x: unknown): x is { path: string } {
   return typeof x === "object" && x !== null && "path" in x && typeof (x as { path: unknown }).path === "string";
 }

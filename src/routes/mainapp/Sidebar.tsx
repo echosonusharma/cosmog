@@ -132,8 +132,6 @@ function BugReportModal(props: { onClose: () => void }) {
   );
 }
 
-// ── nav definition ────────────────────────────────────────────────────────────
-
 const NAV: { view: View; label: string; icon: () => JSX.Element }[] = [
   { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
   { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },

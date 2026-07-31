@@ -4,8 +4,6 @@ import { type Step, Stepper } from "./onboarding/shared";
 import { ProviderStep } from "./onboarding/ProviderStep";
 import { AccountSetupStep } from "./onboarding/AccountSetupStep";
 
-// ── root onboarding ───────────────────────────────────────────────────────────
-
 export default function Onboarding(props: { onDone: () => void }) {
   const [step, setStep] = createSignal<Step>("provider");
   const [provider, setProvider] = createSignal<ProviderDef | null>(null);

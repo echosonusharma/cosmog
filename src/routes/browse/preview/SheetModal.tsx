@@ -26,7 +26,6 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
   const [sheetLoading, setSheetLoading] = createSignal(false);
   const [sheetErr, setSheetErr] = createSignal<string | null>(null);
 
-  // Reset everything when the selected object changes
   createEffect(() => { void props.obj.key; setSheetWb(null); setSheetExpanded(false); setActiveSheet(""); setSheetDirty(false); setSheetEditMode(false); setSheetErr(null); });
 
   async function loadSheet() {

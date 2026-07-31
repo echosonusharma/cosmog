@@ -6,8 +6,6 @@ import { ObjectBrowser } from "./browse/ObjectBrowser";
 import { ReauthPanel } from "./browse/ReauthPanel";
 import { isCredentialError, isNetworkError, parseWireError } from "../utils/errors";
 
-// ── root ──────────────────────────────────────────────────────────────────────
-
 export default function Browse(props: { defaultDownloadDir: string }) {
   createEffect(() => {
     if (accounts().length === 1 && !browseState.accountId) {

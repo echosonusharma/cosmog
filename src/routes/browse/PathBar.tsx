@@ -2,8 +2,6 @@ import { createMemo, For, Show } from "solid-js";
 import { setBrowseState, navigateToPrefix } from "../../state/app";
 import { IconHome, IconChevronR } from "../../utils/icons";
 
-// ── path bar ───────────────────────────────────────────────────────────────────
-
 export function PathBar(props: {
   accountName: string;
   bucket: string | null;

@@ -12,8 +12,6 @@ import { TransferRow } from "./transfers/TransferRow";
 import { EncryptionModal } from "./browse/EncryptionModal";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
 
-// ── page ─────────────────────────────────────────────────────────────────────
-
 type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
 export default function Transfers() {

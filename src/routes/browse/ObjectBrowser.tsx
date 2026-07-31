@@ -30,8 +30,6 @@ import { SearchResultsPane } from "./SearchResultsPane";
 import { ContextMenu, type CtxMenu } from "./ContextMenu";
 import { ListView } from "./ListView";
 
-// ── object browser ────────────────────────────────────────────────────────────
-
 export function ObjectBrowser(props: {
   accountId: string;
   accountName: string;
@@ -41,7 +39,6 @@ export function ObjectBrowser(props: {
 }) {
   const [refresh, setRefresh] = createSignal(0);
 
-  // ── search ────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = createSignal("");
   const [debouncedQuery, setDebouncedQuery] = createSignal("");
   const [indexBusy, setIndexBusy] = createSignal(false);
@@ -52,7 +49,6 @@ export function ObjectBrowser(props: {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => setDebouncedQuery(q), 300);
   });
-  // clear search when bucket changes
   createEffect(() => { props.bucket; setSearchQuery(""); setDebouncedQuery(""); mutateSearchResults(undefined); });
 
   const [indexStatus, { refetch: refetchIndex }] = createResource(
@@ -136,7 +132,6 @@ export function ObjectBrowser(props: {
     setViewMode(m);
   };
 
-  // derive column prefixes from current prefix path
   const colPrefixes = () => {
     const segs = props.prefix.split("/").filter(Boolean);
     const result: string[] = [""];
@@ -401,14 +396,12 @@ export function ObjectBrowser(props: {
         onUpload={() => setShowUpload(props.prefix)}
       />
 
-      {/* ── initial load overlay — covers content area while first page fetches ── */}
       <Show when={!browseData.initialLoaded && !browseData.error}>
         <div class="browse-loading-overlay">
           <span class="spinner spinner-lg" />
         </div>
       </Show>
 
-      {/* ── index status bar (shown when search active) ── */}
       <Show when={searchQuery()}>
         <IndexBar
           accountId={props.accountId}
@@ -444,7 +437,6 @@ export function ObjectBrowser(props: {
         </div>
       </Show>
 
-      {/* ── search results ── */}
       <Show when={searchQuery()}>
         <SearchResultsPane
           searchQuery={searchQuery()}
@@ -463,7 +455,6 @@ export function ObjectBrowser(props: {
       {/* ── view area: all view modes + shared preview as flex-row siblings ── */}
       <div class="browse-area" classList={{ hidden: !!searchQuery() }}>
 
-      {/* ── columns view ── */}
         <div class="browse-view" classList={{ hidden: viewMode() !== "columns" || !!searchQuery() }}>
           <div class="columns-scroll" ref={columnsScrollEl}>
             <For each={colPrefixes()}>
@@ -494,7 +485,6 @@ export function ObjectBrowser(props: {
           </div>
         </div>
 
-      {/* ── list view ── */}
       <div class="browse-view list" classList={{ hidden: viewMode() !== "list" || !!searchQuery() }}>
         <ListView
           prefix={props.prefix}
@@ -515,9 +505,8 @@ export function ObjectBrowser(props: {
           onCtxFile={openCtx}
           onCtxFolder={openCtxFolder}
         />
-      </div>{/* end list view */}
+      </div>
 
-      {/* ── shared preview pane (single instance for all view modes) ── */}
       <Show when={previewTarget()}>
         <ErrorBoundary fallback={(err, reset) => (
           <div class="preview-pane preview-err-card">
@@ -536,7 +525,7 @@ export function ObjectBrowser(props: {
         </ErrorBoundary>
       </Show>
 
-      </div>{/* end view area */}
+      </div>
 
       <Show when={dragOver()}>
         <div class="drop-overlay">Drop files to upload</div>

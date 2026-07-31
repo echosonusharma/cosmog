@@ -280,10 +280,6 @@ fn parse_result_str(s: Option<&str>) -> CapState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Probes
-// ---------------------------------------------------------------------------
-
 /// Probe the account-level capabilities. Always runs `list_buckets`. To probe
 /// `create_bucket` we'd need to actually create one — there is no dry-run —
 /// so we leave it `Unknown` here and update it reactively if the user ever

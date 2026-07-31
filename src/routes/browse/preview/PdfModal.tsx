@@ -107,7 +107,6 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
     setZoomPct(100);
   }
 
-  // Reset everything when the selected object changes.
   createEffect(() => {
     void props.obj.key;
     destroyDoc();

@@ -8,7 +8,6 @@ export default function Logs() {
   const [tab, setTab] = createSignal<Tab>("requests");
   return (
     <div class="view-container">
-      {/* tab bar */}
       <div class="logs-header logs-tabbar">
         <h2 class="logs-tabbar-title">Logs</h2>
         <button

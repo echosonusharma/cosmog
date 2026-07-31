@@ -9,14 +9,10 @@ async fn bucket_lifecycle() {
     let store = common::make_store().await;
     let name = common::unique_bucket("cosmog-bkt");
 
-    // create
     store.create_bucket(&name, None).await.expect("create");
-    // list contains it
     let buckets = store.list_buckets().await.expect("list");
     assert!(buckets.iter().any(|b| b.name == name), "bucket missing from list");
-    // head succeeds
     store.head_bucket(&name).await.expect("head");
-    // delete
     store.delete_bucket(&name).await.expect("delete");
     // head should now fail with NotFound
     let err = store.head_bucket(&name).await.expect_err("head after delete");
