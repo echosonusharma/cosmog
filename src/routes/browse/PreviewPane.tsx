@@ -11,10 +11,11 @@ import {
 import type { CachedObjectMeta } from "../../types";
 import { CodeEditor, EditorModal } from "../../utils/CodeEditor";
 import { resolvedTheme } from "../../state/theme";
-import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, extOf } from "./helpers";
+import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf } from "./helpers";
 import { Lightbox } from "./preview/Lightbox";
 import { SheetPreview } from "./preview/SheetModal";
 import { PdfPreview } from "./preview/PdfModal";
+import { AudioPreview } from "./preview/AudioPlayer";
 import { MetaList } from "./preview/MetaList";
 import { useBackHandler } from "../../utils/androidBack";
 
@@ -55,7 +56,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
   const isSheet = () => SHEET_EXTS.has(ext());
   const isPdf = () => ct() === "application/pdf" || PDF_EXTS.has(ext());
-  const isText = () => !isSheet() && !isPdf() && (ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript") || TEXT_EXTS.has(ext()));
+  const isAudio = () => ct().startsWith("audio/") || AUDIO_EXTS.has(ext());
+  const isText = () => !isSheet() && !isPdf() && !isAudio() && (ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript") || TEXT_EXTS.has(ext()));
 
   const [loadRequested, setLoadRequested] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
@@ -329,7 +331,11 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <PdfPreview obj={props.obj} />
           </Show>
 
-          <Show when={!isImage() && !isText() && !isSheet() && !isPdf()}>
+          <Show when={isAudio()}>
+            <AudioPreview obj={props.obj} encrypted={props.encrypted} />
+          </Show>
+
+          <Show when={!isImage() && !isText() && !isSheet() && !isPdf() && !isAudio()}>
             <div class="muted preview-binary-note">
               Binary content · {formatBytes(props.obj.size)}
             </div>

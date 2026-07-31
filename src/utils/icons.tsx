@@ -22,6 +22,10 @@ export const IconFile         = I("file");
 export const IconImage        = I("image");
 export const IconVideo        = I("video");
 export const IconAudio        = I("music");
+export const IconPlay         = I("play");
+export const IconPause        = I("pause");
+export const IconVolume       = I("volume-2");
+export const IconMute         = I("volume-x");
 export const IconDoc          = I("file-text");
 export const IconArchive      = I("archive");
 export const IconCode         = I("code-2");
@@ -95,7 +99,7 @@ const EXT_MAP: Record<string, Kind> = {
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",
   bmp: "image", ico: "image", tif: "image", tiff: "image", avif: "image", heic: "image",
   mp4: "video", mov: "video", mkv: "video", avi: "video", webm: "video", flv: "video", wmv: "video",
-  mp3: "audio", wav: "audio", ogg: "audio", flac: "audio", m4a: "audio", aac: "audio",
+  mp3: "audio", wav: "audio", ogg: "audio", oga: "audio", flac: "audio", m4a: "audio", aac: "audio", opus: "audio", weba: "audio",
   pdf: "doc", txt: "doc", md: "doc", doc: "doc", docx: "doc", rtf: "doc",
   xls: "doc", xlsx: "doc", csv: "doc", ppt: "doc", pptx: "doc",
   zip: "archive", tar: "archive", gz: "archive", bz2: "archive", "7z": "archive",
