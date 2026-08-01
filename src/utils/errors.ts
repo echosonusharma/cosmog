@@ -14,6 +14,7 @@ const PREFIXES: Record<string, string> = {
   canceled:             "canceled: ",
   region_redirect:      "region redirect: ",
   unsupported:          "unsupported: ",
+  archived:             "archived: ",
   network_unreachable:  "network unreachable: ",
   internal:             "internal: ",
 };

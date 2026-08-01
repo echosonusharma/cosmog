@@ -191,6 +191,11 @@ where
             "NotImplemented" | "501" => {
                 return AppError::Unsupported(display);
             }
+            // Object's storage class blocks direct reads (archive/cold tier);
+            // GetObject fails until restored. Distinct code so FE can explain.
+            "InvalidObjectState" => {
+                return AppError::Archived(display);
+            }
             _ => {}
         }
         // Some providers signal "not implemented" only via HTTP 501 with an

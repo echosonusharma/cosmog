@@ -98,6 +98,13 @@ pub enum AppError {
     #[error("encryption identity missing: {0}")]
     EncryptionIdentityMissing(String),
 
+    /// Object's storage class doesn't allow direct reads; it must be restored or
+    /// moved to a standard tier first. S3-compatible providers signal this as
+    /// `InvalidObjectState` on GetObject (AWS Glacier, and equivalents on other
+    /// providers). FE should explain rather than surface a raw error.
+    #[error("archived: {0}")]
+    Archived(String),
+
     /// Catch-all for unexpected internal failures.
     #[error("internal: {0}")]
     Internal(String),
@@ -123,6 +130,7 @@ impl AppError {
             AppError::NetworkUnreachable(_) => "network_unreachable",
             AppError::Unsupported(_) => "unsupported",
             AppError::EncryptionIdentityMissing(_) => "encryption_identity_missing",
+            AppError::Archived(_) => "archived",
             AppError::Internal(_) => "internal",
         }
     }

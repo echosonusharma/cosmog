@@ -22,9 +22,16 @@ import { useBackHandler } from "../../utils/androidBack";
 // Map a Tauri IPC rejection to a short, human-facing (title, hint) pair for
 // the preview error card. Falls back to the raw wire message when the code
 // isn't specifically recognised.
-function previewErrorParts(err: unknown): { title: string; hint: string } {
+function previewErrorParts(err: unknown, storageClass?: string | null): { title: string; hint: string } {
   const code = errCode(err);
   const msg = errMsg(err);
+  if (code === "archived") {
+    const cls = storageClass ? ` (${storageClass})` : "";
+    return {
+      title: "File can't be previewed",
+      hint: `This object's storage class${cls} doesn't allow direct access. Restore it or move it to a standard tier before previewing or downloading.`,
+    };
+  }
   if (code === "encryption_identity_missing") {
     return {
       title: "Encryption key missing on this device",
@@ -40,8 +47,8 @@ function previewErrorParts(err: unknown): { title: string; hint: string } {
   return { title: "Preview failed", hint: msg };
 }
 
-function PreviewErrorCard(props: { err: unknown }) {
-  const parts = () => previewErrorParts(props.err);
+function PreviewErrorCard(props: { err: unknown; storageClass?: string | null }) {
+  const parts = () => previewErrorParts(props.err, props.storageClass);
   return (
     <div class="preview-err-inline">
       <div class="preview-err-inline-title">{parts().title}</div>
@@ -144,6 +151,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   type TextSnap = { key: string; bytes: number[]; content_type?: string | null };
   const [displayText, setDisplayText] = createSignal<TextSnap | null>(null);
   createEffect(() => {
+    if (preview.error) return;
     const p = preview();
     const k = loadedKey();
     if (!p || !k) return;
@@ -230,7 +238,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         </div>
         <div class="preview-body">
           <Show when={preview.error}>
-            <PreviewErrorCard err={preview.error} />
+            <PreviewErrorCard err={preview.error} storageClass={props.obj.storage_class} />
           </Show>
 
           <Show when={isImage()}>
@@ -272,7 +280,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             </div>
           </Show>
 
-          <Show when={isText() && !isImage()}>
+          <Show when={isText() && !isImage() && !preview.error}>
             <Show when={textAutoLoad()}>
               <Show when={preview.loading && !displayText()}>
                 <div class="preview-loader">
