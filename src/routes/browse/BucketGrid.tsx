@@ -96,7 +96,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
 
   return (
     <div class="bucket-grid-view">
-      <div class="app-toolbar">
+      <div class="app-toolbar bucket-toolbar">
         <div class="toolbar-left">
           <div class="toolbar-nav">
             <button class="icon-btn" onClick={() => setRefresh((n) => n + 1)}><IconRefresh size={16} /><span class="btn-label-mobile">Refresh</span></button>

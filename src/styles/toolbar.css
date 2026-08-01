@@ -82,6 +82,32 @@
   flex-shrink: 0;
 }
 
+/* ── medium desktop: wrap the toolbar so nothing overflows ──────────────── */
+/* selectors use .app-toolbar prefix to win over search.css (loaded later) */
+@media (min-width: 769px) and (max-width: 1120px) {
+  .app-toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    flex: 0 0 auto;
+    row-gap: 8px;
+    padding: 8px 14px;
+    align-items: center;
+  }
+  /* row 1: breadcrumb takes the whole first line */
+  .app-toolbar .toolbar-left { flex: 1 1 100%; }
+  .app-toolbar .path-bar { flex: 1 1 auto; max-width: none; }
+  .app-toolbar .toolbar-search { flex: 1 1 auto; max-width: none; }
+
+  /* object browser — 3 rows: nav | index+search | badges+actions */
+  .browse-toolbar .index-toggle-btn { order: 1; }
+  .browse-toolbar .toolbar-search { order: 2; }
+  .browse-toolbar .toolbar-actions { order: 3; flex: 1 1 100%; }
+  .browse-toolbar .toolbar-actions .btn-secondary { margin-left: auto; }
+
+  /* bucket grid — 2 rows: nav | filter + New bucket (fewer controls fit) */
+  .bucket-toolbar .toolbar-actions { flex: 0 0 auto; }
+}
+
 /* ── view header ────────────────────────────────────────────────────────── */
 
 .view-header {

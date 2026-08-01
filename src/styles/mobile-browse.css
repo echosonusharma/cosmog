@@ -44,12 +44,13 @@
     gap: 6px;
     height: 34px;
   }
-  /* row 1: every action button share width evenly */
-  .app-toolbar > .toolbar-left > .toolbar-nav > button,
-  .app-toolbar > .toolbar-left > .toolbar-nav > .icon-btn,
-  .app-toolbar > .toolbar-actions > button,
-  .app-toolbar > .toolbar-actions > .icon-btn,
-  .app-toolbar > .toolbar-actions > .toolbar-btn {
+  /* row 1: every action button share width evenly.
+     display:contents flattens the wrappers, so match by class not > chain */
+  .app-toolbar .toolbar-nav > button,
+  .app-toolbar .toolbar-nav > .icon-btn,
+  .app-toolbar .toolbar-actions > button,
+  .app-toolbar .toolbar-actions > .icon-btn,
+  .app-toolbar .toolbar-actions > .toolbar-btn {
     flex: 1 1 0 !important;
     min-width: 0 !important;
     height: 34px !important;

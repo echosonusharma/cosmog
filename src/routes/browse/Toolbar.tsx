@@ -30,7 +30,7 @@ export function Toolbar(props: {
   onUpload: () => void;
 }) {
   return (
-    <div class="app-toolbar">
+    <div class="app-toolbar browse-toolbar">
       <div class="toolbar-left">
         <div class="toolbar-nav">
           <button class="icon-btn" onClick={goUpPrefix}><IconBack size={16} /></button>
@@ -61,7 +61,7 @@ export function Toolbar(props: {
 
       <button
         class={`index-toggle-btn ${(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "on" : "off"}`}
-
+        title={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Indexed" : "Not indexed"}
         disabled={props.indexBusy}
         onClick={props.onToggleIndex}
       >

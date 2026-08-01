@@ -8,23 +8,25 @@
 }
 .search-input { flex: 1; }
 
-/* toolbar inline search — flex:1 fills all remaining space */
+/* toolbar inline search — grows to fill, shrinks before it overflows */
 .toolbar-search {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex; align-items: center;
   background: var(--bg-elev-1);
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 0 12px;
   gap: 8px;
-  min-width: 100px;
+  min-width: 120px;
   height: 34px;
+  overflow: hidden;
 }
 .toolbar-search:focus-within { border-color: var(--border-focus); }
 .toolbar-search-icon { color: var(--faint); flex-shrink: 0; }
 .toolbar-search-input {
-  flex: 1; background: none; border: none; outline: none;
+  flex: 1; min-width: 0; background: none; border: none; outline: none;
   font: inherit; font-size: 13px; color: var(--text);
+  text-overflow: ellipsis;
 }
 .toolbar-search-input::placeholder { color: var(--faint); }
 .toolbar-search-clear {
