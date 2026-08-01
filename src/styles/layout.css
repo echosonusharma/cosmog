@@ -1,3 +1,8 @@
+/* ── global reset ────────────────────────────────────────────────────────── */
+
+*:focus { outline: none; }
+* { -webkit-tap-highlight-color: transparent; }
+
 /* ── root layout with custom titlebar ───────────────────────────────────── */
 
 .cosmog-root {

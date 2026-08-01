@@ -364,6 +364,8 @@
     flex: 1 1 100%;
   }
   .log-span { font-size: 10px; padding: 1px 5px; }
+  /* source chip is a <button>; opt out of the 40px mobile min-height */
+  .log-source { min-height: 0; align-self: flex-start; }
   .log-kv { font-size: 10.5px; }
   .log-k, .log-v { padding: 1px 4px; }
   .log-fields { gap: 3px; }
