@@ -44,20 +44,24 @@
     gap: 6px;
     height: 34px;
   }
-  /* row 1: every action button share width evenly.
-     display:contents flattens the wrappers, so match by class not > chain */
-  .app-toolbar .toolbar-nav > button,
+  /* nav icon buttons (back, refresh) are fixed-width and icon-only on mobile,
+     so a text label can't overflow the shrunk button. Applies to both the
+     browse and bucket-grid toolbars. */
   .app-toolbar .toolbar-nav > .icon-btn,
-  .app-toolbar .toolbar-actions > button,
-  .app-toolbar .toolbar-actions > .icon-btn,
-  .app-toolbar .toolbar-actions > .toolbar-btn {
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
+  .browse-toolbar .toolbar-kebab {
+    flex: 0 0 auto !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    padding: 0 !important;
     height: 34px !important;
   }
-  .toolbar-btn {
-    padding: 0 8px !important;
-    gap: 4px;
+  .app-toolbar .toolbar-nav > .icon-btn .btn-label-mobile { display: none; }
+  .upload-btn {
+    flex: 1 1 auto !important;
+    min-width: 72px !important;
+    height: 36px !important;
+    /* beat button{min-height:40px} so it lines up with the icon buttons (36) */
+    min-height: 36px !important;
   }
   .breadcrumb {
     overflow-x: auto;
@@ -72,17 +76,52 @@
     font-size: 12.5px;
     padding: 2px 4px;
   }
-  .toolbar-actions {
-    gap: 4px;
-  }
+  .toolbar-actions { gap: 4px; }
 
-  /* ── toolbar: hide non-essential controls, keep breadcrumb + primary actions ── */
-  .toolbar-search,
-  .index-toggle-btn,
-  .view-mode-toggle,
+  /* only these collapse into the kebab; refresh, index toggle and view toggle
+     stay as visible buttons beside refresh */
+  .analytics-btn,
+  .enc-btn,
+  .newfolder-btn,
   .sync-badge,
   .mode-badge {
     display: none !important;
+  }
+  /* index + view toggles: uniform with back/refresh — same 40x34 outlined
+     icon buttons. Index shows a dot, view shows the single toggle button. */
+  .index-toggle-btn,
+  .view-toggle-mobile {
+    flex: 0 0 auto !important;
+    width: 40px !important;
+    min-width: 40px !important;
+    padding: 0 !important;
+    height: 36px !important;
+    /* beat the generic button{min-height:40px} touch-target so it matches .icon-btn (36) */
+    min-height: 36px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+  /* strip the index toggle's filled look so it matches the outlined icon-btns */
+  .index-toggle-btn {
+    background: transparent !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
+  }
+  .index-toggle-btn .index-toggle-label { display: none; }
+  /* segmented view toggle is desktop-only; mobile uses the single button */
+  .view-mode-toggle { display: none !important; }
+  .toolbar-overflow { display: inline-flex !important; }
+  /* search gets its own full-width row below the breadcrumb */
+  .browse-toolbar .toolbar-search {
+    order: 11;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 34px;
   }
   .toolbar-btn {
     font-size: 12px !important;
@@ -255,6 +294,15 @@
   .aplayer-speed { height: 34px; padding: 0 12px; font-size: 13px; }
   .aplayer-vol-btn { width: 38px; height: 38px; }
   .aplayer-vol { display: none; }
+
+  /* col-pane item: height: 100% can misbehave on Android WebView — pin explicitly */
+  .col-pane-item.fill-cell {
+    height: 30px !important;
+    max-height: 30px !important;
+    /* beat the global mobile button{min-height:40px} — else items overflow
+       their 30px virtual-row slot and overlap the next row */
+    min-height: 30px !important;
+  }
 
   /* ── search results / index bar: compact, allow horizontal scroll ────── */
   .search-controls {

@@ -184,6 +184,22 @@ export interface BucketStats {
     object_count: number;
     total_bytes: number;
   }>;
+  by_extension: Array<{
+    extension: string;
+    object_count: number;
+    total_bytes: number;
+  }>;
+  extension_count: number;
+  by_month: Array<{
+    month: string;
+    object_count: number;
+    total_bytes: number;
+  }>;
+  largest: Array<{
+    key: string;
+    basename: string;
+    size: number;
+  }>;
 }
 
 export interface ObjectVersion {

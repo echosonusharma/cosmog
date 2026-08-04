@@ -1,15 +1,18 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { Resource } from "solid-js";
 import {
   IconBack, IconRefresh, IconUpload,
   IconPlus, IconX, IconColumns, IconList, IconSearch,
-  IconLock, IconLockOpen,
+  IconLock, IconLockOpen, IconActivity, IconDatabase,
 } from "../../utils/icons";
 import { setBrowseState, goUpPrefix } from "../../state/app";
 import { PathBar } from "./PathBar";
+import { StatsModal } from "./StatsModal";
+import { ToolbarOverflow } from "./ToolbarOverflow";
 import type { BucketIndexStatus } from "../../types";
 
 export function Toolbar(props: {
+  accountId: string;
   accountName: string;
   bucket: string;
   prefix: string;
@@ -29,12 +32,14 @@ export function Toolbar(props: {
   onNewFolder: () => void;
   onUpload: () => void;
 }) {
+  const [showStats, setShowStats] = createSignal(false);
+  const indexed = () => (props.indexStatus.latest ?? props.indexStatus())?.enabled;
   return (
     <div class="app-toolbar browse-toolbar">
       <div class="toolbar-left">
         <div class="toolbar-nav">
           <button class="icon-btn" onClick={goUpPrefix}><IconBack size={16} /></button>
-          <button class="icon-btn" onClick={props.onRefresh}><IconRefresh size={16} /></button>
+          <button class="icon-btn refresh-btn" onClick={props.onRefresh}><IconRefresh size={16} /></button>
         </div>
         <PathBar
           accountName={props.accountName}
@@ -65,7 +70,7 @@ export function Toolbar(props: {
         disabled={props.indexBusy}
         onClick={props.onToggleIndex}
       >
-        <span class="index-toggle-dot" />
+        <IconDatabase size={14} class="index-toggle-icon" />
         <Show when={(props.indexStatus.latest ?? props.indexStatus())?.enabled}>
           <span class="index-toggle-label">Indexed</span>
         </Show>
@@ -73,6 +78,12 @@ export function Toolbar(props: {
           <span class="index-toggle-label">Not indexed</span>
         </Show>
       </button>
+
+      <Show when={indexed()}>
+        <button class="icon-btn analytics-btn" title="Storage analytics" onClick={() => setShowStats(true)}>
+          <IconActivity size={16} />
+        </button>
+      </Show>
 
       <div class="toolbar-actions">
         <Show when={props.showSyncing}>
@@ -82,7 +93,7 @@ export function Toolbar(props: {
           <span class="mode-badge live">live</span>
         </Show>
         <button
-          class="icon-btn"
+          class="icon-btn enc-btn"
           classList={{ "enc-active": props.encryptionEnabled }}
           onClick={props.onOpenEncryption}
         >
@@ -94,13 +105,29 @@ export function Toolbar(props: {
           <button class={`view-mode-btn ${props.viewMode === "columns" ? "active" : ""}`} onClick={() => props.onViewMode("columns")}><IconColumns size={14} /></button>
           <button class={`view-mode-btn ${props.viewMode === "list" ? "active" : ""}`} onClick={() => props.onViewMode("list")}><IconList size={14} /></button>
         </div>
-        <button class="btn-secondary toolbar-btn" onClick={props.onNewFolder}>
+        {/* mobile: single toggle so it stays uniform with the other icon buttons */}
+        <button class="icon-btn view-toggle-mobile" title="Toggle view"
+                onClick={() => props.onViewMode(props.viewMode === "columns" ? "list" : "columns")}>
+          <Show when={props.viewMode === "columns"} fallback={<IconColumns size={16} />}><IconList size={16} /></Show>
+        </button>
+        <button class="btn-secondary toolbar-btn newfolder-btn" onClick={props.onNewFolder}>
           <IconPlus size={14} /> <span class="btn-label-desktop">New folder</span><span class="btn-label-mobile">Add</span>
         </button>
-        <button class="btn-primary toolbar-btn" onClick={props.onUpload}>
+        <button class="btn-primary toolbar-btn upload-btn" onClick={props.onUpload}>
           <IconUpload size={14} /> Upload
         </button>
+        <ToolbarOverflow
+          indexed={!!indexed()}
+          encryptionEnabled={props.encryptionEnabled}
+          onAnalytics={() => setShowStats(true)}
+          onOpenEncryption={props.onOpenEncryption}
+          onNewFolder={props.onNewFolder}
+        />
       </div>
+
+      <Show when={showStats()}>
+        <StatsModal accountId={props.accountId} bucket={props.bucket} onClose={() => setShowStats(false)} />
+      </Show>
     </div>
   );
 }

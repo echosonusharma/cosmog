@@ -11,6 +11,23 @@
   background: var(--panel);
 }
 
+/* mobile-only single view toggle; the segmented .view-mode-toggle is desktop */
+.view-toggle-mobile { display: none; }
+
+/* overflow (kebab) menu — mobile only; hidden on desktop */
+.toolbar-overflow { display: none; position: relative; flex: 0 0 auto; }
+.toolbar-overflow-backdrop { position: fixed; inset: 0; z-index: 60; }
+/* two classes to beat .context-menu's `position: fixed` (loaded later) */
+.context-menu.toolbar-overflow-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 61;
+  min-width: 210px;
+}
+.toolbar-overflow-menu .index-toggle-dot { margin-right: 8px; flex: none; }
+
 /* left section: nav buttons + breadcrumb */
 .toolbar-left {
   display: flex; align-items: center;

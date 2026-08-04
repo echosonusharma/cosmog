@@ -37,6 +37,11 @@ pub struct BucketStats {
     pub object_count: i64,
     pub total_bytes: i64,
     pub by_storage_class: Vec<StorageClassStat>,
+    pub by_extension: Vec<FileTypeStat>,
+    // Total distinct extensions, independent of the top-N cap on by_extension.
+    pub extension_count: i64,
+    pub by_month: Vec<MonthStat>,
+    pub largest: Vec<LargeObjectStat>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +49,27 @@ pub struct StorageClassStat {
     pub storage_class: String,
     pub object_count: i64,
     pub total_bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileTypeStat {
+    pub extension: String,
+    pub object_count: i64,
+    pub total_bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MonthStat {
+    pub month: String,
+    pub object_count: i64,
+    pub total_bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LargeObjectStat {
+    pub key: String,
+    pub basename: String,
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -755,6 +781,71 @@ impl Db {
                 })?;
                 for r in iter {
                     stats.by_storage_class.push(r?);
+                }
+                // Top file types by size. Empty extension folds into "(none)".
+                let mut stmt = conn.prepare(
+                    "SELECT COALESCE(NULLIF(extension, ''), '(none)'), COUNT(*), COALESCE(SUM(size), 0)
+                       FROM cached_objects
+                       WHERE account_id = ?1 AND bucket = ?2
+                       GROUP BY COALESCE(NULLIF(extension, ''), '(none)')
+                       ORDER BY SUM(size) DESC
+                       LIMIT 20",
+                )?;
+                let iter = stmt.query_map(params![account_id, bucket], |row| {
+                    Ok(FileTypeStat {
+                        extension: row.get(0)?,
+                        object_count: row.get(1)?,
+                        total_bytes: row.get(2)?,
+                    })
+                })?;
+                for r in iter {
+                    stats.by_extension.push(r?);
+                }
+                // True distinct-extension count (by_extension is capped, so its
+                // length would under-report for buckets with many types).
+                stats.extension_count = conn.query_row(
+                    "SELECT COUNT(DISTINCT COALESCE(NULLIF(extension, ''), '(none)'))
+                       FROM cached_objects
+                       WHERE account_id = ?1 AND bucket = ?2",
+                    params![account_id, bucket],
+                    |row| row.get(0),
+                )?;
+                // Objects grouped by last-modified month for the timeline chart.
+                // Rows without a timestamp are skipped.
+                let mut stmt = conn.prepare(
+                    "SELECT strftime('%Y-%m', last_modified, 'unixepoch'), COUNT(*), COALESCE(SUM(size), 0)
+                       FROM cached_objects
+                       WHERE account_id = ?1 AND bucket = ?2 AND last_modified IS NOT NULL
+                       GROUP BY 1
+                       ORDER BY 1 ASC",
+                )?;
+                let iter = stmt.query_map(params![account_id, bucket], |row| {
+                    Ok(MonthStat {
+                        month: row.get(0)?,
+                        object_count: row.get(1)?,
+                        total_bytes: row.get(2)?,
+                    })
+                })?;
+                for r in iter {
+                    stats.by_month.push(r?);
+                }
+                // Biggest objects by size, for the "largest" list.
+                let mut stmt = conn.prepare(
+                    "SELECT key, basename, size
+                       FROM cached_objects
+                       WHERE account_id = ?1 AND bucket = ?2
+                       ORDER BY size DESC
+                       LIMIT 10",
+                )?;
+                let iter = stmt.query_map(params![account_id, bucket], |row| {
+                    Ok(LargeObjectStat {
+                        key: row.get(0)?,
+                        basename: row.get(1)?,
+                        size: row.get(2)?,
+                    })
+                })?;
+                for r in iter {
+                    stats.largest.push(r?);
                 }
                 Ok::<_, tokio_rusqlite::Error>(stats)
             })

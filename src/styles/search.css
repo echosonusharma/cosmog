@@ -51,11 +51,9 @@
 }
 .index-toggle-btn:hover { border-color: var(--border-focus); }
 .index-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.index-toggle-dot {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-}
-.index-toggle-btn.on .index-toggle-dot { background: #22c55e; box-shadow: 0 0 5px #22c55e88; }
-.index-toggle-btn.off .index-toggle-dot { background: var(--text-faint); }
+.index-toggle-icon { flex-shrink: 0; }
+.index-toggle-btn.on .index-toggle-icon { color: #22c55e; }
+.index-toggle-btn.off .index-toggle-icon { color: var(--text-faint); }
 .index-toggle-btn.on .index-toggle-label { color: var(--text-muted); }
 .index-toggle-btn.off .index-toggle-label { color: var(--text-faint); }
 

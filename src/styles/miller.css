@@ -38,7 +38,11 @@
   font: inherit; font-size: 12.5px;
   box-sizing: border-box;
 }
-.col-pane-item:hover { background: var(--panel-2); }
+/* hover only on real pointers — touch keeps :hover stuck after tap */
+@media (hover: hover) { .col-pane-item:hover { background: var(--panel-2); } }
+/* keep focus ring inside the 30px box so it can't bleed into the next row */
+.col-pane-item:focus { outline: none; }
+.col-pane-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .col-pane-item.selected { background: color-mix(in srgb, var(--accent) 32%, transparent); color: var(--text); }
 .col-pane-item.selected .col-pane-chev { color: var(--muted); }
 
@@ -82,7 +86,7 @@
   cursor: pointer;
   border-radius: 7px;
 }
-.col-pane-row .col-kebab:hover { color: var(--text); background: var(--panel-2); }
+@media (hover: hover) { .col-pane-row .col-kebab:hover { color: var(--text); background: var(--panel-2); } }
 .col-pane-loadmore.fill-cell { justify-content: center; color: var(--muted); }
 .col-pane-empty {
   overflow-y: auto;

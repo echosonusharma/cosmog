@@ -376,6 +376,7 @@ export function ObjectBrowser(props: {
          onDragLeave={onDragLeave}
          onDrop={onDrop}>
       <Toolbar
+        accountId={props.accountId}
         accountName={props.accountName}
         bucket={props.bucket}
         prefix={props.prefix}
