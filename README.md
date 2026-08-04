@@ -28,6 +28,7 @@
 - 👁️ **Preview** images, audio, PDFs, spreadsheets, JSON, XML, text, and code without downloading
 - ✏️ **Edit** text based files (md, json, txt, and more) & spreadsheets directly in the app
 - 🔍 **Search** across your entire bucket with full-text search
+- 📊 **Analyze** storage with per-bucket stats: size by file type, growth over time, and largest objects
 - 🔗 **Share** files instantly with presigned links
 - 🔒 **Encrypt** entire buckets client-side with per-bucket keys
 - 🌙 **Night Watcher** one-way backup: keep a local folder auto-synced to a bucket in the background
@@ -77,4 +78,4 @@ npm run tauri dev    # desktop, hot reload
 npm run tauri build  # desktop, production
 ```
 
-For Android setup and internals, see [DOCS.md](DOCS.md).
+For Android setup and internals, see [DOCS.md](docs/DOCS.md).

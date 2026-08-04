@@ -1,6 +1,6 @@
 # Cosmog - Developer Docs
 
-Desktop and Android app for managing S3-compatible object storage. v0.1.13.
+Desktop and Android app for managing S3-compatible object storage. v0.1.25.
 
 ---
 
@@ -18,6 +18,7 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.13.
 | ExcelJS | Spreadsheet parse / edit |
 | pdfjs-dist 6 | PDF rendering (legacy build for WebKit compat) |
 | TanStack Solid Virtual | Virtualized list rendering |
+| uPlot | Storage-analytics time-series charts |
 
 ### Backend (Rust)
 
@@ -85,7 +86,8 @@ cosmog/
 |   +-- routes/
 |   |   +-- browse/
 |   |   |   +-- preview/        # SheetModal, PdfModal, Lightbox, MetaList
-|   |   |   +-- ObjectBrowser, PreviewPane, ColumnPane, ListView, ...
+|   |   |   +-- charts/          # Donut (SVG), TimeSeriesChart (uPlot)
+|   |   |   +-- StatsModal, ObjectBrowser, PreviewPane, ColumnPane, ListView, ...
 |   |   +-- MainApp, Settings, Transfers, Logs, Onboarding, ...
 |   +-- state/                  # Solid.js signal stores
 |   +-- styles/                 # CSS files (no inline styles)
@@ -227,6 +229,23 @@ headless `NwCtx` on its own tokio runtime and drives the same reconcile core.
   `BootReceiver` re-arms after reboot.
 - Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8
   cannot see JNI call sites).
+
+---
+
+## Storage Analytics
+
+Per-bucket stats modal (`StatsModal`), computed entirely from the local index
+cache - no live bucket calls, so figures reflect the last index sync. Requires
+the bucket to be indexed.
+
+- `bucket_stats` command aggregates `cached_objects` via SQL: total size/count,
+  size by storage class, top-20 extensions by size (plus a true distinct
+  `extension_count`), objects grouped by last-modified month, and the top-10
+  largest objects.
+- Frontend renders a size-by-type donut (`charts/Donut.tsx`, zero-dep SVG arcs),
+  a cumulative growth chart (`charts/TimeSeriesChart.tsx`, uPlot; x = month, y =
+  running bytes), per-extension bars, largest-objects list, and storage-class
+  breakdown.
 
 ---
 
