@@ -22,8 +22,11 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager};
 
-/// True while at least one watch is enabled. Read by the close-guard.
+/// True while at least one watch is enabled.
 static HAS_ENABLED_WATCH: AtomicBool = AtomicBool::new(false);
+/// True while the MCP server is enabled. Either signal keeps the process
+/// backgrounded so the window can close without stopping sync or MCP.
+static MCP_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Set once the user explicitly asks to quit (tray Quit or the FE quit
 /// command) so the close-guard lets the window close for real.
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -37,6 +40,12 @@ static TRAY: Mutex<Option<TrayIcon>> = Mutex::new(None);
 
 pub fn has_enabled_watch() -> bool {
     HAS_ENABLED_WATCH.load(Ordering::SeqCst)
+}
+
+/// True when anything wants the process kept alive in the background: an
+/// enabled watch or the MCP server. The close-guard reads this.
+pub fn should_background() -> bool {
+    HAS_ENABLED_WATCH.load(Ordering::SeqCst) || MCP_ENABLED.load(Ordering::SeqCst)
 }
 
 pub fn quit_requested() -> bool {
@@ -65,8 +74,18 @@ fn show_main(app: &AppHandle) {
 /// panics, so a missing tray or autostart backend cannot crash the app.
 pub fn apply(app: &AppHandle, enabled: bool) {
     HAS_ENABLED_WATCH.store(enabled, Ordering::SeqCst);
+    refresh(app);
+}
 
-    if enabled {
+/// Set the MCP-enabled signal and re-evaluate background running.
+pub fn set_mcp_enabled(app: &AppHandle, enabled: bool) {
+    MCP_ENABLED.store(enabled, Ordering::SeqCst);
+    refresh(app);
+}
+
+/// Arm or disarm background running based on the combined signals.
+fn refresh(app: &AppHandle) {
+    if should_background() {
         ensure_tray(app);
         set_autostart(app, true);
         #[cfg(target_os = "macos")]

@@ -76,6 +76,43 @@ pub struct AppSettings {
     /// How many days to retain API request log entries. Older rows are
     /// deleted on startup. Range enforced 1..=365.
     pub request_log_ttl_days: u32,
+
+    /// MCP server master switch. When true a local Streamable HTTP endpoint is
+    /// served so a local AI client can drive S3 ops. Desktop only.
+    pub mcp_enabled: bool,
+
+    /// Localhost port for the MCP endpoint. Bound on 127.0.0.1 only.
+    pub mcp_port: u16,
+
+    /// Enables the upload/download MCP tools. Off = those tools are not
+    /// advertised at all.
+    pub mcp_allow_write: bool,
+
+    /// Enables the delete MCP tool. Off = the delete tool is not advertised.
+    pub mcp_allow_delete: bool,
+
+    /// Whether all accounts are reachable through MCP. Reserved for a future
+    /// per-account allowlist; currently always true.
+    pub mcp_bind_all_accounts: bool,
+
+    /// User acknowledged the MCP risk warning. Gates the settings UI; once true
+    /// the warning is not shown again.
+    pub mcp_acknowledged: bool,
+
+    /// Tool names the user turned off individually. Disabled tools are neither
+    /// advertised nor dispatched, on top of the write/delete gates.
+    pub mcp_disabled_tools: Vec<String>,
+
+    /// Account ids the user turned off for MCP. Disabled accounts are hidden
+    /// from s3_accounts_list and rejected by any tool that targets them.
+    pub mcp_disabled_accounts: Vec<String>,
+
+    /// Filesystem folder the MCP upload/download tools are confined to. A file
+    /// transfer is refused unless its local path resolves to inside this dir.
+    /// `None` / empty = write tools refuse all transfers (safe default), since
+    /// object keys are untrusted and could otherwise steer reads/writes
+    /// anywhere on disk. Must be absolute when set.
+    pub mcp_fs_root: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -94,6 +131,15 @@ impl Default for AppSettings {
             http_proxy: None,
             custom_ca_path: None,
             request_log_ttl_days: 14,
+            mcp_enabled: false,
+            mcp_port: 4123,
+            mcp_allow_write: false,
+            mcp_allow_delete: false,
+            mcp_bind_all_accounts: true,
+            mcp_acknowledged: false,
+            mcp_disabled_tools: Vec::new(),
+            mcp_disabled_accounts: Vec::new(),
+            mcp_fs_root: None,
         }
     }
 }
@@ -113,12 +159,19 @@ impl AppSettings {
         // 7-day signature ceiling for presigned URLs.
         self.presign_default_expires_secs = self.presign_default_expires_secs.min(7 * 24 * 3600);
         self.request_log_ttl_days = self.request_log_ttl_days.clamp(1, 365);
+        // Keep the MCP port in the unprivileged user range.
+        self.mcp_port = self.mcp_port.clamp(1024, 65535);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "system".into();
         }
         if let Some(p) = &self.default_download_dir {
             if p.trim().is_empty() {
                 self.default_download_dir = None;
+            }
+        }
+        if let Some(p) = &self.mcp_fs_root {
+            if p.trim().is_empty() {
+                self.mcp_fs_root = None;
             }
         }
     }
@@ -211,6 +264,15 @@ fn serialize_settings(s: &AppSettings) -> Vec<(&'static str, String)> {
         ("http_proxy", enc(&s.http_proxy)),
         ("custom_ca_path", enc(&s.custom_ca_path)),
         ("request_log_ttl_days", enc(&s.request_log_ttl_days)),
+        ("mcp_enabled", enc(&s.mcp_enabled)),
+        ("mcp_port", enc(&s.mcp_port)),
+        ("mcp_allow_write", enc(&s.mcp_allow_write)),
+        ("mcp_allow_delete", enc(&s.mcp_allow_delete)),
+        ("mcp_bind_all_accounts", enc(&s.mcp_bind_all_accounts)),
+        ("mcp_acknowledged", enc(&s.mcp_acknowledged)),
+        ("mcp_disabled_tools", enc(&s.mcp_disabled_tools)),
+        ("mcp_disabled_accounts", enc(&s.mcp_disabled_accounts)),
+        ("mcp_fs_root", enc(&s.mcp_fs_root)),
     ]
 }
 
@@ -282,6 +344,51 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
         "request_log_ttl_days" => {
             if let Some(v) = dec(raw) {
                 s.request_log_ttl_days = v;
+            }
+        }
+        "mcp_enabled" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_enabled = v;
+            }
+        }
+        "mcp_port" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_port = v;
+            }
+        }
+        "mcp_allow_write" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_allow_write = v;
+            }
+        }
+        "mcp_allow_delete" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_allow_delete = v;
+            }
+        }
+        "mcp_bind_all_accounts" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_bind_all_accounts = v;
+            }
+        }
+        "mcp_acknowledged" => {
+            if let Some(v) = dec(raw) {
+                s.mcp_acknowledged = v;
+            }
+        }
+        "mcp_disabled_tools" => {
+            if let Some(v) = dec::<Vec<String>>(raw) {
+                s.mcp_disabled_tools = v;
+            }
+        }
+        "mcp_disabled_accounts" => {
+            if let Some(v) = dec::<Vec<String>>(raw) {
+                s.mcp_disabled_accounts = v;
+            }
+        }
+        "mcp_fs_root" => {
+            if let Some(v) = dec::<Option<String>>(raw) {
+                s.mcp_fs_root = v;
             }
         }
         // Unknown key — silently ignored so older binaries don't corrupt

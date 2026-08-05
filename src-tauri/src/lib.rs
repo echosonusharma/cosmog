@@ -34,6 +34,8 @@ pub mod crypto;
 pub mod db;
 pub mod device;
 pub mod error;
+#[cfg(not(target_os = "android"))]
+pub mod mcp;
 pub mod night_watcher;
 #[cfg(target_os = "android")]
 pub mod night_watcher_headless;
@@ -346,6 +348,13 @@ pub fn run() {
                         .unwrap_or(false);
                     app_lifecycle::apply(app.handle(), enabled);
                 }
+                // MCP server: local Streamable HTTP endpoint. Starts only when
+                // enabled in settings; shares the one AppState with everything
+                // else. Its enabled flag also feeds the background-run gate.
+                #[cfg(not(target_os = "android"))]
+                if let Err(e) = mcp::apply(&state).await {
+                    tracing::warn!("MCP server start failed: {e}");
+                }
                 commands::night_watcher::nw_refresh_service(&state).await;
 
                 handle.manage(state);
@@ -506,6 +515,16 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             nw_quit_background,
 
+            // -------- mcp: local AI server config (desktop only) --------
+            #[cfg(not(target_os = "android"))]
+            commands::mcp::mcp_get_config,
+            #[cfg(not(target_os = "android"))]
+            commands::mcp::mcp_set_config,
+            #[cfg(not(target_os = "android"))]
+            commands::mcp::mcp_regenerate_token,
+            #[cfg(not(target_os = "android"))]
+            commands::mcp::mcp_status,
+
             // -------- dev: debug helpers --------
             #[cfg(debug_assertions)]
             open_devtools,
@@ -525,7 +544,7 @@ pub fn run() {
             } = &_event
             {
                 if label == "main"
-                    && app_lifecycle::has_enabled_watch()
+                    && app_lifecycle::should_background()
                     && !app_lifecycle::quit_requested()
                 {
                     if app_lifecycle::tray_available() {

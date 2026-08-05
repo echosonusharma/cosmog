@@ -27,7 +27,7 @@ pub fn require_non_empty(field: &str, value: &str) -> AppResult<String> {
 
 /// Validate an upload source path: must exist, be absolute, and resolve to a
 /// regular file (not a directory or symlink to one).
-fn expand_home(local_path: &str) -> String {
+pub(crate) fn expand_home(local_path: &str) -> String {
     if local_path.starts_with("~/") {
         if let Some(home) = std::env::var_os("HOME") {
             return format!("{}/{}", home.to_string_lossy().trim_end_matches('/'), &local_path[2..]);

@@ -74,6 +74,8 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 os_info = { version = "3", default-features = false }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+# MCP server: local Streamable HTTP endpoint. Desktop only.
+axum = "0.8"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

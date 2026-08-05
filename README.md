@@ -32,6 +32,7 @@
 - 🔗 **Share** files instantly with presigned links
 - 🔒 **Encrypt** entire buckets client-side with per-bucket keys
 - 🌙 **Night Watcher** one-way backup: keep a local folder auto-synced to a bucket in the background
+- 🤖 **MCP server** let a local AI client (Claude, Cursor, and more) browse, search, and transfer your objects, safe by default (desktop only)
 - 👤 **Manage** multiple accounts and providers side by side
 
 ## Why Cosmog
@@ -48,6 +49,7 @@
 | In-app file preview | ✅ | ❌ | ❌ | Limited |
 | In-app editor | ✅ | ❌ | ❌ | ❌ |
 | Background auto-sync (one-way backup) | ✅ | ❌ | ❌ | ❌ |
+| Local AI control (MCP) | ✅ | ❌ | ❌ | ❌ |
 | Multiple accounts | ✅ | ✅ | ✅ | ✅ |
 
 ## Works with your provider

@@ -26,6 +26,7 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.25.
 |-------|---------|
 | tauri 2 | App runtime and command bridge |
 | tokio | Async runtime |
+| axum 0.8 | Local MCP server HTTP endpoint (desktop only) |
 | aws-sdk-s3 / aws-config | S3 API |
 | tokio-rusqlite / rusqlite | SQLite (WAL mode, FTS5) |
 | keyring 3 | OS keychain (Apple / Windows / Linux Secret Service) |
@@ -102,6 +103,7 @@ cosmog/
     |   +-- saf.rs              # Android JNI: SAF upload/download/delete + tree walk
     |   +-- night_watcher.rs    # One-way folder->bucket sync core (reconcile loop, NwCtx trait)
     |   +-- night_watcher_headless.rs  # Android: headless sync host for the :nightwatch process
+    |   +-- mcp/                # Local MCP server (desktop only): mod (JSON-RPC + token), auth, tools, format
     |   +-- app_lifecycle.rs    # Desktop background-run (tray, close-to-hide, autostart)
     |   +-- scheduler.rs        # Auto-reindex background loop
     |   +-- secrets.rs          # OS keyring read/write
@@ -146,6 +148,9 @@ cosmog/
 
 ### Night Watcher
 `nw_list_watches`, `nw_add_watch`, `nw_update_watch`, `nw_delete_watch`, `nw_set_watch_enabled`, `nw_get_status`, `nw_pick_tree` (Android SAF tree picker), `nw_quit_background` (desktop)
+
+### MCP (desktop only)
+`mcp_get_config`, `mcp_set_config`, `mcp_regenerate_token`, `mcp_status`
 
 ### Android only
 `notify_ex`, `set_transfer_service`, `stage_saf_upload`, `finalize_saf_download`, `delete_saf_document`, `query_display_name`
@@ -229,6 +234,63 @@ headless `NwCtx` on its own tokio runtime and drives the same reconcile core.
   `BootReceiver` re-arms after reboot.
 - Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8
   cannot see JNI call sites).
+
+---
+
+## MCP Server
+
+Desktop only (`#[cfg(not(target_os = "android"))]` on the module, commands, and
+the sidebar nav). Lets a local AI client (Claude Code/Desktop, Cursor, Codex,
+VS Code, Windsurf) drive S3 ops. Off by default.
+
+**One process, one AppState.** MCP tools call the same `AppState` methods the
+Tauri commands do, so there is one `TransferManager` and one SQLite writer, no
+second daemon. The listener is a tokio task inside the app process.
+
+**Transport (`mcp/mod.rs`).** Hand-rolled JSON-RPC 2.0 over an axum 0.8 POST
+handler at `127.0.0.1:<port>/mcp` (default `4123`), not the rmcp SDK. Implements
+`initialize` / `tools/list` / `tools/call` / `ping`. Stateless, no session id.
+`apply(state)` reconciles the running listener with settings: stops any live
+server, starts fresh when `mcp_enabled`. Called at startup and after every
+config change, so a toggle restarts the listener rather than mutating it.
+
+**Auth (`mcp/auth.rs`).** Three guards, all mandatory (axum middleware):
+1. Bind `127.0.0.1` only, never `0.0.0.0`.
+2. `Origin`/`Host` must be loopback when present (DNS-rebinding defense) -> 403.
+3. Bearer token on every request, length-checked compare. Token is 256-bit
+   random, stored in the OS keychain (`mcp_bearer_token`), never SQLite.
+
+**Tools (`mcp/tools.rs`).** Reads always advertised: `s3_accounts_list`,
+`s3_buckets_list`, `s3_objects_list`, `s3_objects_search`, `s3_object_head`,
+`s3_bucket_stats`, `s3_transfer_status`. Upload/download gated behind
+`mcp_allow_write`, delete behind `mcp_allow_delete`. A disabled capability is
+neither advertised in `tools/list` nor dispatched (double gate). Per-tool and
+per-account disable sets narrow further. Long ops (upload/download) return a
+`transfer_id` to poll, never hold the request open.
+
+**Safety.**
+- File tools are confined to `mcp_fs_root`: upload source and download dest are
+  canonicalized and must resolve inside that folder, so an untrusted object key
+  cannot steer a read/write elsewhere on disk. Unset root = all transfers
+  refused. Existing dest paths are fully resolved so a planted symlink cannot
+  redirect the write outside root.
+- Encrypted buckets refused for data ops (no keychain identity carried into MCP
+  v1); delete is allowed (opaque object, no plaintext).
+- Delete heads the key first so a missing key reports not-found, not a fake
+  success on S3's idempotent DELETE.
+- Listings render as compact CSV, capped by a ~100k-char token budget; a budget
+  cut suppresses the cursor and flags `has_more` so no rows are silently skipped.
+
+**Background-run.** `app_lifecycle.rs` keeps two atomics, `HAS_ENABLED_WATCH`
+and `MCP_ENABLED`; `should_background()` is their OR. The window can close to
+tray while either an enabled watch or the MCP server keeps the process alive.
+The no-tray Linux caveat is unchanged (close = real quit).
+
+**UI (`routes/Mcp.tsx`, `styles/mcp.css`, `api/mcp.ts`).** Consent gate shown
+before enabling, then server/connection/permissions/file-access/accounts/tools
+sections. A "Connect a client" picker renders ready-to-paste config per client
+with the live endpoint and token (masked until revealed; copy yields the real
+value).
 
 ---
 
@@ -325,4 +387,5 @@ rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-and
 10. Build `AppState`
 11. Spawn background scheduler; spawn Night Watcher loop (desktop) / arm the `:nightwatch` service (Android)
 12. Arm desktop background-run (`app_lifecycle`) based on enabled-watch count
-13. Register commands and run Tauri event loop
+13. Reconcile the MCP listener with settings (`mcp::apply`, desktop only)
+14. Register commands and run Tauri event loop

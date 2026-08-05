@@ -16,6 +16,8 @@ pub mod bulk;
 pub mod capabilities;
 pub mod encryption;
 pub mod logs;
+#[cfg(not(target_os = "android"))]
+pub mod mcp;
 pub mod night_watcher;
 pub mod objects;
 pub mod portable;

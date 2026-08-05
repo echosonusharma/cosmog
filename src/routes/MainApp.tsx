@@ -4,6 +4,7 @@ import Transfers from "./Transfers";
 import Settings from "./Settings";
 import Logs from "./Logs";
 import NightWatcher from "./NightWatcher";
+import Mcp from "./Mcp";
 import {
   currentView, setCurrentView,
   setAccounts, accounts, browseState, setBrowseState, selectAccount,
@@ -337,6 +338,11 @@ export default function MainApp() {
         <div class="view-slot" classList={{ hidden: currentView() !== "logs" }}>
           <Logs />
         </div>
+        <Show when={!IS_MOBILE_OS}>
+          <div class="view-slot" classList={{ hidden: currentView() !== "mcp" }}>
+            <Mcp />
+          </div>
+        </Show>
         <ActiveTransfersBar />
       </main>
     </div>

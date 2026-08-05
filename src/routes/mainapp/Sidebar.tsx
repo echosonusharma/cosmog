@@ -12,9 +12,10 @@ import {
 import { providerLabel } from "../../providers";
 import {
   IconBrowse, IconTransfer, IconSettings,
-  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock, IconEye,
+  IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock, IconEye, IconMcp,
 } from "../../utils/icons";
 import { listEncryptedBuckets } from "../../api/encryption";
+import { IS_MOBILE_OS } from "../../utils/notify";
 import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
@@ -132,10 +133,11 @@ function BugReportModal(props: { onClose: () => void }) {
   );
 }
 
-const NAV: { view: View; label: string; icon: () => JSX.Element }[] = [
+const NAV: { view: View; label: string; icon: () => JSX.Element; desktopOnly?: boolean }[] = [
   { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
   { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },
   { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} /> },
+  { view: "mcp",       label: "MCP Server", icon: () => <IconMcp size={16} />, desktopOnly: true },
   { view: "logs",      label: "Logs",      icon: () => <IconActivity size={16} /> },
   { view: "settings",  label: "Settings",  icon: () => <IconSettings size={16} /> },
 ];
@@ -209,7 +211,7 @@ export function Sidebar(props: {
 
       <div class="sidebar-body">
         {/* nav */}
-        <For each={NAV}>
+        <For each={NAV.filter((n) => !n.desktopOnly || !IS_MOBILE_OS)}>
           {(item) => (
             <button
               class={`sidebar-item ${currentView() === item.view ? "active" : ""}`}

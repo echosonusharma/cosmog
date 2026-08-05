@@ -9,6 +9,7 @@ const SRC_TRANSFERS:     LogSource = { key: "transfers",     label: "Transfers",
 const SRC_BUCKETS:       LogSource = { key: "buckets",       label: "Buckets/S3",    color: "#14b8a6" };
 const SRC_ENCRYPTION:    LogSource = { key: "encryption",    label: "Encryption",    color: "#ec4899" };
 const SRC_SEARCH:        LogSource = { key: "search",        label: "Search",        color: "#8b5cf6" };
+const SRC_MCP:           LogSource = { key: "mcp",           label: "MCP",           color: "#6366f1" };
 const SRC_APP:           LogSource = { key: "app",           label: "App",           color: "#94a3b8" };
 
 // target substring -> source. Checked before keyword matching.
@@ -23,11 +24,12 @@ const TARGET_MAP: Array<[string, LogSource]> = [
   ["crypto", SRC_ENCRYPTION],
   ["commands::search", SRC_SEARCH],
   ["sync", SRC_SEARCH],
+  ["mcp", SRC_MCP],
 ];
 
 const ALL_SOURCES: LogSource[] = [
   SRC_NIGHT_WATCHER, SRC_SCHEDULER, SRC_TRANSFERS,
-  SRC_BUCKETS, SRC_ENCRYPTION, SRC_SEARCH, SRC_APP,
+  SRC_BUCKETS, SRC_ENCRYPTION, SRC_SEARCH, SRC_MCP, SRC_APP,
 ];
 
 export function sourceByKey(key: string): LogSource {
@@ -49,5 +51,6 @@ export function logSource(target: string | null, message: string): LogSource {
   if (m.includes("scheduler")) return SRC_SCHEDULER;
   if (m.includes("transfer") || m.includes("upload queue") || m.includes("download queue")) return SRC_TRANSFERS;
   if (m.includes("encryption") || m.includes("crypto")) return SRC_ENCRYPTION;
+  if (m.includes("mcp server") || m.includes("mcp client")) return SRC_MCP;
   return SRC_APP;
 }
