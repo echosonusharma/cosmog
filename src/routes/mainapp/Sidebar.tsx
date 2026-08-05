@@ -133,11 +133,11 @@ function BugReportModal(props: { onClose: () => void }) {
   );
 }
 
-const NAV: { view: View; label: string; icon: () => JSX.Element; desktopOnly?: boolean }[] = [
+const NAV: { view: View; label: string; icon: () => JSX.Element; desktopOnly?: boolean; beta?: boolean }[] = [
   { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
   { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },
-  { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} /> },
-  { view: "mcp",       label: "MCP Server", icon: () => <IconMcp size={16} />, desktopOnly: true },
+  { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} />, beta: true },
+  { view: "mcp",       label: "MCP Server", icon: () => <IconMcp size={16} />, desktopOnly: true, beta: true },
   { view: "logs",      label: "Logs",      icon: () => <IconActivity size={16} /> },
   { view: "settings",  label: "Settings",  icon: () => <IconSettings size={16} /> },
 ];
@@ -222,6 +222,9 @@ export function Sidebar(props: {
               <span class="sidebar-item-icon">{item.icon()}</span>
               <Show when={!props.collapsed}>
                 <span class="sidebar-item-label">{item.label}</span>
+                <Show when={item.beta}>
+                  <span class="sidebar-item-beta">beta</span>
+                </Show>
                 <Show when={item.view === "transfers" && props.activeCount > 0}>
                   <span class="sidebar-item-badge">{props.activeCount}</span>
                 </Show>
