@@ -63,16 +63,22 @@ pub async fn browse_prefix(
     let indexed = index_status.enabled && index_status.last_full_sync_at.is_some();
 
     if indexed {
-        let (objects, subprefixes, truncated) = state
+        // In indexed mode the `continuation` token is the file offset into the
+        // cached children (folders come back only on the first page). Lets the
+        // FE page through prefixes with more direct files than one DB page.
+        const INDEXED_PAGE: i64 = 5_000;
+        let offset: i64 = continuation.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
+        let (objects, subprefixes, has_more) = state
             .db
-            .browse_children(&account_id, &bucket, &prefix)
+            .browse_children(&account_id, &bucket, &prefix, offset)
             .await?;
+        let next = if has_more { Some((offset + INDEXED_PAGE).to_string()) } else { None };
         return Ok(BrowseResult {
             objects,
             subprefixes,
             mode: "indexed",
-            continuation: None,
-            truncated,
+            continuation: next,
+            truncated: has_more,
             last_synced_at: index_status.last_full_sync_at,
         });
     }

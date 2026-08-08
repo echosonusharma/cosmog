@@ -246,6 +246,26 @@ impl AppState {
         token
     }
 
+    /// Atomically claim a scan slot. Returns `Some(token)` if this caller won
+    /// (no scan was registered for the bucket) or `None` if one is already in
+    /// flight. Uses the `entry` API so the check-and-set can't race two
+    /// concurrent `enable_bucket_index` calls into two overlapping scans, which
+    /// would corrupt each other's `seen` markers.
+    pub fn try_register_scan(&self, account_id: &str, bucket: &str) -> Option<CancellationToken> {
+        use dashmap::mapref::entry::Entry;
+        match self
+            .scan_cancels
+            .entry((account_id.to_string(), bucket.to_string()))
+        {
+            Entry::Occupied(_) => None,
+            Entry::Vacant(v) => {
+                let token = CancellationToken::new();
+                v.insert(token.clone());
+                Some(token)
+            }
+        }
+    }
+
     /// Idempotent. Returns `Ok(())` even if no scan is registered (i.e. already
     /// terminal).
     pub fn cancel_scan(&self, account_id: &str, bucket: &str) {

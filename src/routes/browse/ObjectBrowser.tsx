@@ -49,7 +49,7 @@ export function ObjectBrowser(props: {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => setDebouncedQuery(q), 300);
   });
-  createEffect(() => { props.bucket; setSearchQuery(""); setDebouncedQuery(""); mutateSearchResults(undefined); });
+  createEffect(() => { props.bucket; setSearchQuery(""); setDebouncedQuery(""); });
 
   const [indexStatus, { refetch: refetchIndex }] = createResource(
     () => ({ a: props.accountId, b: props.bucket }),
@@ -74,16 +74,57 @@ export function ObjectBrowser(props: {
   );
   const [showEncryption, setShowEncryption] = createSignal(false);
 
-  const [searchResults, { mutate: mutateSearchResults }] = createResource(
-    () => debouncedQuery()
-      ? { a: props.accountId, b: props.bucket, q: debouncedQuery(), r: refresh() }
-      : null,
-    ({ a, b, q }) => searchObjects({
-      account_id: a, bucket: b,
-      scope: { kind: "bucket" },
-      query: q, filters: {}, sort: "name", sort_dir: "asc", page_size: 200,
-    }),
-  );
+  // Accumulating search: page 1 fetched on query change, further pages appended
+  // via next_cursor. Replaces a single fixed-size fetch that silently capped
+  // results at one page.
+  const SEARCH_PAGE = 200;
+  const [searchItems, setSearchItems] = createSignal<CachedObjectMeta[]>([]);
+  const [searchTotal, setSearchTotal] = createSignal(0);
+  const [searchCursor, setSearchCursor] = createSignal<number | null>(null);
+  const [searchLoading, setSearchLoading] = createSignal(false);
+  const [searchMoreLoading, setSearchMoreLoading] = createSignal(false);
+  let searchSeq = 0;
+
+  async function runSearch(cursor: number | null) {
+    const a = props.accountId, b = props.bucket, q = debouncedQuery();
+    if (!q) return;
+    const seq = ++searchSeq;
+    cursor == null ? setSearchLoading(true) : setSearchMoreLoading(true);
+    try {
+      const res = await searchObjects({
+        account_id: a, bucket: b, scope: { kind: "bucket" },
+        query: q, filters: {}, sort: "name", sort_dir: "asc",
+        page_size: SEARCH_PAGE, cursor: cursor ?? undefined,
+      });
+      if (seq !== searchSeq) return; // superseded by a newer query
+      setSearchItems(prev => cursor == null ? res.objects : [...prev, ...res.objects]);
+      setSearchTotal(res.total);
+      setSearchCursor(res.next_cursor);
+    } catch (e) {
+      if (seq === searchSeq) toast.err(e);
+    } finally {
+      if (seq === searchSeq) { setSearchLoading(false); setSearchMoreLoading(false); }
+    }
+  }
+
+  createEffect(() => {
+    const q = debouncedQuery();
+    props.accountId; props.bucket; refresh();
+    if (!q) {
+      // Bump seq so any in-flight fetch is dropped, and reset every bit of
+      // search state including the loading flags (a superseded fetch skips its
+      // own finally, so it can't clear them for us).
+      searchSeq++;
+      setSearchItems([]); setSearchTotal(0); setSearchCursor(null);
+      setSearchLoading(false); setSearchMoreLoading(false);
+      return;
+    }
+    runSearch(null);
+  });
+
+  const loadMoreSearch = () => {
+    if (searchCursor() != null && !searchMoreLoading()) runSearch(searchCursor());
+  };
 
   async function toggleIndex() {
     setIndexBusy(true);
@@ -441,7 +482,12 @@ export function ObjectBrowser(props: {
       <Show when={searchQuery()}>
         <SearchResultsPane
           searchQuery={searchQuery()}
-          searchResults={searchResults}
+          objects={searchItems()}
+          total={searchTotal()}
+          loading={searchLoading()}
+          loadingMore={searchMoreLoading()}
+          hasMore={searchCursor() != null}
+          onLoadMore={loadMoreSearch}
           indexStatus={indexStatus}
           indexBusy={indexBusy()}
           onEnableIndex={toggleIndex}

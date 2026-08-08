@@ -105,7 +105,12 @@ async fn run_once(
                 continue;
             }
         };
-        let cancel = state.register_scan(&account_id, &bucket);
+        // Atomic claim: a manual enable/reindex could have started between our
+        // scan_in_flight check above and here. try_register returns None if so.
+        let cancel = match state.try_register_scan(&account_id, &bucket) {
+            Some(c) => c,
+            None => continue,
+        };
         let scan_id = uuid::Uuid::new_v4().to_string();
         let state_for_task = state.clone();
         let acc = account_id.clone();

@@ -7,7 +7,7 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::db::cache::{BucketIndexStatus, BucketStats, SearchQuery, SearchResult};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::sync::{full_bucket_scan, sync_prefix_direct, sync_prefix_recursive, SyncStats};
 use crate::transfer::{ProgressSink, TransferEvent};
@@ -38,12 +38,35 @@ pub async fn sync_prefix(
 ) -> AppResult<SyncStats> {
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
+
+    // Acquire the store before claiming the slot: if it fails we bail with the
+    // slot still free (claiming first would leak it on the `?`).
     let store = state.store_for(&account_id).await?;
-    if recursive {
+
+    // A prefix sync and a full bucket scan both run mark-unseen -> upsert ->
+    // sweep. Running them concurrently on the same bucket lets one delete rows
+    // the other just marked seen. Refuse to start while a scan is in flight.
+    if state.scan_in_flight(&account_id, &bucket) {
+        return Err(AppError::Conflict(format!(
+            "a full index scan is running for {bucket}; try again once it finishes"
+        )));
+    }
+    // Atomically claim the prefix slot so overlapping syncs for the same prefix
+    // (e.g. FE double-invoke) don't corrupt each other's sweep, and so a
+    // concurrent scan sees us via prefix_sync_in_flight_for_bucket.
+    if !state.claim_prefix_sync(&account_id, &bucket, &prefix) {
+        return Err(AppError::Conflict(format!(
+            "a sync is already running for this prefix in {bucket}"
+        )));
+    }
+
+    let result = if recursive {
         sync_prefix_recursive(&state.db, store, &account_id, &bucket, &prefix).await
     } else {
         sync_prefix_direct(&state.db, store, &account_id, &bucket, &prefix).await
-    }
+    };
+    state.unregister_prefix_sync(&account_id, &bucket, &prefix);
+    result
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -67,18 +90,34 @@ pub async fn enable_bucket_index(
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
 
-    state
-        .db
-        .bucket_index_set_enabled(&account_id, &bucket, true)
-        .await?;
-
+    // A concurrent prefix sync races the scan's mark-unseen/sweep. Refuse.
+    if state.prefix_sync_in_flight_for_bucket(&account_id, &bucket) {
+        return Err(AppError::Conflict(format!(
+            "a prefix sync is running for {bucket}; try again once it finishes"
+        )));
+    }
+    // Acquire the store before claiming the scan slot so a client-build failure
+    // can't leak the slot on the `?`.
     let store = state.store_for(&account_id).await?;
+
+    // Atomically claim the scan slot. `None` means a scan is already in flight
+    // (another enable call, a reindex, or the scheduler) so we must not start a
+    // second one that would corrupt the shared seen markers.
+    let cancel = state.try_register_scan(&account_id, &bucket).ok_or_else(|| {
+        AppError::Conflict(format!("an index scan is already running for {bucket}"))
+    })?;
+
+    // From here the slot is held: unregister on any early-return error path.
+    if let Err(e) = state.db.bucket_index_set_enabled(&account_id, &bucket, true).await {
+        state.unregister_scan(&account_id, &bucket);
+        return Err(e);
+    }
+
     let sink = ProgressSink::from_fn(move |event| {
         let _ = on_event.send(event);
     });
     let scan_id = uuid::Uuid::new_v4().to_string();
 
-    let cancel = state.register_scan(&account_id, &bucket);
     let result = full_bucket_scan(
         &state.db,
         store,
@@ -120,22 +159,41 @@ pub async fn reindex_bucket(
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
 
-    // Cancel any in-flight scan, then wipe the continuation token so
-    // full_bucket_scan starts fresh instead of resuming mid-walk.
-    state.cancel_scan(&account_id, &bucket);
-    state.db.bucket_scan_clear(&account_id, &bucket).await?;
+    if state.prefix_sync_in_flight_for_bucket(&account_id, &bucket) {
+        return Err(AppError::Conflict(format!(
+            "a prefix sync is running for {bucket}; try again once it finishes"
+        )));
+    }
 
-    state
-        .db
-        .bucket_index_set_enabled(&account_id, &bucket, true)
-        .await?;
-
+    // Acquire the store before claiming the scan slot so a client-build failure
+    // can't leak the slot on the `?`.
     let store = state.store_for(&account_id).await?;
+
+    // Signal any in-flight scan to stop. It unwinds on its next page and frees
+    // the scan slot; until then we can't safely start a fresh walk.
+    state.cancel_scan(&account_id, &bucket);
+    let cancel = state.try_register_scan(&account_id, &bucket).ok_or_else(|| {
+        AppError::Conflict(format!(
+            "the previous scan for {bucket} is still stopping; try again in a moment"
+        ))
+    })?;
+
+    // From here the slot is held: unregister on any early-return error path.
+    // Wipe the continuation token so full_bucket_scan starts fresh instead of
+    // resuming mid-walk.
+    if let Err(e) = state.db.bucket_scan_clear(&account_id, &bucket).await {
+        state.unregister_scan(&account_id, &bucket);
+        return Err(e);
+    }
+    if let Err(e) = state.db.bucket_index_set_enabled(&account_id, &bucket, true).await {
+        state.unregister_scan(&account_id, &bucket);
+        return Err(e);
+    }
+
     let sink = ProgressSink::from_fn(move |event| {
         let _ = on_event.send(event);
     });
     let scan_id = uuid::Uuid::new_v4().to_string();
-    let cancel = state.register_scan(&account_id, &bucket);
     let result = full_bucket_scan(&state.db, store, &account_id, &bucket, sink, scan_id, cancel).await;
     state.unregister_scan(&account_id, &bucket);
     result

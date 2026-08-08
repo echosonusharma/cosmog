@@ -910,26 +910,34 @@ impl Db {
         Ok(())
     }
 
-    /// Returns (files, subprefixes) for direct children of `prefix`.
-    /// Derives the tree from keys at query time using LIKE + instr — no
-    /// parent_prefix column needed.
+    /// Returns (files, subprefixes, has_more) for the direct children of
+    /// `prefix`, starting at file `offset`. Derives the tree from keys at query
+    /// time using LIKE + instr — no parent_prefix column needed.
+    ///
+    /// Files are paginated in pages of `FILE_LIMIT`; `has_more` is true when a
+    /// further page exists (caller resumes with `offset + FILE_LIMIT`).
+    /// Subprefixes (folders) are returned only on the first page (`offset == 0`)
+    /// since they're computed over the whole prefix and don't paginate.
     pub async fn browse_children(
         &self,
         account_id: &str,
         bucket: &str,
         prefix: &str,
+        offset: i64,
     ) -> AppResult<(Vec<CachedObjectMeta>, Vec<String>, bool)> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
         let prefix = prefix.to_string();
+        let offset = offset.max(0);
 
         const FILE_LIMIT: usize = 5_000;
 
         self.conn
             .call(move |conn| {
                 let after = prefix.len() as i64 + 1; // 1-indexed offset past prefix
-                // Fetch one extra row to detect truncation without a separate COUNT query.
+                // Fetch one extra row to detect a further page without a COUNT.
                 let fetch_limit = (FILE_LIMIT + 1) as i64;
+                let first_page = offset == 0;
 
                 let (mut files, subprefixes) = if prefix.is_empty() {
                     let files: Vec<CachedObjectMeta> = {
@@ -938,14 +946,14 @@ impl Db {
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
                                AND instr(co.key, '/') = 0
-                             ORDER BY co.key LIMIT ?3",
+                             ORDER BY co.key LIMIT ?3 OFFSET ?4",
                         )?;
-                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, fetch_limit], row_to_cached)?
+                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, fetch_limit, offset], row_to_cached)?
                             .filter_map(|r| r.ok())
                             .collect();
                         v
                     };
-                    let subprefixes: Vec<String> = {
+                    let subprefixes: Vec<String> = if first_page {
                         let mut stmt = conn.prepare(
                             "SELECT DISTINCT substr(co.key, 1, instr(co.key, '/')) AS folder
                              FROM cached_objects co
@@ -957,6 +965,8 @@ impl Db {
                             .filter_map(|r| r.ok())
                             .collect();
                         v
+                    } else {
+                        Vec::new()
                     };
                     (files, subprefixes)
                 } else {
@@ -969,14 +979,14 @@ impl Db {
                                AND co.key LIKE ?3 ESCAPE '\\'
                                AND co.key != ?4
                                AND instr(substr(co.key, ?5), '/') = 0
-                             ORDER BY co.key LIMIT ?6",
+                             ORDER BY co.key LIMIT ?6 OFFSET ?7",
                         )?;
-                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit], row_to_cached)?
+                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit, offset], row_to_cached)?
                             .filter_map(|r| r.ok())
                             .collect();
                         v
                     };
-                    let subprefixes: Vec<String> = {
+                    let subprefixes: Vec<String> = if first_page {
                         let mut stmt = conn.prepare(
                             "SELECT DISTINCT substr(co.key, 1, (?5 - 1) + instr(substr(co.key, ?5), '/')) AS folder
                              FROM cached_objects co
@@ -989,14 +999,16 @@ impl Db {
                             .filter_map(|r| r.ok())
                             .collect();
                         v
+                    } else {
+                        Vec::new()
                     };
                     (files, subprefixes)
                 };
 
-                let truncated = files.len() > FILE_LIMIT;
-                if truncated { files.truncate(FILE_LIMIT); }
+                let has_more = files.len() > FILE_LIMIT;
+                if has_more { files.truncate(FILE_LIMIT); }
 
-                Ok::<_, tokio_rusqlite::Error>((files, subprefixes, truncated))
+                Ok::<_, tokio_rusqlite::Error>((files, subprefixes, has_more))
             })
             .await
             .map_err(Into::into)
@@ -1220,17 +1232,16 @@ impl Db {
 
                 let raw_query = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
                 let fts = raw_query.and_then(build_fts_query);
-                // For queries where all terms are <3 chars, fall back to LIKE on each term OR'd on basename.
-                let short_like_terms: Vec<String> = if fts.is_none() {
-                    raw_query
-                        .iter()
-                        .flat_map(|q| q.split_whitespace())
-                        .filter(|t| !t.is_empty())
-                        .map(like_contains)
-                        .collect()
-                } else {
-                    vec![]
-                };
+                // Terms shorter than the trigram minimum (3) can't go through
+                // FTS. Match them with LIKE on basename so a mixed query like
+                // "go run" doesn't silently drop the short term — the ≥3 terms
+                // still drive FTS, the <3 terms are AND'd on top.
+                let short_like_terms: Vec<String> = raw_query
+                    .iter()
+                    .flat_map(|q| q.split_whitespace())
+                    .filter(|t| t.chars().count() < 3 && !t.is_empty())
+                    .map(like_contains)
+                    .collect();
 
                 // When FTS active: FTS table is primary in FROM so that `cached_objects_fts MATCH`
                 // and `fts.rank` (BM25) work correctly. filter_sql inner clauses appended after
@@ -1239,7 +1250,7 @@ impl Db {
                     .iter()
                     .map(|_| "co.basename LIKE ? ESCAPE '\\'")
                     .collect::<Vec<_>>()
-                    .join(" OR ");
+                    .join(" AND ");
                 let like_clause: String = if like_placeholders.is_empty() {
                     String::new()
                 } else {
@@ -1279,51 +1290,50 @@ impl Db {
                     stmt.query_row(refs.as_slice(), |row| row.get(0))?
                 };
 
-                // When FTS active with default name sort, use BM25 relevance (fts.rank, lower = better).
-                // FTS+Name sort is always ASC (rank). cursor_clause and rowid_order must use the
-                // same effective direction to avoid pagination gaps.
+                // Offset pagination. `cursor` is the row offset of the next
+                // page (None = first page). Keyset paging isn't usable here:
+                // the sort column (size / modified / extension / BM25 rank) has
+                // no correlation with rowid, so a rowid cursor silently dropped
+                // or duplicated rows past page 1. OFFSET is O(offset) but the
+                // index is local and pages are small, so it's the right trade.
+                let offset = cursor.unwrap_or(0).max(0);
+
+                // FTS + default Name sort ranks by BM25 relevance (fts.rank,
+                // lower = better, always ASC). Every other sort honours sort_dir.
                 let fts_name_sort = fts.is_some() && matches!(sort, SortBy::Name);
+                let dir = match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" };
                 let (order_col, order_dir_str) = match (sort, fts.is_some()) {
                     (SortBy::Name, true)  => ("fts.rank", "ASC"),
-                    (SortBy::Name, false) => ("co.key",            match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
-                    (SortBy::Size, _)     => ("co.size",           match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
-                    (SortBy::Modified, _) => ("co.last_modified",  match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
-                    (SortBy::Extension, _)=> ("co.extension",      match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" }),
+                    (SortBy::Name, false) => ("co.key", dir),
+                    (SortBy::Size, _)     => ("co.size", dir),
+                    (SortBy::Modified, _) => ("co.last_modified", dir),
+                    (SortBy::Extension, _)=> ("co.extension", dir),
                 };
-                // Cursor and rowid tie-break must use the effective direction, not the raw sort_dir,
-                // so that FTS+Name (always ASC) paginates correctly.
-                let effective_asc = fts_name_sort || matches!(sort_dir, SortDir::Asc);
-                let cursor_clause = if cursor.is_some() {
-                    if effective_asc { " AND co.rowid > ? " } else { " AND co.rowid < ? " }
-                } else {
-                    ""
-                };
-                let rowid_order = if effective_asc { "ASC" } else { "DESC" };
+                // rowid tiebreak keeps ordering deterministic across pages so
+                // OFFSET lands on stable boundaries.
+                let tiebreak = if fts_name_sort || matches!(sort_dir, SortDir::Asc) { "ASC" } else { "DESC" };
 
                 let select_sql = format!(
-                    "SELECT {SELECT_COLS}, co.rowid FROM {from_sql} {where_sql} {like_clause} {cursor_clause}
-                     ORDER BY {order_col} {order_dir_str}, co.rowid {rowid_order}
-                     LIMIT ?"
+                    "SELECT {SELECT_COLS} FROM {from_sql} {where_sql} {like_clause}
+                     ORDER BY {order_col} {order_dir_str}, co.rowid {tiebreak}
+                     LIMIT ? OFFSET ?"
                 );
                 let mut stmt = conn.prepare(&select_sql)?;
                 let mut all = base_params.clone();
                 for p in &short_like_terms {
                     all.push(Value::Text(p.clone()));
                 }
-                if let Some(c) = cursor {
-                    all.push(Value::Integer(c));
-                }
                 all.push(Value::Integer(limit));
+                all.push(Value::Integer(offset));
                 let refs: Vec<&dyn rusqlite::ToSql> =
                     all.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
                 let mut rows = stmt.query(refs.as_slice())?;
                 let mut objects = Vec::new();
-                let mut last_rowid: Option<i64> = None;
                 while let Some(row) = rows.next()? {
                     objects.push(row_to_cached(row)?);
-                    last_rowid = row.get(13).ok();
                 }
-                let next_cursor = if objects.len() as i64 == limit { last_rowid } else { None };
+                // Full page => there may be more; hand back the next offset.
+                let next_cursor = if objects.len() as i64 == limit { Some(offset + limit) } else { None };
 
                 // Pass built FTS query (not raw input) so facets use same trigram matching.
                 let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, fts.as_deref())?;
