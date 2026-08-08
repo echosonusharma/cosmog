@@ -17,6 +17,7 @@ import {
 import { useBackHandler } from "../../utils/androidBack";
 import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
+import { getPref, setPref } from "../../state/prefs";
 import type { CachedObjectMeta } from "../../types";
 import { DownloadModal, UploadModal, NewFolderModal, RenameModal } from "./modals";
 import { EncryptionModal } from "./EncryptionModal";
@@ -163,13 +164,13 @@ export function ObjectBrowser(props: {
     refresh: refresh(),
   }));
 
-  const storedView = localStorage.getItem("cosmog:viewMode");
+  const storedView = getPref<string | null>("viewMode", null);
   const isViewMode = (v: string | null): v is "list" | "columns" => v === "list" || v === "columns";
   const [viewMode, setViewMode] = createSignal<"list" | "columns">(
     isViewMode(storedView) ? storedView : "columns"
   );
   const saveViewMode = (m: "list" | "columns") => {
-    localStorage.setItem("cosmog:viewMode", m);
+    setPref("viewMode", m);
     setViewMode(m);
   };
 

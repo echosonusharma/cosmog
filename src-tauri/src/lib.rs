@@ -170,13 +170,16 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
-        ));
+        ))
+        // Restore window size/position/maximized across restarts. Desktop only.
+        .plugin(tauri_plugin_window_state::Builder::default().build());
 
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             use tracing_subscriber::layer::SubscriberExt;
             use tracing_subscriber::util::SubscriberInitExt;

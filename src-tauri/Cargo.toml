@@ -58,6 +58,7 @@ futures = "0.3"
 urlencoding = "2"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-fs = "2"
+tauri-plugin-store = "2"
 age = { version = "0.11", features = ["armor"] }
 rand = "0.8"
 zeroize = { version = "1", features = ["zeroize_derive"] }
@@ -74,6 +75,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 os_info = { version = "3", default-features = false }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
 # MCP server: local Streamable HTTP endpoint. Desktop only.
 axum = "0.8"
 

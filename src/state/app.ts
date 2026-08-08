@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js";
+import { createSignal, createRoot, createEffect } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { Account, Bucket, CachedObjectMeta, Transfer } from "../types";
+import { getPref, setPref } from "./prefs";
 
 export type View = "browse" | "transfers" | "settings" | "logs" | "night-watcher" | "mcp";
 
@@ -17,6 +18,22 @@ export const [browseState, setBrowseState] = createStore<BrowseState>({
   bucket: null,
   prefix: "",
 });
+
+// Restore the last-viewed location from prefs, then persist future changes.
+// Called once at boot after initPrefs(). MainApp's accounts effect corrects
+// the account if the stored one no longer exists.
+export function restoreBrowseState() {
+  setBrowseState({
+    accountId: getPref<string | null>("browse.accountId", null),
+    bucket: getPref<string | null>("browse.bucket", null),
+    prefix: getPref<string>("browse.prefix", ""),
+  });
+  createRoot(() => createEffect(() => {
+    setPref("browse.accountId", browseState.accountId);
+    setPref("browse.bucket", browseState.bucket);
+    setPref("browse.prefix", browseState.prefix);
+  }));
+}
 
 export const [accounts, setAccounts] = createSignal<Account[]>([]);
 export const [sidebarBuckets, setSidebarBuckets] = createSignal<Bucket[]>([]);

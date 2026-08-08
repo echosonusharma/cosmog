@@ -5,6 +5,7 @@
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
   "permissions": [
-    "autostart:default"
+    "autostart:default",
+    "window-state:default"
   ]
 }

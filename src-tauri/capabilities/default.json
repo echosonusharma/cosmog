@@ -11,6 +11,7 @@
     "opener:default",
     "dialog:default",
     "notification:default",
+    "store:default",
     "fs:default",
     "fs:allow-read-file",
     "fs:allow-write-file",

@@ -8,6 +8,8 @@ import "@fontsource/ibm-plex-mono/600.css";
 import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
+import { initPrefs } from "./state/prefs";
+import { restoreBrowseState } from "./state/app";
 import "./styles/index.css";
 
 if (import.meta.env.DEV) {
@@ -23,4 +25,9 @@ if (import.meta.env.DEV) {
 // Block native context menu everywhere (components show their own)
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-render(() => <App />, document.getElementById("root")!);
+// Load UI prefs and restore last-viewed location before first paint so the
+// app reopens where the user left off.
+initPrefs().then(() => {
+  restoreBrowseState();
+  render(() => <App />, document.getElementById("root")!);
+});
