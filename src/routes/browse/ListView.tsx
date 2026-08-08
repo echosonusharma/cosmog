@@ -1,4 +1,4 @@
-import { createMemo, createEffect, Show, Index, onMount, onCleanup } from "solid-js";
+import { createMemo, createSignal, createEffect, Show, Index, onMount, onCleanup } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { errMsg } from "../../state/toast";
 import { goUpPrefix, navigateToPrefix } from "../../state/app";
@@ -43,26 +43,44 @@ export function ListView(props: {
     ];
   });
 
-  let listScrollEl!: HTMLDivElement;
+  // The virtualizer reads the scroll element's viewport height only when the
+  // element reference *changes* (via observeElementRect). measure() alone never
+  // re-reads it. On mount/first-show the element is laid out after the initial
+  // read, so the cached rect is 0 and no rows render. Toggle the element signal
+  // (null -> element) to force a fresh viewport read after layout settles.
+  let scrollDiv: HTMLDivElement | undefined;
+  const [virtScrollEl, setVirtScrollEl] = createSignal<HTMLDivElement | null>(null);
   const listVirtualizer = createVirtualizer({
     get count() { return listItems().length; },
-    getScrollElement: () => listScrollEl,
+    getScrollElement: () => virtScrollEl(),
     estimateSize: () => LIST_ROW_H,
     overscan: 15,
   });
 
-  // Re-measure virtualizer when switching to list view (display:none = 0 clientHeight)
-  createEffect(() => {
-    if (props.visible) {
-      listItems().length;
-      requestAnimationFrame(() => listVirtualizer.measure());
+  const refreshViewport = () => {
+    if (!scrollDiv) return;
+    // Rows already render (or nothing to show): cheap re-measure, no blink.
+    if (listVirtualizer.getVirtualItems().length > 0 || listItems().length === 0) {
+      listVirtualizer.measure();
+      return;
     }
+    // Items exist but none render: viewport rect is stale (0). Toggle the
+    // element ref to force virtual-core to re-observe and re-read the height.
+    setVirtScrollEl(null);
+    requestAnimationFrame(() => { if (scrollDiv) setVirtScrollEl(scrollDiv); });
+  };
+
+  // Re-read viewport when shown (display:none = 0 height) or when data arrives.
+  createEffect(() => {
+    listItems().length;
+    if (props.visible) requestAnimationFrame(refreshViewport);
   });
 
-  // Re-measure when the scroll container resizes (e.g. preview pane opens/closes)
+  // Re-read when the scroll container resizes (e.g. preview pane opens/closes).
   onMount(() => {
-    const ro = new ResizeObserver(() => requestAnimationFrame(() => listVirtualizer.measure()));
-    ro.observe(listScrollEl);
+    if (!scrollDiv) return;
+    const ro = new ResizeObserver(() => requestAnimationFrame(refreshViewport));
+    ro.observe(scrollDiv);
     onCleanup(() => ro.disconnect());
   });
 
@@ -78,7 +96,7 @@ export function ListView(props: {
 
       <div class="list-view-scroll-wrap">
         <div
-          ref={listScrollEl}
+          ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
           class={`object-list object-list-scroll ${props.hasSel ? "has-selection" : ""}`}
           classList={{ loading: props.browseData.loading }}
         >
