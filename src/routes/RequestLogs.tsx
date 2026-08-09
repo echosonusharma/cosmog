@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onMount, onCleanup, Index, Show } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
@@ -116,9 +116,13 @@ function truncateKey(key: string | null, max = 48): string {
   return `${key.slice(0, half)}…${key.slice(-half)}`;
 }
 
+const PAGE = 100;
+
 export function RequestLogs() {
   const [logs, setLogs] = createSignal<RequestLog[]>([]);
   const [loading, setLoading] = createSignal(true);
+  const [loadingMore, setLoadingMore] = createSignal(false);
+  const [hasMore, setHasMore] = createSignal(false);
   const [fetchError, setFetchError] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal("");
   const [statusFilter, setStatusFilter] = createSignal("");   // "" | "ok" | "error"
@@ -127,7 +131,7 @@ export function RequestLogs() {
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
   let eventTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  // Virtualize: only the visible rows (not all 500) are in the DOM, so a
+  // Virtualize: only the visible rows (not all 100) are in the DOM, so a
   // 250ms-burst reload re-renders a handful of rows instead of the whole list.
   // Rows are variable height (expanded detail), so the virtualizer measures
   // each row's real height via measureElement.
@@ -136,7 +140,7 @@ export function RequestLogs() {
   const rowVirtualizer = createVirtualizer({
     get count() { return logs().length; },
     getScrollElement: () => virtScrollEl(),
-    estimateSize: () => 40,
+    estimateSize: () => (window.innerWidth <= 768 ? 64 : 40),
     overscan: 12,
   });
   const refreshViewport = () => {
@@ -159,17 +163,21 @@ export function RequestLogs() {
   // Generation counter: a slow in-flight response must not overwrite the
   // result of a newer search/filter change.
   let loadGen = 0;
+  let lastPageOffset = -1;   // guards the tail effect from re-firing the same page
   async function load() {
     const gen = ++loadGen;
+    lastPageOffset = -1;
     try {
       const rows = await listRequestLogs({
-        limit: 500,
+        limit: PAGE,
+        offset: 0,
         search: search() || undefined,
         status: statusFilter() || undefined,
         operation: opFilter() || undefined,
       });
       if (gen !== loadGen) return;
       setLogs(rows);
+      setHasMore(rows.length === PAGE);
       setFetchError(null);
     } catch (e) {
       if (gen !== loadGen) return;
@@ -177,10 +185,51 @@ export function RequestLogs() {
       console.error("list_request_logs failed:", e);
       setFetchError(msg);
       setLogs([]);
+      setHasMore(false);
     } finally {
       if (gen === loadGen) setLoading(false);
     }
   }
+
+  // Infinite scroll: append the next page. A concurrent search/filter change
+  // (bumps loadGen) discards this in-flight page.
+  async function loadMore() {
+    if (loadingMore() || !hasMore()) return;
+    const offset = logs().length;
+    if (offset === lastPageOffset) return;   // tail effect fires per scroll tick; only fetch each offset once
+    lastPageOffset = offset;
+    const gen = loadGen;
+    setLoadingMore(true);
+    try {
+      const rows = await listRequestLogs({
+        limit: PAGE,
+        offset,
+        search: search() || undefined,
+        status: statusFilter() || undefined,
+        operation: opFilter() || undefined,
+      });
+      if (gen !== loadGen) return;
+      // Head inserts (live traffic) shift the offset window, so a page can
+      // re-return rows already held; de-dupe by id to avoid duplicate rows.
+      setLogs((prev) => {
+        const seen = new Set(prev.map((r) => r.id));
+        const fresh = rows.filter((r) => !seen.has(r.id));
+        return fresh.length ? [...prev, ...fresh] : prev;
+      });
+      setHasMore(rows.length === PAGE);
+    } catch (e) {
+      console.error("list_request_logs (page) failed:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Pull the next page once the virtualizer renders within 10 rows of the tail.
+  createEffect(() => {
+    const items = rowVirtualizer.getVirtualItems();
+    const last = items[items.length - 1];
+    if (last && last.index >= logs().length - 10) loadMore();
+  });
 
   load();
   // Push-based: backend emits "request-log-added" after each DB insert.
@@ -197,7 +246,11 @@ export function RequestLogs() {
   });
   listen<void>("request-log-added", () => {
     clearTimeout(eventTimeout);
-    eventTimeout = setTimeout(load, 250);
+    // Only auto-refresh (reset to page 1) when parked near the top; if the user
+    // scrolled into older pages, don't yank them back on a new event.
+    eventTimeout = setTimeout(() => {
+      if (!scrollDiv || scrollDiv.scrollTop < 120) load();
+    }, 250);
   }).then((unlisten) => {
     if (disposed) unlisten();
     else unlistenFn = unlisten;
@@ -220,6 +273,8 @@ export function RequestLogs() {
     try {
       await clearRequestLogs();
       setLogs([]);
+      setHasMore(false);
+      lastPageOffset = -1;
       toast.ok("Request logs cleared", "All recorded S3 request history was deleted");
     } catch (e) {
       toast.err(e);
@@ -298,9 +353,9 @@ export function RequestLogs() {
             id="req-log-scroll"
           >
             <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-              <Index each={rowVirtualizer.getVirtualItems()}>
+              <For each={rowVirtualizer.getVirtualItems()}>
                 {(vrow) => {
-                  const log = () => logs()[vrow().index];
+                  const log = () => logs()[vrow.index];
                   return (
                     <Show when={log()}>
                       {(() => {
@@ -312,12 +367,21 @@ export function RequestLogs() {
                         const remeasure = () => requestAnimationFrame(() => { if (el) rowVirtualizer.measureElement(el); });
                         return (
                   <div
-                    ref={(node) => { el = node; rowVirtualizer.measureElement(node); }}
-                    data-index={vrow().index}
+                    ref={(node) => {
+                      el = node;
+                      rowVirtualizer.measureElement(node);
+                      // Mobile only: 2-line wrap settles after commit, so remeasure
+                      // once post-paint. On desktop this rAF re-fires per scroll tick
+                      // and jitters the expanded row, so skip it there.
+                      if (window.innerWidth <= 768) {
+                        requestAnimationFrame(() => { if (el) rowVirtualizer.measureElement(el); });
+                      }
+                    }}
+                    data-index={vrow.index}
                     class={`req-log-row${isErr() ? " req-log-error" : ""}${isExpanded() ? " req-log-open" : ""}`}
                     style={{
                       position: "absolute", top: 0, left: 0, width: "100%",
-                      transform: `translateY(${vrow().start}px)`,
+                      transform: `translateY(${vrow.start}px)`,
                       "--row-color": isErr() ? "#ef4444" : color(),
                     }}
                     onClick={() => { setExpanded(isExpanded() ? null : log()!.id); remeasure(); }}
@@ -343,15 +407,17 @@ export function RequestLogs() {
                         <span class="req-log-account">{log()!.account_name}</span>
                       </Show>
 
-                      <span class="req-log-target">
-                        <Show when={log()!.bucket}>
-                          <span class="req-log-bucket">{log()!.bucket}</span>
-                        </Show>
-                        <Show when={log()!.key}>
-                          <span class="req-log-sep">/</span>
-                          <span class="req-log-key">{truncateKey(log()!.key)}</span>
-                        </Show>
-                      </span>
+                      <Show when={log()!.bucket || log()!.key}>
+                        <span class="req-log-target">
+                          <Show when={log()!.bucket}>
+                            <span class="req-log-bucket">{log()!.bucket}</span>
+                          </Show>
+                          <Show when={log()!.key}>
+                            <span class="req-log-sep">/</span>
+                            <span class="req-log-key">{truncateKey(log()!.key)}</span>
+                          </Show>
+                        </span>
+                      </Show>
 
                       <div class="flex-1" />
 
@@ -474,8 +540,11 @@ export function RequestLogs() {
                     </Show>
                   );
                 }}
-              </Index>
+              </For>
             </div>
+            <Show when={loadingMore()}>
+              <div class="req-log-more"><span class="spinner" /> Loading more…</div>
+            </Show>
           </div>
         </Show>
       </Show>

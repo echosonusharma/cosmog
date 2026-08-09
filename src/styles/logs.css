@@ -442,6 +442,11 @@
   tab-size: 2;
 }
 
+.req-log-more {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px; font-size: 12px; color: var(--text-faint);
+}
+
 .duration-fast   { color: #22c55e; }
 .duration-medium { color: #f59e0b; }
 .duration-slow   { color: #ef4444; }
@@ -487,3 +492,5 @@
   flex-shrink: 0;
 }
 .logs-active-source-x { font-size: 10px; opacity: 0.7; }
+
+/* mobile overrides for request log rows live in mobile-forms.css */
