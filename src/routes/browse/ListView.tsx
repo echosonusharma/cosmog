@@ -14,6 +14,12 @@ export type ListItem =
   | { kind: "folder"; sub: string }
   | { kind: "file"; obj: CachedObjectMeta };
 
+// Row height must match the rendered row exactly, or the virtualizer's slot
+// spacing (estimateSize + translateY) drifts from the real rows and they
+// overlap. Mobile uses taller touch rows than desktop. Portrait-locked, so a
+// one-shot read at mount is enough — no need to react to viewport changes.
+// Compact 30px rows on every platform, matching the miller column pane so item
+// spacing is identical across all views.
 const LIST_ROW_H = 30;
 
 export function ListView(props: {

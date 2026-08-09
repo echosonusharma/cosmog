@@ -4,6 +4,7 @@
   display: grid;
   grid-template-columns: 1fr 100px 100px 160px 130px 30px;
   gap: 14px;
+  align-items: center;
   padding: 10px 10px;
   font-size: 11px;
   text-transform: uppercase;

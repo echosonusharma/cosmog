@@ -374,6 +374,13 @@ impl TransferManager {
             } => (bucket.clone(), key.clone(), local_path.to_string_lossy().to_string()),
         };
         let path_for_cleanup = path_for_row.clone();
+        // SAF staging dir to reap on a terminal Done/Canceled. Captured before
+        // the job is consumed; independent of the encryption swap that repoints
+        // the upload source to a temp file elsewhere.
+        let stage_cleanup_dir = match &job {
+            WorkerJob::Upload { opts, .. } => opts.stage_cleanup_dir.clone(),
+            WorkerJob::Download { .. } => None,
+        };
 
         let account_id_for_cache = account_id.clone();
         // Capture the options blob so a future `retry_transfer` can reapply
@@ -681,21 +688,16 @@ impl TransferManager {
             {
                 let _ = tokio::fs::remove_file(&path_for_cleanup).await;
             }
-            // Android SAF uploads are staged into $APPCACHE/uploads/<uuid>/;
-            // once the upload is done or canceled the staged copy is dead
-            // weight (multi-GB files pile up fast). Failed uploads keep it so
-            // a retry does not need re-staging. The path test keeps this away
-            // from real user files: desktop uploads reference the original
-            // source path, never a cache/uploads staging dir.
+            // Android SAF uploads are staged into a per-upload dir under the app
+            // cache; once done or canceled the staged copy is dead weight (multi-GB
+            // files pile up fast). Failed uploads keep it so a retry does not need
+            // re-staging. Only set for SAF sources, so desktop uploads (whose path
+            // is the real user file) are never touched.
             if matches!(direction, Direction::Upload)
                 && matches!(terminal, TransferStatus::Done | TransferStatus::Canceled)
-                && path_for_cleanup.replace('\\', "/").contains("/cache/uploads/")
             {
-                let p = std::path::Path::new(&path_for_cleanup);
-                let _ = tokio::fs::remove_file(p).await;
-                if let Some(dir) = p.parent() {
-                    // Only succeeds when empty, which is exactly what we want.
-                    let _ = tokio::fs::remove_dir(dir).await;
+                if let Some(dir) = &stage_cleanup_dir {
+                    let _ = tokio::fs::remove_dir_all(dir).await;
                 }
             }
             let err_text = result.err().map(|e| e.to_string());

@@ -35,13 +35,16 @@ export const enqueueUpload = (
   key: string,
   localPath: string,
   cb?: TransferEventCb,
+  stageCleanupDir?: string | null,
 ): Promise<EnqueueResult> =>
   invoke("enqueue_upload", {
     accountId,
     bucket,
     key,
     localPath,
-    options: null,
+    // Android SAF staging dir the worker reaps on a terminal upload. Only the
+    // one field is set; the rest of PutOptions defaults on the Rust side.
+    options: stageCleanupDir ? { stage_cleanup_dir: stageCleanupDir } : null,
     onEvent: makeChannel(cb),
   });
 

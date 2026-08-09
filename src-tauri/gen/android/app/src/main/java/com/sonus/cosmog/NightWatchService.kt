@@ -23,8 +23,6 @@ import androidx.core.app.NotificationCompat
 class NightWatchService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private var wakeLock: PowerManager.WakeLock? = null
-
     // Implemented in Rust (night_watcher_headless.rs). Runs in THIS (:nightwatch)
     // process, independent of the Tauri/wry Activity, so background sync survives
     // the Activity being destroyed. Idempotent on the Rust side.
@@ -35,16 +33,13 @@ class NightWatchService : Service() {
         super.onCreate()
         ensureChannel(this)
 
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         // Bounded acquire: Night Watcher survives swipe-away and runs 24/7, so
         // an untimed PARTIAL_WAKE_LOCK would pin the CPU forever and drain the
-        // battery. Hold only for the length of a scan+upload window; the OS
-        // auto-releases at the timeout even if a crash skips onDestroy. Long
-        // syncs should re-acquire per cycle rather than hold indefinitely.
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "cosmog:nightwatch").apply {
-            setReferenceCounted(false)
-            acquire(WAKELOCK_TIMEOUT_MS)
-        }
+        // battery. The Rust sync loop pings heartbeatWakelock() well within the
+        // cap, so a sync spanning many cycles (or one long transfer) keeps the
+        // CPU; the OS still auto-releases at the cap if the loop dies without a
+        // heartbeat, so a crash that skips onDestroy can never leak it.
+        acquireWakelock(this)
 
         val notif = buildNotification(this)
         // Android 12+ throws ForegroundServiceStartNotAllowedException if the
@@ -57,10 +52,7 @@ class NightWatchService : Service() {
             }
         } catch (t: Throwable) {
             android.util.Log.w("NightWatchService", "startForeground refused: $t")
-            try {
-                wakeLock?.takeIf { it.isHeld }?.release()
-            } catch (_: Throwable) {}
-            wakeLock = null
+            releaseWakelock()
             stopSelf()
             return
         }
@@ -95,10 +87,7 @@ class NightWatchService : Service() {
         } catch (t: Throwable) {
             android.util.Log.w("NightWatchService", "stopNwSync failed: $t")
         }
-        try {
-            wakeLock?.takeIf { it.isHeld }?.release()
-        } catch (_: Throwable) {}
-        wakeLock = null
+        releaseWakelock()
         super.onDestroy()
     }
 
@@ -106,9 +95,55 @@ class NightWatchService : Service() {
         const val CHANNEL_ID = "cosmog-nightwatch-fg"
         const val FG_NOTIFICATION_ID = 424243
 
-        // Cap the wakelock so it can never be held indefinitely (10 min covers a
-        // scan+upload cycle with margin; the OS releases it after this).
+        // Cap the wakelock so it can never be held indefinitely: the OS releases
+        // it this long after the LAST acquire/heartbeat, so a dead loop cannot
+        // pin the CPU. The Rust loop heartbeats well inside this window.
         private const val WAKELOCK_TIMEOUT_MS = 10L * 60L * 1000L
+
+        // Held in the companion (not per-instance) so the Rust heartbeat can
+        // re-acquire it without a live service reference. This process is the
+        // dedicated :nightwatch one, so a single static is safe.
+        @Volatile
+        private var wakeLock: PowerManager.WakeLock? = null
+
+        // (Re)acquire the bounded CPU wakelock. Called from onCreate and, on the
+        // heartbeat path, from the Rust sync loop. acquire() on a non-ref-counted
+        // lock resets the timeout, so repeated calls just push the cap forward.
+        @JvmStatic
+        fun acquireWakelock(ctx: Context) {
+            try {
+                val pm = ctx.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val wl = wakeLock ?: pm
+                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "cosmog:nightwatch")
+                    .also {
+                        it.setReferenceCounted(false)
+                        wakeLock = it
+                    }
+                wl.acquire(WAKELOCK_TIMEOUT_MS)
+            } catch (t: Throwable) {
+                android.util.Log.w("NightWatchService", "acquireWakelock failed: $t")
+            }
+        }
+
+        // Heartbeat from the Rust loop (same :nightwatch process): push the cap
+        // forward on the already-created lock. No-op if the lock is gone (service
+        // torn down); the loop is being canceled in that case anyway.
+        @JvmStatic
+        fun heartbeatWakelock() {
+            try {
+                wakeLock?.acquire(WAKELOCK_TIMEOUT_MS)
+            } catch (t: Throwable) {
+                android.util.Log.w("NightWatchService", "heartbeatWakelock failed: $t")
+            }
+        }
+
+        @JvmStatic
+        fun releaseWakelock() {
+            try {
+                wakeLock?.takeIf { it.isHeld }?.release()
+            } catch (_: Throwable) {}
+            wakeLock = null
+        }
 
         const val PREFS_NAME = "cosmog_nw"
         const val KEY_ENABLED = "nw_enabled"

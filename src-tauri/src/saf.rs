@@ -702,6 +702,40 @@ pub fn set_nightwatch_service(_active: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Push the NightWatchService CPU wakelock cap forward from the headless sync
+/// loop (same `:nightwatch` process). Called periodically so a sync spanning
+/// many cycles, or a single long transfer, never loses the CPU when the bounded
+/// acquire from the previous heartbeat lapses. Calls the static
+/// `NightWatchService.heartbeatWakelock()`.
+#[cfg(target_os = "android")]
+pub fn nw_wakelock_heartbeat() -> Result<(), String> {
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    if ctx.vm().is_null() {
+        return Err("android context not initialized".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("attach_current_thread: {e}"))?;
+
+    // Cached class ref (bug #3): find_class for app classes fails on this thread.
+    let cls_ref = NIGHTWATCH_SERVICE_CLASS
+        .get()
+        .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
+    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+    env.call_static_method(cls, "heartbeatWakelock", "()V", &[])
+        .map_err(|e| jni_err(&mut env, "heartbeatWakelock", e))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn nw_wakelock_heartbeat() -> Result<(), String> {
+    Ok(())
+}
+
 /// Persist the "start Night Watcher on boot" flag on the Kotlin side. Calls
 /// NightWatchService.setBootFlag(context, enabled).
 #[cfg(target_os = "android")]

@@ -61,13 +61,14 @@ export function displayNameFromUri(pathOrUri: string, fallback = "file"): string
  *  return { path, name } where `name` comes from ContentResolver's
  *  OpenableColumns.DISPLAY_NAME. Non-URI paths pass through with derived
  *  basename. */
-export async function resolveUploadPath(pathOrUri: string): Promise<{ path: string; name: string }> {
-  if (!pathOrUri) return { path: "", name: "" };
+export async function resolveUploadPath(pathOrUri: string): Promise<{ path: string; name: string; stageDir: string | null }> {
+  if (!pathOrUri) return { path: "", name: "", stageDir: null };
   const isUri = pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://");
   if (!isUri) {
     const trimmed = pathOrUri.endsWith("/") || pathOrUri.endsWith("\\") ? pathOrUri.slice(0, -1) : pathOrUri;
     const lastSep = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-    return { path: pathOrUri, name: trimmed.slice(lastSep + 1) };
+    // Desktop source is a real user file: never hand back a staging dir.
+    return { path: pathOrUri, name: trimmed.slice(lastSep + 1), stageDir: null };
   }
 
   const uploadsRel = "uploads";
@@ -80,7 +81,11 @@ export async function resolveUploadPath(pathOrUri: string): Promise<{ path: stri
     "stage_saf_upload",
     { uri: pathOrUri, destDir },
   );
-  return { path: res.path, name: res.display_name || displayNameFromUri(pathOrUri, "upload") };
+  // Rust stages into <destDir>/<uuid>/<name>; the per-upload <uuid> dir is the
+  // unit the transfer worker reaps once the upload settles.
+  const sep = Math.max(res.path.lastIndexOf("/"), res.path.lastIndexOf("\\"));
+  const stageDir = sep > 0 ? res.path.slice(0, sep) : null;
+  return { path: res.path, name: res.display_name || displayNameFromUri(pathOrUri, "upload"), stageDir };
 }
 
 /** Android SAF returns content:// URIs. Rust download requires absolute

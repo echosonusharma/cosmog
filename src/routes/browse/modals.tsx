@@ -157,11 +157,11 @@ export function UploadModal(props: {
       for (let i = 0; i < list.length; i++) {
         setCurrentIdx(i);
         const rawPath = list[i];
-        const { path, name } = await resolveUploadPath(rawPath);
+        const { path, name, stageDir } = await resolveUploadPath(rawPath);
         const key = keyPrefix().trim()
           ? keyPrefix().trim().replace(/\/?$/, "/") + name
           : name;
-        await enqueueUpload(props.accountId, props.bucket, key, path);
+        await enqueueUpload(props.accountId, props.bucket, key, path, undefined, stageDir);
       }
       props.onClose();
       props.onQueued?.();

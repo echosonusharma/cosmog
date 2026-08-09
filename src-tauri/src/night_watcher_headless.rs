@@ -227,8 +227,30 @@ fn start_inner() {
 
     let token = CancellationToken::new();
     *NW_CANCEL.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
+    // Keep the service wakelock alive across long syncs: its acquire is bounded
+    // (10 min) so a crash can never leak it, but that means a sync running past
+    // the cap would lose the CPU. Ping the Java side well inside the window.
+    rt.spawn(wakelock_heartbeat(token.clone()));
     rt.spawn(run_loop(ctx, token));
     info!("headless night watcher started (service process)");
+}
+
+/// Re-arm the NightWatchService wakelock every 5 min while the loop runs. The
+/// Java cap is 10 min, so a 5-min heartbeat keeps a wide margin; the loop's
+/// cancellation token stops the pings the moment the service is torn down.
+async fn wakelock_heartbeat(token: CancellationToken) {
+    const HEARTBEAT_SECS: u64 = 5 * 60;
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_SECS));
+    loop {
+        tokio::select! {
+            _ = token.cancelled() => break,
+            _ = tick.tick() => {
+                if let Err(e) = crate::saf::nw_wakelock_heartbeat() {
+                    warn!("wakelock heartbeat failed: {e}");
+                }
+            }
+        }
+    }
 }
 
 fn stop_inner() {

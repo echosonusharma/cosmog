@@ -172,37 +172,66 @@
     font-size: 14px;
   }
 
-  /* ── list view / table view: compact rows, hide non-essential cols ───── */
+  /* ── list view: compact 3-col layout — Name / Size / kebab ──────────────
+     Header and rows share the same template so the labels sit over their
+     columns (Type/Modified are dropped, not left orphaned above the kebab). */
+  /* Fixed 90px size column (not auto) so the header grid and the row grid —
+     which are separate containers — share column widths and the Size label sits
+     over the values. Compact, vertically-centered band. */
   .col-header {
-    grid-template-columns: 1fr 90px;
-    gap: 8px;
-    padding: 8px 8px;
-    font-size: 10px;
+    grid-template-columns: 1fr 90px 36px;
+    gap: 10px;
+    align-items: center;
+    height: 34px;
+    padding: 0 12px;
+    /* Authored casing ("Name"/"Size"), not uppercase: the <button> Name label
+       ignores the base uppercase (WebView UA leaves buttons at none) while the
+       Size <div> applies it, so the two looked inconsistent. */
+    text-transform: none;
+    letter-spacing: 0.02em;
   }
-  .col-header > *:nth-child(n+3) {
+  /* Both labels share one faint, weight-600 style. min-height:0 cancels the
+     40px mobile form-button rule that otherwise inflates the Name button and
+     throws the band's vertical rhythm off. */
+  .col-header > button,
+  .col-header > div {
+    min-height: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-faint);
+    text-transform: none;
+    letter-spacing: 0.02em;
+  }
+  /* Hide Type (child 2) and Modified (child 4); Name, Size (child 3) and the
+     trailing spacer (child 5) stay and map onto the three columns. */
+  .col-header > *:nth-child(2),
+  .col-header > *:nth-child(4) {
     display: none;
   }
+  /* Height is set inline from LIST_ROW_H (44 on mobile) so the virtualizer's
+     slot matches the rendered row; do not set it here or the two can diverge. */
   .obj-row {
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    padding: 0 8px;
+    grid-template-columns: 1fr 90px 36px;
+    gap: 10px;
+    padding: 0 12px;
     font-size: 12.5px;
-    height: 44px;
   }
-  .obj-row > *:nth-child(n+3) {
-    display: none;
-  }
-  /* Re-show the kebab (child 6) and let it own the second column, at a
-     comfortable touch size. */
-  .obj-kebab { display: inline-flex !important; }
-  .obj-kebab.icon-btn { width: 36px; height: 36px; }
+  /* Drop type, date and the inline action cluster; the kebab covers actions. */
   .obj-type,
-  .obj-date {
+  .obj-date,
+  .obj-actions {
     display: none;
   }
+  /* Size sits in the middle column, right-aligned against the kebab. */
   .obj-size {
+    display: block;
     font-size: 11.5px;
+    text-align: right;
   }
+  /* Kebab (child 6) owns the last column. Height stays within the 30px row so
+     it never overflows into the neighbouring row; width keeps a wide tap area. */
+  .obj-kebab { display: inline-flex !important; }
+  .obj-kebab.icon-btn { width: 34px; height: 28px; }
 
   /* table-view variant */
   .table-header {
@@ -220,7 +249,7 @@
     grid-template-columns: 1fr 70px;
     column-gap: 8px;
     padding: 0 8px;
-    height: 40px;
+    height: 30px;
     font-size: 12.5px;
   }
   .table-row .td-type,

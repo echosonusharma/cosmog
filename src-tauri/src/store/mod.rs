@@ -111,6 +111,13 @@ pub struct PutOptions {
     /// file is an encrypted temp copy; not serialized to DB or sent over IPC.
     #[serde(skip)]
     pub cleanup_path: Option<std::path::PathBuf>,
+    /// Android SAF staging directory to remove once the upload settles
+    /// (Done/Canceled). The whole per-upload dir is deleted, so it survives the
+    /// encryption swap that repoints the upload source to a temp file. `None`
+    /// for desktop uploads whose source is a real user file. Serialized so a
+    /// retry recovers it from the transfer row.
+    #[serde(default)]
+    pub stage_cleanup_dir: Option<std::path::PathBuf>,
     /// Server-side encryption mode. `None` = provider default; `Some(Sse::S3)`
     /// = SSE-S3 (AES256); `Some(Sse::Kms { key_id })` = SSE-KMS. SSE-C
     /// (customer-provided key) is deliberately not exposed — it requires
