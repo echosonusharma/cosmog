@@ -8,6 +8,10 @@ use crate::error::AppResult;
 
 use super::Db;
 
+/// Hard cap on retained request-log rows, enforced on every prune regardless of
+/// TTL. Keeps the table (and its full-table search scans) bounded.
+pub const REQUEST_LOG_MAX_ROWS: i64 = 50_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestLog {
     pub id: String,
@@ -172,14 +176,25 @@ impl Db {
         Ok(n)
     }
 
+    /// Prune request logs by age (TTL) AND a hard row cap. The row cap bounds
+    /// the fastest-growing table between TTL passes: a bulk operation can emit
+    /// thousands of rows in minutes, and leading-wildcard log searches scan the
+    /// whole table. Both deletes run in one transaction.
     pub async fn delete_old_request_logs(&self, before_ts: i64) -> AppResult<u64> {
         let n = self
             .conn
             .call(move |conn| {
-                let n = conn.execute(
+                let tx = conn.transaction()?;
+                let mut n = tx.execute(
                     "DELETE FROM request_logs WHERE created_at < ?1",
                     params![before_ts],
                 )?;
+                n += tx.execute(
+                    "DELETE FROM request_logs WHERE rowid NOT IN \
+                     (SELECT rowid FROM request_logs ORDER BY rowid DESC LIMIT ?1)",
+                    params![REQUEST_LOG_MAX_ROWS],
+                )?;
+                tx.commit()?;
                 Ok::<_, tokio_rusqlite::Error>(n)
             })
             .await?;

@@ -63,8 +63,9 @@ async fn run_once(
     // Expire old failure entries (older than AUTH_BACKOFF_SECS).
     fail_times.retain(|_, v| v.elapsed() < backoff);
 
-    // TTL cleanup runs once per day (every 1440 × 60s ticks).
-    if tick % 1440 == 1 {
+    // TTL + row-cap cleanup runs hourly (every 60 × 60s ticks). The row cap
+    // keeps the table bounded even during heavy bursts between passes.
+    if tick % 60 == 1 {
         if let Ok(settings) = state.load_settings().await {
             let cutoff = Utc::now().timestamp() - (settings.request_log_ttl_days as i64 * 86_400);
             if let Err(e) = state.db.delete_old_request_logs(cutoff).await {

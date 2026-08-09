@@ -39,6 +39,19 @@ export default defineConfig(async () => ({
   },
   build: {
     target: ["es2022", "chrome105", "safari15"],
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("exceljs")) return "exceljs";
+            if (id.includes("pdfjs-dist")) return "pdfjs";
+            if (id.includes("cropperjs")) return "cropperjs";
+            if (id.includes("uplot")) return "uplot";
+            if (id.includes("@codemirror") || id.includes("@lezer")) return "codemirror";
+          }
+        },
+      },
+    },
   },
 
   server: {

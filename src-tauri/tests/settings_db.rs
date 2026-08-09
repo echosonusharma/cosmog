@@ -114,6 +114,7 @@ async fn reap_orphan_transfers_flips_active_to_failed() {
         direction: cosmog_lib::db::transfers::Direction::Upload,
         local_path: "/tmp/x".into(),
         options_json: None,
+        origin: cosmog_lib::db::transfers::TransferOrigin::User,
     })
     .await
     .unwrap();

@@ -281,6 +281,15 @@ pub fn run() {
                 if let Err(e) = db.reap_orphan_transfers().await {
                     tracing::warn!("reap_orphan_transfers failed: {e}");
                 }
+                // Android: the main process owns `user` transfers; the
+                // `:nightwatch` service owns `nightwatch` ones. Reap only our
+                // own orphans so a swipe-killed upload becomes a Failed row the
+                // user can retry (resuming from persisted parts), without
+                // clobbering the sibling's live rows.
+                #[cfg(target_os = "android")]
+                if let Err(e) = db.reap_orphan_transfers_by_origin("user").await {
+                    tracing::warn!("reap_orphan_transfers_by_origin failed: {e}");
+                }
                 // Honour user-configured concurrency at startup. Note: changes
                 // made via update_settings only take effect on next launch
                 // because the Semaphore is not resizable in place.
@@ -288,96 +297,117 @@ pub fn run() {
                 // Apply proxy / custom-CA env BEFORE any SDK client is built.
                 crate::db::settings::apply_network_env(&settings);
                 let concurrency = settings.transfer_concurrency as usize;
-                // Prune request logs older than the configured TTL.
-                let ttl_cutoff = chrono::Utc::now().timestamp()
-                    - (settings.request_log_ttl_days as i64 * 86_400);
-                if let Err(e) = db.delete_old_request_logs(ttl_cutoff).await {
-                    tracing::warn!("request log TTL cleanup failed: {e}");
-                }
-                // Sweep leftover encryption temp files from a previous crash.
-                // Files under <db_dir>/enc_tmp/ are ciphertext-only, safe to
-                // delete unconditionally: they were staged for uploads that
-                // never completed.
-                if let Some(parent) = db_path.parent() {
-                    let enc_tmp = parent.join("enc_tmp");
-                    if enc_tmp.exists() {
-                        match std::fs::read_dir(&enc_tmp) {
-                            Ok(rd) => {
-                                let mut removed = 0usize;
-                                for entry in rd.flatten() {
-                                    if std::fs::remove_file(entry.path()).is_ok() {
-                                        removed += 1;
-                                    }
-                                }
-                                if removed > 0 {
-                                    tracing::info!(
-                                        "swept {} stale file(s) from {}",
-                                        removed,
-                                        enc_tmp.display()
-                                    );
-                                }
-                            }
-                            Err(e) => tracing::warn!("enc_tmp sweep failed: {e}"),
-                        }
-                    }
-                }
-                let state = AppState::new(db, concurrency, log_dir, db_path, app.handle().clone());
-                // Keep the cancel token alive for the process lifetime so the
-                // scheduler can be stopped cleanly if needed. Stored in a
-                // OnceLock so it is not dropped until the process exits.
-                static SCHEDULER_CANCEL: std::sync::OnceLock<tokio_util::sync::CancellationToken> =
-                    std::sync::OnceLock::new();
-                let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
-                // Night Watcher: background local-dir -> S3 sync. Sibling of the
-                // scheduler; its cancel token is likewise parked for the process
-                // lifetime.
-                //
-                // Android: the sync loop runs in the separate `:nightwatch`
-                // service process (night_watcher_headless), NOT here. wry exits
-                // this process when the Activity is destroyed, and a second loop
-                // in this process would double-scan + race the service's writes
-                // to nw_file_state. The main process only edits watch config.
-                #[cfg(not(target_os = "android"))]
-                {
-                    static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
-                        tokio_util::sync::CancellationToken,
-                    > = std::sync::OnceLock::new();
-                    let _ = NIGHT_WATCHER_CANCEL.set(night_watcher::spawn(state.clone()));
-                }
 
-                // Arm/disarm desktop background running based on whether any
-                // watch is enabled, then let the SAF twin start/stop the
-                // Android FGS (no-op on desktop).
-                #[cfg(not(target_os = "android"))]
-                {
-                    let enabled = state
-                        .db
-                        .list_enabled_watches()
-                        .await
-                        .map(|v| !v.is_empty())
-                        .unwrap_or(false);
-                    app_lifecycle::apply(app.handle(), enabled);
-                }
-                // MCP server: local Streamable HTTP endpoint. Starts only when
-                // enabled in settings; shares the one AppState with everything
-                // else. Its enabled flag also feeds the background-run gate.
-                #[cfg(not(target_os = "android"))]
-                if let Err(e) = mcp::apply(&state).await {
-                    tracing::warn!("MCP server start failed: {e}");
-                }
-                commands::night_watcher::nw_refresh_service(&state).await;
-
-                handle.manage(state);
+                // Critical path ends here: manage state + show the window so
+                // first paint is not blocked by log pruning, the enc_tmp sweep,
+                // scheduler/night-watcher spawns, tray build, or MCP bind.
+                let state = AppState::new(
+                    db,
+                    concurrency,
+                    log_dir,
+                    db_path.clone(),
+                    handle.clone(),
+                );
+                handle.manage(state.clone());
 
                 // Show the window unless launched hidden (autostart passes
                 // --hidden). With visible:false in the config, doing nothing
                 // keeps it hidden.
                 #[cfg(not(target_os = "android"))]
                 if !std::env::args().any(|a| a == "--hidden") {
-                    if let Some(w) = app.get_webview_window("main") {
+                    if let Some(w) = handle.get_webview_window("main") {
                         let _ = w.show();
                     }
                 }
+
+                // Defer everything non-critical off the first-paint path.
+                let bg_handle = handle.clone();
+                let ttl_days = settings.request_log_ttl_days as i64;
+                tauri::async_runtime::spawn(async move {
+                    // Prune request logs older than the configured TTL.
+                    let ttl_cutoff = chrono::Utc::now().timestamp() - (ttl_days * 86_400);
+                    if let Err(e) = state.db.delete_old_request_logs(ttl_cutoff).await {
+                        tracing::warn!("request log TTL cleanup failed: {e}");
+                    }
+                    // Sweep leftover encryption temp files from a previous crash.
+                    // Files under <db_dir>/enc_tmp/ are ciphertext-only, safe to
+                    // delete unconditionally: they were staged for uploads that
+                    // never completed. Blocking std::fs -> spawn_blocking.
+                    if let Some(parent) = db_path.parent() {
+                        let enc_tmp = parent.join("enc_tmp");
+                        if enc_tmp.exists() {
+                            let _ = tokio::task::spawn_blocking(move || {
+                                match std::fs::read_dir(&enc_tmp) {
+                                    Ok(rd) => {
+                                        let mut removed = 0usize;
+                                        for entry in rd.flatten() {
+                                            if std::fs::remove_file(entry.path()).is_ok() {
+                                                removed += 1;
+                                            }
+                                        }
+                                        if removed > 0 {
+                                            tracing::info!(
+                                                "swept {} stale file(s) from {}",
+                                                removed,
+                                                enc_tmp.display()
+                                            );
+                                        }
+                                    }
+                                    Err(e) => tracing::warn!("enc_tmp sweep failed: {e}"),
+                                }
+                            })
+                            .await;
+                        }
+                    }
+                    // Keep the cancel token alive for the process lifetime so the
+                    // scheduler can be stopped cleanly if needed. Stored in a
+                    // OnceLock so it is not dropped until the process exits.
+                    static SCHEDULER_CANCEL: std::sync::OnceLock<
+                        tokio_util::sync::CancellationToken,
+                    > = std::sync::OnceLock::new();
+                    let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
+                    // Night Watcher: background local-dir -> S3 sync. Sibling of
+                    // the scheduler; its cancel token is likewise parked for the
+                    // process lifetime.
+                    //
+                    // Android: the sync loop runs in the separate `:nightwatch`
+                    // service process (night_watcher_headless), NOT here. wry
+                    // exits this process when the Activity is destroyed, and a
+                    // second loop in this process would double-scan + race the
+                    // service's writes to nw_file_state. The main process only
+                    // edits watch config.
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
+                            tokio_util::sync::CancellationToken,
+                        > = std::sync::OnceLock::new();
+                        let _ = NIGHT_WATCHER_CANCEL.set(night_watcher::spawn(state.clone()));
+                    }
+
+                    // Arm/disarm desktop background running based on whether any
+                    // watch is enabled, then let the SAF twin start/stop the
+                    // Android FGS (no-op on desktop).
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        let enabled = state
+                            .db
+                            .list_enabled_watches()
+                            .await
+                            .map(|v| !v.is_empty())
+                            .unwrap_or(false);
+                        app_lifecycle::apply(&bg_handle, enabled);
+                    }
+                    // MCP server: local Streamable HTTP endpoint. Starts only
+                    // when enabled in settings; shares the one AppState with
+                    // everything else. Its enabled flag also feeds the
+                    // background-run gate.
+                    #[cfg(not(target_os = "android"))]
+                    if let Err(e) = mcp::apply(&state).await {
+                        tracing::warn!("MCP server start failed: {e}");
+                    }
+                    commands::night_watcher::nw_refresh_service(&state).await;
+                    let _ = &bg_handle;
+                });
             });
             Ok(())
         })

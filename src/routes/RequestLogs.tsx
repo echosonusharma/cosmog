@@ -1,4 +1,5 @@
-import { createSignal, onCleanup, For, Show } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, Index, Show } from "solid-js";
+import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
 import type { RequestLog } from "../types";
@@ -125,6 +126,35 @@ export function RequestLogs() {
   const [expanded, setExpanded] = createSignal<string | null>(null);
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
   let eventTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // Virtualize: only the visible rows (not all 500) are in the DOM, so a
+  // 250ms-burst reload re-renders a handful of rows instead of the whole list.
+  // Rows are variable height (expanded detail), so the virtualizer measures
+  // each row's real height via measureElement.
+  let scrollDiv: HTMLDivElement | undefined;
+  const [virtScrollEl, setVirtScrollEl] = createSignal<HTMLDivElement | null>(null);
+  const rowVirtualizer = createVirtualizer({
+    get count() { return logs().length; },
+    getScrollElement: () => virtScrollEl(),
+    estimateSize: () => 40,
+    overscan: 12,
+  });
+  const refreshViewport = () => {
+    if (!scrollDiv) return;
+    if (rowVirtualizer.getVirtualItems().length > 0 || logs().length === 0) {
+      rowVirtualizer.measure();
+      return;
+    }
+    setVirtScrollEl(null);
+    requestAnimationFrame(() => { if (scrollDiv) setVirtScrollEl(scrollDiv); });
+  };
+  createEffect(() => { logs().length; requestAnimationFrame(refreshViewport); });
+  onMount(() => {
+    if (!scrollDiv) return;
+    const ro = new ResizeObserver(() => requestAnimationFrame(refreshViewport));
+    ro.observe(scrollDiv);
+    onCleanup(() => ro.disconnect());
+  });
 
   // Generation counter: a slow in-flight response must not overwrite the
   // result of a newer search/filter change.
@@ -262,54 +292,71 @@ export function RequestLogs() {
             </Show>
           }
         >
-          <div class="logs-body min-h-0" id="req-log-scroll">
-            <For each={logs()}>
-              {(log) => {
-                const isExpanded = () => expanded() === log.id;
-                const dateLabel = fmtDate(log.created_at);
-                const color = opColor(log.operation);
-                const isErr = log.status === "error";
-                return (
+          <div
+            ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
+            class="logs-body min-h-0"
+            id="req-log-scroll"
+          >
+            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
+              <Index each={rowVirtualizer.getVirtualItems()}>
+                {(vrow) => {
+                  const log = () => logs()[vrow().index];
+                  return (
+                    <Show when={log()}>
+                      {(() => {
+                        let el: HTMLDivElement | undefined;
+                        const isExpanded = () => expanded() === log()!.id;
+                        const dateLabel = () => fmtDate(log()!.created_at);
+                        const color = () => opColor(log()!.operation);
+                        const isErr = () => log()!.status === "error";
+                        const remeasure = () => requestAnimationFrame(() => { if (el) rowVirtualizer.measureElement(el); });
+                        return (
                   <div
-                    class={`req-log-row${isErr ? " req-log-error" : ""}${isExpanded() ? " req-log-open" : ""}`}
-                    style={{ "--row-color": isErr ? "#ef4444" : color }}
-                    onClick={() => setExpanded(isExpanded() ? null : log.id)}
+                    ref={(node) => { el = node; rowVirtualizer.measureElement(node); }}
+                    data-index={vrow().index}
+                    class={`req-log-row${isErr() ? " req-log-error" : ""}${isExpanded() ? " req-log-open" : ""}`}
+                    style={{
+                      position: "absolute", top: 0, left: 0, width: "100%",
+                      transform: `translateY(${vrow().start}px)`,
+                      "--row-color": isErr() ? "#ef4444" : color(),
+                    }}
+                    onClick={() => { setExpanded(isExpanded() ? null : log()!.id); remeasure(); }}
                   >
                     <div class="req-log-main">
-                      <span class="req-log-dot" style={{ background: isErr ? "#ef4444" : "#22c55e" }} />
+                      <span class="req-log-dot" style={{ background: isErr() ? "#ef4444" : "#22c55e" }} />
 
                       <span class="req-log-ts">
-                        <Show when={dateLabel !== today()}>
-                          <span class="req-log-ts-date">{dateLabel}</span>
+                        <Show when={dateLabel() !== today()}>
+                          <span class="req-log-ts-date">{dateLabel()}</span>
                         </Show>
-                        {fmtTime(log.created_at)}
+                        {fmtTime(log()!.created_at)}
                       </span>
 
                       <span
                         class="req-log-op"
-                        style={{ "--op-color": color }}
+                        style={{ "--op-color": color() }}
                       >
-                        {opLabel(log.operation)}
+                        {opLabel(log()!.operation)}
                       </span>
 
-                      <Show when={log.account_name}>
-                        <span class="req-log-account">{log.account_name}</span>
+                      <Show when={log()!.account_name}>
+                        <span class="req-log-account">{log()!.account_name}</span>
                       </Show>
 
                       <span class="req-log-target">
-                        <Show when={log.bucket}>
-                          <span class="req-log-bucket">{log.bucket}</span>
+                        <Show when={log()!.bucket}>
+                          <span class="req-log-bucket">{log()!.bucket}</span>
                         </Show>
-                        <Show when={log.key}>
+                        <Show when={log()!.key}>
                           <span class="req-log-sep">/</span>
-                          <span class="req-log-key">{truncateKey(log.key)}</span>
+                          <span class="req-log-key">{truncateKey(log()!.key)}</span>
                         </Show>
                       </span>
 
                       <div class="flex-1" />
 
-                      <span class={`req-log-duration ${durationClass(log.duration_ms)}`}>
-                        {fmtDuration(log.duration_ms)}
+                      <span class={`req-log-duration ${durationClass(log()!.duration_ms)}`}>
+                        {fmtDuration(log()!.duration_ms)}
                       </span>
 
                       <span class="req-log-chevron">{isExpanded() ? "▾" : "▸"}</span>
@@ -319,112 +366,116 @@ export function RequestLogs() {
                       {/* stop propagation: text selection inside the card must
                           not bubble to the row's collapse toggle */}
                       <div class="req-log-detail" onClick={(e) => e.stopPropagation()}>
-                        <div class="req-log-detail-header" style={{ "border-left-color": color }}>
-                          <Show when={log.http_method}>
-                            <span class="req-log-http-method">{log.http_method}</span>
+                        <div class="req-log-detail-header" style={{ "border-left-color": color() }}>
+                          <Show when={log()!.http_method}>
+                            <span class="req-log-http-method">{log()!.http_method}</span>
                           </Show>
-                          <span class="req-log-detail-op" style={{ color }}>
-                            {opLabel(log.operation)}
+                          <span class="req-log-detail-op" style={{ color: color() }}>
+                            {opLabel(log()!.operation)}
                           </span>
-                          <span class="req-log-detail-raw-op">{log.operation}</span>
+                          <span class="req-log-detail-raw-op">{log()!.operation}</span>
                           <div class="flex-1" />
-                          <Show when={log.response_status}>
-                            <span class={`req-log-http-status ${isErr ? "req-log-http-status-err" : "req-log-http-status-ok"}`}>
-                              HTTP {log.response_status}
+                          <Show when={log()!.response_status}>
+                            <span class={`req-log-http-status ${isErr() ? "req-log-http-status-err" : "req-log-http-status-ok"}`}>
+                              HTTP {log()!.response_status}
                             </span>
                           </Show>
                           <span
-                            class={`req-log-detail-status-badge ${isErr ? "req-log-detail-err-badge" : "req-log-detail-ok-badge"}`}
+                            class={`req-log-detail-status-badge ${isErr() ? "req-log-detail-err-badge" : "req-log-detail-ok-badge"}`}
                           >
-                            {isErr ? "✕ error" : "✓ ok"}
+                            {isErr() ? "✕ error" : "✓ ok"}
                           </span>
                         </div>
 
-                        <Show when={log.request_url}>
+                        <Show when={log()!.request_url}>
                           <div class="req-log-url-bar">
                             <span class="req-log-chip-label req-log-chip-label-url">URL</span>
-                            <span class="req-log-url-text">{log.request_url}</span>
+                            <span class="req-log-url-text">{log()!.request_url}</span>
                             <button
                               class="req-log-copy-btn"
 
-                              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(log.request_url!); }}
+                              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(log()!.request_url!); }}
                             >⎘</button>
                           </div>
                         </Show>
 
                         <div class="req-log-detail-chips">
-                          <Show when={log.account_name}>
+                          <Show when={log()!.account_name}>
                             <span class="req-log-chip req-log-chip-account">
                               <span class="req-log-chip-label">account</span>
-                              {log.account_name}
+                              {log()!.account_name}
                             </span>
                           </Show>
-                          <Show when={log.bucket}>
+                          <Show when={log()!.bucket}>
                             <span class="req-log-chip req-log-chip-bucket">
                               <span class="req-log-chip-label">bucket</span>
-                              {log.bucket}
+                              {log()!.bucket}
                             </span>
                           </Show>
-                          <span class={`req-log-chip req-log-chip-duration ${durationClass(log.duration_ms)}`}>
+                          <span class={`req-log-chip req-log-chip-duration ${durationClass(log()!.duration_ms)}`}>
                             <span class="req-log-chip-label">duration</span>
-                            {log.duration_ms}ms
+                            {log()!.duration_ms}ms
                           </span>
                           <span class="req-log-chip req-log-chip-time">
                             <span class="req-log-chip-label">time</span>
-                            {new Date(log.created_at * 1000).toISOString().replace("T", " ").replace("Z", " UTC")}
+                            {new Date(log()!.created_at * 1000).toISOString().replace("T", " ").replace("Z", " UTC")}
                           </span>
                         </div>
 
-                        <Show when={log.key}>
+                        <Show when={log()!.key}>
                           <div class="req-log-detail-key-row">
                             <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
-                            <code class="req-log-detail-key">{log.key}</code>
+                            <code class="req-log-detail-key">{log()!.key}</code>
                           </div>
                         </Show>
 
-                        <Show when={log.request_params && log.request_params !== "null"}>
+                        <Show when={log()!.request_params && log()!.request_params !== "null"}>
                           <div class="req-log-params-block">
                             <div class="req-log-params-header">
                               <span class="req-log-chip-label">request params</span>
                             </div>
                             <pre class="req-log-params-json">{(() => {
-                              try { return JSON.stringify(JSON.parse(log.request_params!), null, 2); }
-                              catch { return log.request_params; }
+                              try { return JSON.stringify(JSON.parse(log()!.request_params!), null, 2); }
+                              catch { return log()!.request_params; }
                             })()}</pre>
                           </div>
                         </Show>
 
-                        <Show when={log.response_meta && log.response_meta !== "null"}>
+                        <Show when={log()!.response_meta && log()!.response_meta !== "null"}>
                           <div class="req-log-params-block">
                             <div class="req-log-params-header">
                               <span class="req-log-chip-label">response</span>
                             </div>
                             <pre class="req-log-params-json">{(() => {
-                              try { return JSON.stringify(JSON.parse(log.response_meta!), null, 2); }
-                              catch { return log.response_meta; }
+                              try { return JSON.stringify(JSON.parse(log()!.response_meta!), null, 2); }
+                              catch { return log()!.response_meta; }
                             })()}</pre>
                           </div>
                         </Show>
 
-                        <Show when={isErr}>
+                        <Show when={isErr()}>
                           <div class="req-log-detail-error-box">
                             <div class="req-log-detail-error-header">
-                              <Show when={log.error_code}>
-                                <span class="req-log-detail-error-code">{log.error_code}</span>
+                              <Show when={log()!.error_code}>
+                                <span class="req-log-detail-error-code">{log()!.error_code}</span>
                               </Show>
                               <span class="req-log-detail-error-label">ERROR</span>
                             </div>
-                            <Show when={log.error_msg}>
-                              <p class="req-log-detail-error-msg">{log.error_msg}</p>
+                            <Show when={log()!.error_msg}>
+                              <p class="req-log-detail-error-msg">{log()!.error_msg}</p>
                             </Show>
                           </div>
                         </Show>
                       </div>
                     </Show>
                   </div>
-                );
-              }}
-            </For>
+                        );
+                      })()}
+                    </Show>
+                  );
+                }}
+              </Index>
+            </div>
           </div>
         </Show>
       </Show>

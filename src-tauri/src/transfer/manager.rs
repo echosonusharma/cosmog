@@ -202,6 +202,19 @@ impl TransferManager {
         Ok(())
     }
 
+    /// Cancel a transfer, and if it has no live worker (its process died and
+    /// left a ghost `active`/`pending` row), flip the DB row to `canceled` so
+    /// the UI can dismiss it. Signalling a live token lets the worker emit the
+    /// terminal itself; only orphans need the direct DB flip.
+    pub async fn cancel_or_reap(&self, transfer_id: &str) -> AppResult<()> {
+        if let Some(token) = self.cancels.get(transfer_id) {
+            token.cancel();
+            return Ok(());
+        }
+        self.db.mark_canceled_if_active(transfer_id).await?;
+        Ok(())
+    }
+
     /// Cancel every active transfer belonging to an account. Used when an
     /// account is deleted so dangling workers don't keep writing to soon-
     /// cascade-deleted DB rows. Returns the number of transfers signalled.
@@ -409,7 +422,7 @@ impl TransferManager {
         // external sink via the store. The worker's terminal block emits a
         // fallback terminal only if none did, guaranteeing exactly-once.
         let term_emitted = Arc::new(AtomicBool::new(false));
-        let sink = self.composite_sink(id.clone(), external_sink.clone(), term_emitted.clone());
+        let (sink, resume_handle) = self.composite_sink(id.clone(), external_sink.clone(), term_emitted.clone());
         // Pull per-transfer tunables from user settings so the FE can
         // influence them without touching backend code.
         let settings = self.db.settings_load().await?;
@@ -462,6 +475,13 @@ impl TransferManager {
                         }
                         if attempt > 0 {
                             tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
+                            // Resume the same multipart upload: reuse the upload_id
+                            // + parts the composite sink captured on the prior
+                            // attempt so already-uploaded parts are not re-sent.
+                            let snapshot = resume_handle.lock().unwrap().clone();
+                            if !snapshot.upload_id.is_empty() {
+                                ctx.resume = Some(snapshot);
+                            }
                         }
                         match store_for_task
                             .put_object(&bucket, &key, local_path.clone(), opts.clone(), ctx.clone())
@@ -655,11 +675,25 @@ impl TransferManager {
                 Err(AppError::Canceled(_)) => TransferStatus::Canceled,
                 Err(_) => TransferStatus::Failed,
             };
+            // Multipart uploads keep their server-side upload alive across
+            // retries so a resume can reuse it. On final give-up / cancel, abort
+            // it best-effort so incomplete-multipart storage is not leaked.
+            if matches!(direction, Direction::Upload)
+                && !matches!(terminal, TransferStatus::Done)
+            {
+                let upload_id = resume_handle.lock().unwrap().upload_id.clone();
+                if !upload_id.is_empty() {
+                    let _ = store_for_task
+                        .abort_multipart_upload(&bucket_for_cache, &key_for_cache, &upload_id)
+                        .await;
+                }
+            }
             // Guarantee exactly-once terminal emission to the external sink.
-            // The store emits a terminal on most paths (e.g. put_multipart
-            // failure, put_single done); several error-return paths do not. If
-            // no terminal reached the external sink, emit one here so downstream
-            // sinks (Night Watcher claim release + stage cleanup) always fire.
+            // The store emits a terminal only on success paths (put_single /
+            // put_multipart Done); it no longer emits terminals on upload error
+            // so retries can resume. If no terminal reached the external sink,
+            // emit one here so downstream sinks (Night Watcher claim release +
+            // stage cleanup) always fire.
             if !term_emitted_for_task.load(Ordering::SeqCst) {
                 let event = match &terminal {
                     TransferStatus::Done => TransferEvent::Done {
@@ -713,22 +747,25 @@ impl TransferManager {
     /// Compose a sink that fans out to the FE channel AND persists milestone
     /// progress to the database. The DB-persistence half intentionally batches
     /// the parts list in an in-memory buffer to avoid touching SQLite on every
-    /// chunk.
+    /// chunk. Returns the sink plus a shared `ResumeState` (upload_id +
+    /// completed parts) the worker reads between retry attempts so a mid-upload
+    /// failure resumes the same multipart upload instead of restarting it.
     fn composite_sink(
         &self,
         transfer_id: String,
         external: ProgressSink,
         term_emitted: Arc<AtomicBool>,
-    ) -> ProgressSink {
+    ) -> (ProgressSink, Arc<Mutex<ResumeState>>) {
         let db = self.db.clone();
-        let parts: Arc<Mutex<Vec<CompletedPart>>> = Arc::new(Mutex::new(Vec::new()));
+        let resume: Arc<Mutex<ResumeState>> = Arc::new(Mutex::new(ResumeState::default()));
+        let resume_ret = resume.clone();
         // Serialize DB writes for this transfer's PartCompleted snapshots.
         // Concurrent multipart workers fire emits in any order; without this
         // lock the spawned `update_transfer_multipart` tasks could write
         // out-of-date snapshots over newer ones.
         let parts_db_lock: Arc<AsyncMutex<()>> = Arc::new(AsyncMutex::new(()));
 
-        ProgressSink::from_fn(move |event: TransferEvent| {
+        let sink = ProgressSink::from_fn(move |event: TransferEvent| {
             // Record terminal events so the worker knows the store already
             // emitted one and can skip its fallback emission.
             if matches!(
@@ -742,7 +779,6 @@ impl TransferManager {
             external.emit(event.clone());
 
             let db = db.clone();
-            let parts = parts.clone();
             let tid = transfer_id.clone();
 
             match event {
@@ -768,25 +804,40 @@ impl TransferManager {
                             .await;
                     });
                 }
+                TransferEvent::MultipartInitiated { upload_id, .. } => {
+                    // Capture the upload_id up front (in memory only) so the
+                    // worker can resume or abort even if no part completes. DB
+                    // persistence happens on the first PartCompleted, which also
+                    // carries the parts — writing here would clobber parts_json.
+                    resume.lock().unwrap().upload_id = upload_id;
+                }
                 TransferEvent::PartCompleted {
-                    part_number, etag, ..
+                    upload_id, part_number, etag, ..
                 } => {
-                    // Persist every completed part so resume after a crash never
-                    // re-uploads finished parts. parts_db_lock serializes writes.
+                    // Persist every completed part + the upload_id so resume
+                    // (in-worker retry or after a crash) never re-uploads
+                    // finished parts. parts_db_lock serializes writes.
                     {
-                        let mut guard = parts.lock().unwrap();
-                        guard.push(CompletedPart { part_number, etag });
+                        let mut guard = resume.lock().unwrap();
+                        if guard.upload_id.is_empty() {
+                            guard.upload_id = upload_id;
+                        }
+                        guard.completed_parts.push(CompletedPart { part_number, etag });
                     }
-                    let parts_ref = parts.clone();
+                    let resume_ref = resume.clone();
                     let lock = parts_db_lock.clone();
                     tokio::spawn(async move {
                         let _guard = lock.lock().await;
-                        let snapshot = parts_ref.lock().unwrap().clone();
-                        let _ = db.update_transfer_multipart(&tid, None, &snapshot).await;
+                        let snapshot = resume_ref.lock().unwrap().clone();
+                        let uid = (!snapshot.upload_id.is_empty()).then_some(snapshot.upload_id);
+                        let _ = db
+                            .update_transfer_multipart(&tid, uid, &snapshot.completed_parts)
+                            .await;
                     });
                 }
                 _ => {}
             }
-        })
+        });
+        (sink, resume_ret)
     }
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use cosmog_lib::db::accounts::NewAccount;
-use cosmog_lib::db::transfers::TransferStatus;
+use cosmog_lib::db::transfers::{TransferOrigin, TransferStatus};
 use cosmog_lib::store::{GetOptions, PutOptions};
 use cosmog_lib::transfer::{ProgressSink, TransferCtx, TransferEvent, TransferManager};
 use tokio_util::sync::CancellationToken;
@@ -323,6 +323,7 @@ async fn set_concurrency_transfers_still_complete() {
                 src.path().to_path_buf(),
                 PutOptions::default(),
                 ProgressSink::noop(),
+                TransferOrigin::User,
             )
             .await
             .unwrap();

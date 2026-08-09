@@ -209,7 +209,7 @@ impl Db {
 
         self.conn
             .call(move |conn| {
-                conn.execute(
+                let mut stmt = conn.prepare_cached(
                     "INSERT INTO cached_objects (account_id, bucket, key, size, etag, last_modified, storage_class, content_type, extension, basename, version_id, seen, synced_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, ?12)
                      ON CONFLICT(account_id, bucket, key) DO UPDATE SET
@@ -223,6 +223,8 @@ impl Db {
                         version_id = excluded.version_id,
                         seen = 1,
                         synced_at = excluded.synced_at",
+                )?;
+                stmt.execute(
                     params![
                         account_id,
                         bucket,

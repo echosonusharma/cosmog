@@ -134,7 +134,7 @@ pub async fn get_transfer(state: State<'_, AppState>, id: String) -> AppResult<T
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn cancel_transfer(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.transfers.cancel(&id)
+    state.transfers.cancel_or_reap(&id).await
 }
 
 #[tracing::instrument(skip_all, err)]

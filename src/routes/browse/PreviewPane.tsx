@@ -1,4 +1,4 @@
-import { createSignal, createResource, Show, createEffect, onCleanup } from "solid-js";
+import { createSignal, createResource, Show, createEffect, onCleanup, lazy, Suspense } from "solid-js";
 import { presignGet, previewObject, putObjectText } from "../../api/objects";
 import { notify } from "../../utils/notify";
 import { errMsg } from "../../state/toast";
@@ -9,12 +9,20 @@ import {
   IconX, IconEdit, IconEye, IconArrowUpLine,
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
-import { CodeEditor, EditorModal } from "../../utils/CodeEditor";
 import { resolvedTheme } from "../../state/theme";
 import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf } from "./helpers";
-import { ImageEditor } from "./preview/ImageEditor";
-import { SheetPreview } from "./preview/SheetModal";
 import { PdfPreview } from "./preview/PdfModal";
+
+// Heavy libs (CodeMirror core, cropperjs, exceljs) are code-split: each chunk
+// only loads when its preview/editor is first shown.
+const CodeEditor = lazy(() => import("../../utils/CodeEditor").then((m) => ({ default: m.CodeEditor })));
+const EditorModal = lazy(() => import("../../utils/CodeEditor").then((m) => ({ default: m.EditorModal })));
+const ImageEditor = lazy(() => import("./preview/ImageEditor").then((m) => ({ default: m.ImageEditor })));
+const SheetPreview = lazy(() => import("./preview/SheetModal").then((m) => ({ default: m.SheetPreview })));
+
+const chunkSpinner = () => (
+  <div class="preview-loader"><span class="spinner spinner-lg" /></div>
+);
 import { AudioPreview } from "./preview/AudioPlayer";
 import { MetaList } from "./preview/MetaList";
 import { useBackHandler } from "../../utils/androidBack";
@@ -292,7 +300,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               </Show>
               <Show when={displayText()}>
                 <div class="preview-editor rel">
+                  <Suspense fallback={chunkSpinner()}>
                   <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
+                  </Suspense>
                   <Show when={textSwitching()}>
                     <div class="preview-switching-overlay">
                       <span class="spinner spinner-lg" />
@@ -321,7 +331,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 </Show>
                 <Show when={displayText()}>
                   <div class="preview-editor full">
+                    <Suspense fallback={chunkSpinner()}>
                     <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
+                    </Suspense>
                     <Show when={textSwitching()}>
                       <div class="preview-switching-overlay">
                         <span class="spinner spinner-lg" />
@@ -334,7 +346,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           </Show>
 
           <Show when={isSheet()}>
-            <SheetPreview obj={props.obj} />
+            <Suspense fallback={chunkSpinner()}>
+              <SheetPreview obj={props.obj} />
+            </Suspense>
           </Show>
 
           <Show when={isPdf()}>
@@ -361,6 +375,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       </div>
 
       <Show when={expanded() && !!displayUrl()}>
+        <Suspense fallback={chunkSpinner()}>
         <ImageEditor
           obj={props.obj}
           encrypted={props.encrypted}
@@ -370,9 +385,11 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           }}
           onClose={() => setExpanded(false)}
         />
+        </Suspense>
       </Show>
 
       <Show when={editOpen() && cur()}>
+        <Suspense fallback={chunkSpinner()}>
         <EditorModal
           value={textContent()}
           ext={ext()}
@@ -381,6 +398,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           onSave={saveEdit}
           onClose={() => setEditOpen(false)}
         />
+        </Suspense>
       </Show>
     </>
   );

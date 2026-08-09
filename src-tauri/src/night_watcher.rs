@@ -210,6 +210,9 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(state: &S, watch: &NightWatch) -> 
     let matcher = Matcher::build(watch);
     // read_errors seeds `errors` so a subdir vanishing mid-scan blocks the sweep.
     let (files, read_errors) = collect_files(root.clone()).await?;
+    // Bulk-load recorded state once so the per-file fast-path is an in-memory
+    // lookup, not a DB round-trip per file on the single connection.
+    let prefetched = state.db().file_state_map(&watch.id).await?;
     let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for rel in files {
@@ -220,7 +223,7 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(state: &S, watch: &NightWatch) -> 
             continue;
         }
         let abs = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        match reconcile_file(state, watch, &rel, &abs).await {
+        match reconcile_file(state, watch, &rel, &abs, Some(&prefetched)).await {
             Ok(r) => {
                 if r.enqueued {
                     enqueued += 1;
@@ -267,19 +270,20 @@ async fn sweep_deleted<S: NwCtx>(
             return 0;
         }
     };
-    let mut pruned = 0u64;
-    for rel in known {
-        if seen.contains(&rel) {
-            continue;
-        }
-        if let Err(e) = state.db().file_state_delete(&watch.id, &rel).await {
-            warn!(watch = %watch.id, rel = %rel, "night watcher: sweep delete failed: {e}");
-        } else {
-            pruned += 1;
-            info!(watch = %watch.id, rel = %rel, "night watcher: local file gone, remote kept (delete_policy=keep)");
+    let doomed: Vec<String> = known.into_iter().filter(|rel| !seen.contains(rel)).collect();
+    if doomed.is_empty() {
+        return 0;
+    }
+    for rel in &doomed {
+        info!(watch = %watch.id, rel = %rel, "night watcher: local file gone, remote kept (delete_policy=keep)");
+    }
+    match state.db().file_state_delete_many(&watch.id, &doomed).await {
+        Ok(n) => n,
+        Err(e) => {
+            warn!(watch = %watch.id, "night watcher: sweep delete failed: {e}");
+            0
         }
     }
-    pruned
 }
 
 /// SAF-tree variant of [`reconcile_watch`] (Android). Enumerates the tree via
@@ -296,6 +300,7 @@ async fn reconcile_watch_saf<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResu
         .map_err(AppError::Internal)?;
 
     let matcher = Matcher::build(watch);
+    let prefetched = state.db().file_state_map(&watch.id).await?;
     let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for entry in entries {
@@ -308,7 +313,7 @@ async fn reconcile_watch_saf<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResu
             debug!(watch = %watch.id, rel = %entry.rel_path, "night watcher: ignored");
             continue;
         }
-        match reconcile_saf_entry(state, watch, &entry).await {
+        match reconcile_saf_entry(state, watch, &entry, Some(&prefetched)).await {
             Ok(r) => {
                 if r.enqueued {
                     enqueued += 1;
@@ -356,6 +361,7 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
     watch: &NightWatch,
     rel_path: &str,
     abs: &Path,
+    prefetched: Option<&std::collections::HashMap<String, FileState>>,
 ) -> AppResult<Reconciled> {
     let meta = match tokio::fs::metadata(abs).await {
         Ok(m) => m,
@@ -386,6 +392,7 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
         rel_path,
         mtime,
         size,
+        prefetched,
         // hash: stream the fs file through blake3.
         {
             let abs = abs.clone();
@@ -408,6 +415,7 @@ async fn reconcile_saf_entry<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
     entry: &crate::saf::SafEntry,
+    prefetched: Option<&std::collections::HashMap<String, FileState>>,
 ) -> AppResult<Reconciled> {
     let rel_path = entry.rel_path.clone();
     let doc_uri = entry.doc_uri.clone();
@@ -430,6 +438,7 @@ async fn reconcile_saf_entry<S: NwCtx>(
         &rel_path,
         mtime,
         size,
+        prefetched,
         // hash: stream the SAF document through blake3 via ContentResolver.
         {
             let doc_uri = doc_uri.clone();
@@ -484,6 +493,7 @@ async fn reconcile_entry<S, HFut, SFut, HF, SF>(
     rel_path: &str,
     mtime: i64,
     size: i64,
+    prefetched: Option<&std::collections::HashMap<String, FileState>>,
     hash_fn: HF,
     source_fn: SF,
 ) -> AppResult<bool>
@@ -494,7 +504,12 @@ where
     SF: FnOnce() -> SFut,
     SFut: std::future::Future<Output = AppResult<UploadSource>>,
 {
-    let prev = state.db().file_state_get(&watch.id, rel_path).await?;
+    // Fast-path state comes from the scan's prefetched map when present (one
+    // bulk load); the single-file watcher path + tests pass None and hit the DB.
+    let prev = match prefetched {
+        Some(map) => map.get(rel_path).cloned(),
+        None => state.db().file_state_get(&watch.id, rel_path).await?,
+    };
     // Fast path: unchanged by cheap fingerprint.
     if let Some(p) = &prev {
         if p.mtime == mtime && p.size == size {
@@ -599,7 +614,7 @@ pub async fn reconcile_file_for_test<S: NwCtx>(
     rel_path: &str,
     abs: &Path,
 ) -> AppResult<bool> {
-    reconcile_file(state, watch, rel_path, abs)
+    reconcile_file(state, watch, rel_path, abs, None)
         .await
         .map(|r| r.enqueued)
 }
@@ -1093,7 +1108,7 @@ mod desktop {
                 if Matcher::build(w).is_ignored(&rel) {
                     continue;
                 }
-                if let Err(e) = reconcile_file(state, w, &rel, &p).await {
+                if let Err(e) = reconcile_file(state, w, &rel, &p, None).await {
                     warn!(watch = %w.id, rel = %rel, "reconcile failed: {e}");
                 }
                 break;

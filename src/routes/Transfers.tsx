@@ -1,4 +1,5 @@
-import { createSignal, For, Show, onCleanup } from "solid-js";
+import { createSignal, createEffect, createMemo, For, Show, onCleanup } from "solid-js";
+import { currentView } from "../state/app";
 import {
   listTransfers, cancelTransfer, clearCompletedTransfers, clearTransfer, retryTransfer,
 } from "../api/transfers";
@@ -53,28 +54,26 @@ export default function Transfers() {
     }
   }
 
-  load();
-
-  let timer: ReturnType<typeof setInterval>;
-  function setupTimer(activeMs: number) {
-    if (timer) clearInterval(timer);
-    timer = setInterval(load, activeMs);
-  }
-  setupTimer(700);
-  onCleanup(() => clearInterval(timer));
-
   const hasActive = () =>
     transfers().some((t) => t.status === "active" || t.status === "pending");
 
-  let prevActive = false;
-  const rateTimer = setInterval(() => {
-    const ha = hasActive();
-    if (ha !== prevActive) {
-      prevActive = ha;
-      setupTimer(ha ? 700 : 4000);
-    }
-  }, 1000);
-  onCleanup(() => clearInterval(rateTimer));
+  // View stays mounted (hidden via CSS); only poll while it is active. Poll
+  // fast (700ms) when transfers are running, slow (4s) when idle.
+  createEffect(() => {
+    if (currentView() !== "transfers") return;
+    load();
+    let cur = 700;
+    let timer = setInterval(load, cur);
+    const rateTimer = setInterval(() => {
+      const want = hasActive() ? 700 : 4000;
+      if (want !== cur) {
+        cur = want;
+        clearInterval(timer);
+        timer = setInterval(load, cur);
+      }
+    }, 1000);
+    onCleanup(() => { clearInterval(timer); clearInterval(rateTimer); });
+  });
 
   // No toast on success: the MainApp transfer poll posts a proper native
   // notification (filename + account + bucket) when the status flips.
@@ -114,7 +113,7 @@ export default function Transfers() {
     catch (e) { toast.err(e); }
   }
 
-  const filtered = () => {
+  const filtered = createMemo(() => {
     let list = transfers();
     switch (filter()) {
       case "active": list = list.filter((t) => t.status === "active" || t.status === "pending"); break;
@@ -123,14 +122,19 @@ export default function Transfers() {
       case "canceled": list = list.filter((t) => t.status === "canceled"); break;
     }
     return list;
-  };
+  });
 
-  const counts = () => ({
-    all:      transfers().length,
-    active:   transfers().filter((t) => t.status === "active" || t.status === "pending").length,
-    done:     transfers().filter((t) => t.status === "done").length,
-    failed:   transfers().filter((t) => t.status === "failed").length,
-    canceled: transfers().filter((t) => t.status === "canceled").length,
+  // Single pass over the list per update instead of 5 filters × ~13 JSX reads.
+  const counts = createMemo(() => {
+    const c = { all: 0, active: 0, done: 0, failed: 0, canceled: 0 };
+    for (const t of transfers()) {
+      c.all++;
+      if (t.status === "active" || t.status === "pending") c.active++;
+      else if (t.status === "done") c.done++;
+      else if (t.status === "failed") c.failed++;
+      else if (t.status === "canceled") c.canceled++;
+    }
+    return c;
   });
 
   const hasDone = () =>

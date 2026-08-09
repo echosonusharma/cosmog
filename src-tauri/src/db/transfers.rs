@@ -399,6 +399,47 @@ impl Db {
         Ok(n)
     }
 
+    /// Reap orphans owned by one origin only. On Android the main process owns
+    /// `user` transfers while the `:nightwatch` service owns `nightwatch` ones,
+    /// so the main process reaps only `user` orphans at startup without touching
+    /// the sibling's genuinely-live rows.
+    pub async fn reap_orphan_transfers_by_origin(&self, origin: &str) -> AppResult<usize> {
+        let now = chrono::Utc::now().timestamp();
+        let origin = origin.to_string();
+        let n = self
+            .conn
+            .call(move |conn| {
+                let n = conn.execute(
+                    "UPDATE transfers SET status='failed', error=COALESCE(error, 'interrupted (app closed)'), updated_at=?1
+                     WHERE status IN ('active','pending') AND origin=?2",
+                    params![now, origin],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(n)
+            })
+            .await?;
+        Ok(n)
+    }
+
+    /// Flip a still-active/pending row to `canceled`. Used to cancel a transfer
+    /// that has no live worker (its process died), so the UI can dismiss the
+    /// ghost row. Returns true if a row was updated.
+    pub async fn mark_canceled_if_active(&self, id: &str) -> AppResult<bool> {
+        let now = chrono::Utc::now().timestamp();
+        let id = id.to_string();
+        let n = self
+            .conn
+            .call(move |conn| {
+                let n = conn.execute(
+                    "UPDATE transfers SET status='canceled', updated_at=?1
+                     WHERE id=?2 AND status IN ('active','pending')",
+                    params![now, id],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(n)
+            })
+            .await?;
+        Ok(n > 0)
+    }
+
     pub async fn clear_completed_transfers(&self) -> AppResult<usize> {
         let n = self.conn.call(|conn| {
             let n = conn.execute(

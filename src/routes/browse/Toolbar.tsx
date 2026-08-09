@@ -1,4 +1,4 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, lazy, Suspense } from "solid-js";
 import type { Resource } from "solid-js";
 import {
   IconBack, IconRefresh, IconUpload,
@@ -7,7 +7,8 @@ import {
 } from "../../utils/icons";
 import { setBrowseState, goUpPrefix } from "../../state/app";
 import { PathBar } from "./PathBar";
-import { StatsModal } from "./StatsModal";
+// uPlot chart lib loads only when the stats modal is opened.
+const StatsModal = lazy(() => import("./StatsModal").then((m) => ({ default: m.StatsModal })));
 import { ToolbarOverflow } from "./ToolbarOverflow";
 import type { BucketIndexStatus } from "../../types";
 
@@ -126,7 +127,9 @@ export function Toolbar(props: {
       </div>
 
       <Show when={showStats()}>
-        <StatsModal accountId={props.accountId} bucket={props.bucket} onClose={() => setShowStats(false)} />
+        <Suspense>
+          <StatsModal accountId={props.accountId} bucket={props.bucket} onClose={() => setShowStats(false)} />
+        </Suspense>
       </Show>
     </div>
   );

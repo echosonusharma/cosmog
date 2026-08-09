@@ -1,4 +1,5 @@
-import { createSignal, createMemo, onCleanup, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, onCleanup, For, Show } from "solid-js";
+import { currentView } from "../state/app";
 import { getLogTail } from "../api/logs";
 import { IconSearch, IconTrash } from "../utils/icons";
 import { Select } from "../utils/Select";
@@ -28,9 +29,14 @@ export function SystemLog() {
     } catch { setLines([]); } finally { setLoading(false); }
   }
 
-  load();
-  const timer = setInterval(load, 3000);
-  onCleanup(() => clearInterval(timer));
+  // Logs view stays mounted (hidden via CSS) and this tab keeps its selection,
+  // so only poll the 512 KB tail while the Logs view is actually visible.
+  createEffect(() => {
+    if (currentView() !== "logs") return;
+    load();
+    const timer = setInterval(load, 3000);
+    onCleanup(() => clearInterval(timer));
+  });
 
   // Newest first + level/text filters, all client-side.
   const filtered = createMemo(() => {

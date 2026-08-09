@@ -1314,28 +1314,38 @@ impl S3Store {
                     r = req.send() => r.map_err(|e| classify_aws("get_object_parallel", e))?,
                 };
 
-                let body = tokio::select! {
-                    _ = cancel.cancelled() => return Err(AppError::Canceled(format!("transfer {transfer_id} canceled"))),
-                    b = resp.body.collect() => b.map_err(|e| s3_err("get_object_parallel body", e))?,
-                };
-                let data = body.to_vec();
-
+                // Stream the part body straight to the file. Open once, seek to
+                // this part's offset once, then write chunk-by-chunk so resident
+                // memory is one chunk (~256 KiB) not the whole part (part_size).
                 let mut f = tokio::fs::OpenOptions::new()
                     .write(true)
                     .open(&dest)
                     .await?;
                 f.seek(std::io::SeekFrom::Start(offset)).await?;
-                f.write_all(&data).await?;
-                f.flush().await?;
-
-                let done = bytes_done_counter.fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed) + data.len() as u64;
-                if throttle.allow() {
-                    progress.emit(TransferEvent::Progress {
-                        transfer_id: transfer_id.clone(),
-                        bytes_done: done,
-                        bytes_total: Some(total),
-                    });
+                let mut stream = resp.body;
+                loop {
+                    let next = tokio::select! {
+                        _ = cancel.cancelled() => return Err(AppError::Canceled(format!("transfer {transfer_id} canceled"))),
+                        n = stream.try_next() => n.map_err(|e| s3_err("get_object_parallel body", e))?,
+                    };
+                    match next {
+                        Some(chunk) => {
+                            f.write_all(&chunk).await?;
+                            let done = bytes_done_counter
+                                .fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed)
+                                + chunk.len() as u64;
+                            if throttle.allow() {
+                                progress.emit(TransferEvent::Progress {
+                                    transfer_id: transfer_id.clone(),
+                                    bytes_done: done,
+                                    bytes_total: Some(total),
+                                });
+                            }
+                        }
+                        None => break,
+                    }
                 }
+                f.flush().await?;
 
                 Ok::<_, AppError>(())
             }
@@ -1479,6 +1489,13 @@ impl S3Store {
         ctx: TransferCtx,
     ) -> AppResult<UploadResult> {
         let (upload_id, already_done) = self.init_or_resume_upload(bucket, key, &opts, &ctx).await?;
+        // Publish the upload_id immediately so the worker can resume this same
+        // upload on a retry, or abort it on final give-up, even if zero parts
+        // complete before an error.
+        ctx.progress.emit(TransferEvent::MultipartInitiated {
+            transfer_id: ctx.transfer_id.clone(),
+            upload_id: upload_id.clone(),
+        });
 
         let part_size = ctx.part_size.max(5 * 1024 * 1024); // S3 floor for non-final parts
         let num_parts_u64 = (total + part_size - 1) / part_size;
@@ -1577,6 +1594,7 @@ impl S3Store {
                 }
                 progress.emit(TransferEvent::PartCompleted {
                     transfer_id: transfer_id.clone(),
+                    upload_id: upload_id.clone(),
                     part_number: part_no,
                     etag: etag.clone(),
                 });
@@ -1595,25 +1613,11 @@ impl S3Store {
             match res {
                 Ok(p) => collected.push(p),
                 Err(e) => {
-                    let _ = self
-                        .client
-                        .abort_multipart_upload()
-                        .bucket(bucket)
-                        .key(key)
-                        .upload_id(&upload_id)
-                        .send()
-                        .await;
-                    let event = if matches!(&e, AppError::Canceled(_)) {
-                        TransferEvent::Canceled {
-                            transfer_id: ctx.transfer_id.clone(),
-                        }
-                    } else {
-                        TransferEvent::Failed {
-                            transfer_id: ctx.transfer_id.clone(),
-                            error: e.to_string(),
-                        }
-                    };
-                    ctx.progress.emit(event);
+                    // Do NOT abort or emit a terminal event here: a retriable
+                    // error is resumed by the worker against this same
+                    // upload_id, and the worker aborts + emits the terminal
+                    // exactly once on final give-up / cancel. Aborting here
+                    // would destroy the upload the next attempt wants to resume.
                     return Err(e);
                 }
             }

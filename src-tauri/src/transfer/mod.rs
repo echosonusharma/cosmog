@@ -31,8 +31,13 @@ pub enum TransferEvent {
         bytes_done: u64,
         bytes_total: Option<u64>,
     },
+    MultipartInitiated {
+        transfer_id: String,
+        upload_id: String,
+    },
     PartCompleted {
         transfer_id: String,
+        upload_id: String,
         part_number: i32,
         etag: String,
     },

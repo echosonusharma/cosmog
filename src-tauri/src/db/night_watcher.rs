@@ -109,12 +109,21 @@ impl Db {
     }
 
     pub async fn list_enabled_watches(&self) -> AppResult<Vec<NightWatch>> {
-        Ok(self
-            .list_watches()
-            .await?
-            .into_iter()
-            .filter(|w| w.enabled)
-            .collect())
+        self.conn
+            .call(move |conn| {
+                let sql = format!(
+                    "SELECT {WATCH_COLS} FROM nw_watch WHERE enabled=1 ORDER BY created_at"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map([], row_to_watch)?;
+                let mut out = Vec::new();
+                for r in rows {
+                    out.push(r?);
+                }
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn get_watch(&self, id: &str) -> AppResult<Option<NightWatch>> {
@@ -259,6 +268,40 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Load every `nw_file_state` row for a watch into a `rel_path`-keyed map.
+    /// A scan calls this once up front so the per-file fast-path is an in-memory
+    /// lookup instead of one DB round-trip per file on the single connection.
+    pub async fn file_state_map(
+        &self,
+        watch_id: &str,
+    ) -> AppResult<std::collections::HashMap<String, FileState>> {
+        let watch_id = watch_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare_cached(
+                    "SELECT rel_path, hash, mtime, size, synced_etag FROM nw_file_state \
+                     WHERE watch_id=?1",
+                )?;
+                let rows = stmt.query_map(params![watch_id], |row| {
+                    Ok(FileState {
+                        rel_path: row.get(0)?,
+                        hash: row.get(1)?,
+                        mtime: row.get(2)?,
+                        size: row.get(3)?,
+                        synced_etag: row.get(4)?,
+                    })
+                })?;
+                let mut map = std::collections::HashMap::new();
+                for r in rows {
+                    let st = r?;
+                    map.insert(st.rel_path.clone(), st);
+                }
+                Ok::<_, tokio_rusqlite::Error>(map)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn file_state_upsert(
         &self,
         watch_id: &str,
@@ -305,6 +348,38 @@ impl Db {
             })
             .await
             .map_err(Into::into)
+    }
+
+    /// Delete many state rows in one transaction (one fsync). Used by the
+    /// mark-and-sweep so removing a large directory is not N separate writes.
+    pub async fn file_state_delete_many(
+        &self,
+        watch_id: &str,
+        rel_paths: &[String],
+    ) -> AppResult<u64> {
+        if rel_paths.is_empty() {
+            return Ok(0);
+        }
+        let watch_id = watch_id.to_string();
+        let rels = rel_paths.to_vec();
+        let n = self
+            .conn
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut n = 0u64;
+                {
+                    let mut stmt = tx.prepare_cached(
+                        "DELETE FROM nw_file_state WHERE watch_id=?1 AND rel_path=?2",
+                    )?;
+                    for rel in &rels {
+                        n += stmt.execute(params![watch_id, rel])? as u64;
+                    }
+                }
+                tx.commit()?;
+                Ok::<_, tokio_rusqlite::Error>(n)
+            })
+            .await?;
+        Ok(n)
     }
 
     /// List every `rel_path` with a recorded state for this watch. Used by the

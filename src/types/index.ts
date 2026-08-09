@@ -88,7 +88,8 @@ export type TransferOrigin = "user" | "nightwatch";
 export type TransferEvent =
   | { kind: "started"; transfer_id: string; bytes_total: number | null }
   | { kind: "progress"; transfer_id: string; bytes_done: number; bytes_total: number | null }
-  | { kind: "part_completed"; transfer_id: string; part_number: number; etag: string }
+  | { kind: "multipart_initiated"; transfer_id: string; upload_id: string }
+  | { kind: "part_completed"; transfer_id: string; upload_id: string; part_number: number; etag: string }
   | { kind: "done"; transfer_id: string; etag: string | null }
   | { kind: "failed"; transfer_id: string; error: string }
   | { kind: "canceled"; transfer_id: string };

@@ -267,6 +267,11 @@ pub async fn download_directory(
         .await
         .map_err(|e| AppError::Io(format!("canonicalize local_root: {e}")))?;
 
+    // Parents already created + escape-checked this run. Thousands of objects
+    // typically share a handful of dirs, so this skips repeated mkdir +
+    // canonicalize syscalls for the same parent.
+    let mut validated_parents: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
     let mut continuation: Option<String> = None;
     loop {
         let page = store
@@ -301,13 +306,16 @@ pub async fn download_directory(
             // something (symlink, OS-specific quirk), check the resolved
             // parent escape after mkdir.
             if let Some(parent) = dest.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-                let parent_canonical = tokio::fs::canonicalize(parent)
-                    .await
-                    .map_err(|e| AppError::Io(format!("canonicalize dest parent: {e}")))?;
-                if !parent_canonical.starts_with(&root_canonical) {
-                    out.skipped.push(obj.key.clone());
-                    continue;
+                if !validated_parents.contains(parent) {
+                    tokio::fs::create_dir_all(parent).await?;
+                    let parent_canonical = tokio::fs::canonicalize(parent)
+                        .await
+                        .map_err(|e| AppError::Io(format!("canonicalize dest parent: {e}")))?;
+                    if !parent_canonical.starts_with(&root_canonical) {
+                        out.skipped.push(obj.key.clone());
+                        continue;
+                    }
+                    validated_parents.insert(parent.to_path_buf());
                 }
             }
             let sink = external_sink_factory(&obj.key);
