@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.4",
+    "cropperjs": "^1.6.2",
     "exceljs": "^4.4.0",
     "js-yaml": "^5.2.2",
     "pdfjs-dist": "^6.1.200",

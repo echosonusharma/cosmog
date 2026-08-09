@@ -278,27 +278,114 @@
   flex-shrink: 0;
 }
 
-.lightbox {
+/* ── image view / editor modal ──────────────────────────────────────────── */
+.img-editor {
   position: fixed; inset: 0; z-index: 1100;
   background: rgba(0,0,0,.82);
   display: flex; align-items: center; justify-content: center;
-  cursor: zoom-out;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
 }
-.lightbox img {
-  max-width: 92vw; max-height: 92vh;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.7);
-  cursor: default;
+.img-editor-panel {
+  display: flex; flex-direction: column;
+  width: min(1100px, 96vw); height: min(860px, 94vh);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  overflow: hidden;
 }
-.lightbox-close {
-  position: absolute; top: calc(16px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right));
-  background: rgba(255,255,255,.1);
-  border-radius: 50%;
-  width: 36px; height: 36px;
+.img-editor-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.img-editor-name { font-weight: 600; font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-editor-size { font-size: 11px; }
+.img-editor-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.img-editor-tools .icon-btn.active { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.img-editor-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.img-editor-aspects {
+  display: flex; gap: 6px; align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.img-editor-canvas {
+  position: relative;
+  flex: 1; min-height: 0; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
+  background: var(--bg-soft, #111);
 }
+/* cropperjs sizes its container to this element's box, so pin it to the
+   canvas area; otherwise it grows to the natural image size and overflows.
+   Keep the raw <img> invisible (broken-icon/alt while fetching); cropperjs
+   renders its own canvas on top once ready. */
+.img-editor-img { display: block; max-width: 100%; max-height: 100%; visibility: hidden; }
+.img-editor-canvas .preview-loader,
+.img-editor-canvas .preview-err-inline {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: max-content; max-width: 88%;
+}
+.img-editor-footer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.img-editor-actions, .img-editor-saveas { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.img-editor-footer button { white-space: nowrap; }
+.img-editor-keyinput { min-width: 320px; font-family: var(--font-mono); font-size: 12px; }
+.img-editor-err { color: var(--red); font-size: 12px; }
+.img-editor-quality {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-muted);
+}
+.img-editor-quality input[type="range"] { width: 110px; accent-color: var(--accent); }
+.img-editor-confirm {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+.img-editor-confirm-box {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; width: min(320px, 86%);
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+.img-editor-confirm-title { font-weight: 600; margin-bottom: 12px; }
+
+/* ── image editor: phones ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .img-editor { padding: 0; }
+  .img-editor-panel {
+    width: 100vw; height: 100vh; height: 100dvh;
+    border: none; border-radius: 0;
+  }
+  .img-editor-toolbar {
+    flex-wrap: wrap;
+    padding-top: calc(8px + env(safe-area-inset-top));
+  }
+  .img-editor-name { max-width: 60vw; order: 1; }
+  .img-editor-size { display: none; }
+  .img-editor-close { order: 2; margin-left: auto; }
+  .img-editor-tools {
+    order: 3; width: 100%; margin-left: 0;
+    justify-content: space-between; flex-wrap: wrap; gap: 4px;
+  }
+  .img-editor-aspects { flex-wrap: wrap; }
+  .img-editor-footer {
+    flex-wrap: wrap;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+  .img-editor-actions, .img-editor-saveas { width: 100%; margin-left: 0; flex-wrap: wrap; }
+  .img-editor-quality { width: 100%; justify-content: space-between; }
+  .img-editor-quality input[type="range"] { flex: 1; width: auto; }
+  .img-editor-keyinput { min-width: 0; flex: 1 1 100%; }
+  .img-editor-actions button, .img-editor-saveas button { flex: 1; }
+}
+
 .preview-text {
   background: var(--bg);
   border: 1px solid var(--border);

@@ -12,7 +12,7 @@ import type { CachedObjectMeta } from "../../types";
 import { CodeEditor, EditorModal } from "../../utils/CodeEditor";
 import { resolvedTheme } from "../../state/theme";
 import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf } from "./helpers";
-import { Lightbox } from "./preview/Lightbox";
+import { ImageEditor } from "./preview/ImageEditor";
 import { SheetPreview } from "./preview/SheetModal";
 import { PdfPreview } from "./preview/PdfModal";
 import { AudioPreview } from "./preview/AudioPlayer";
@@ -57,7 +57,7 @@ function PreviewErrorCard(props: { err: unknown; storageClass?: string | null })
   );
 }
 
-export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; }) {
+export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; onListChanged?: () => void; }) {
   const ct = () => props.obj.content_type ?? "";
   const ext = () => extOf(props.obj.basename);
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
@@ -69,6 +69,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const [loadRequested, setLoadRequested] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [editOpen, setEditOpen] = createSignal(false);
+  // Bumped after an in-place image save so the presigned/blob URL refetches.
+  const [imgReload, setImgReload] = createSignal(0);
 
   // Android back: close the lightbox / editor before the preview pane itself
   // (which ObjectBrowser closes once this returns false).
@@ -98,7 +100,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       if (props.encrypted === undefined) return null;
       if (!isImage()) return null;
       if (!(imageAutoLoad() || loadRequested())) return null;
-      return { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket, x: ext(), enc: props.encrypted, r: props.reloadToken ?? 0 };
+      return { k: props.obj.key, a: props.obj.account_id, b: props.obj.bucket, x: ext(), enc: props.encrypted, r: (props.reloadToken ?? 0) + imgReload() };
     },
     async ({ a, b, k, x, enc }) => {
       if (x === "svg" || enc) {
@@ -358,12 +360,17 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         </div>
       </div>
 
-      <Lightbox
-        open={expanded() && !!displayUrl()}
-        src={imgSrc()}
-        alt={props.obj.basename}
-        onClose={() => setExpanded(false)}
-      />
+      <Show when={expanded() && !!displayUrl()}>
+        <ImageEditor
+          obj={props.obj}
+          encrypted={props.encrypted}
+          onSaved={(kind) => {
+            if (kind === "overwrite") setImgReload((n) => n + 1);
+            props.onListChanged?.();
+          }}
+          onClose={() => setExpanded(false)}
+        />
+      </Show>
 
       <Show when={editOpen() && cur()}>
         <EditorModal

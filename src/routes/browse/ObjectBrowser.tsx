@@ -569,6 +569,7 @@ export function ObjectBrowser(props: {
             onCopyLink={() => { const o = previewTarget(); if (o) handleCopyLink(o); }}
             encrypted={(encStatus.latest ?? encStatus())?.enabled}
             reloadToken={previewReload()}
+            onListChanged={() => setRefresh((n) => n + 1)}
           />
         </ErrorBoundary>
       </Show>

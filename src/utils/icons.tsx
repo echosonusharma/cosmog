@@ -67,6 +67,15 @@ export const IconLock         = I("lock");
 export const IconLockOpen     = I("lock-open");
 export const IconKey          = I("key");
 export const IconMore         = I("more-vertical");
+export const IconRotateCw     = I("rotate-cw");
+export const IconRotateCcw    = I("rotate-ccw");
+export const IconCrop         = I("crop");
+export const IconZoomIn       = I("zoom-in");
+export const IconZoomOut      = I("zoom-out");
+export const IconFlipH        = I("flip-horizontal");
+export const IconFlipV        = I("flip-vertical");
+export const IconSave         = I("save");
+export const IconMaximize     = I("maximize");
 
 // ── theme toggle ──────────────────────────────────────────────────────────────
 

@@ -71,6 +71,15 @@ export const putObjectText = (
 ): Promise<void> =>
   invoke("put_object_text", { accountId, bucket, key, content, contentType });
 
+// Stat a single key (size/etag/content-type) without downloading. Rejects when
+// the object doesn't exist, so callers use it as an existence check.
+export const headObject = (
+  accountId: string,
+  bucket: string,
+  key: string,
+): Promise<{ key: string; size: number; content_type: string | null }> =>
+  invoke("head_object", { accountId, bucket, key });
+
 export const putObjectBytes = (
   accountId: string,
   bucket: string,
