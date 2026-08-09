@@ -161,6 +161,19 @@ fn init_logging(log_dir: &Path) {
 
 async fn build_ctx(db_path: PathBuf) -> AppResult<NwHeadlessCtx> {
     let db = Db::open(&db_path).await?;
+    // Reap our own orphans: a swipe/LMK kill mid-upload leaves `nightwatch` rows
+    // stuck active/pending (workers are in-memory, nothing re-picks them). This
+    // process is the sole owner of that origin and nothing is live yet at its
+    // startup, so reaping here is safe; the main process only reaps `user`.
+    match db.reap_orphan_transfers_by_origin("nightwatch").await {
+        Ok(n) if n > 0 => info!("reaped {n} orphan nightwatch transfer(s)"),
+        Ok(_) => {}
+        Err(e) => warn!("reap nightwatch orphans failed: {e}"),
+    }
+    // Sweep leftover SAF staging copies from a killed run. Mirrors the desktop
+    // enc_tmp sweep: files under <db_dir>/nw_stage/ are per-upload scratch, safe
+    // to delete unconditionally (their transfer never completed).
+    sweep_nw_stage(&db_path);
     let settings = db.settings_load().await.unwrap_or_default();
     // Same proxy / custom-CA env the main process applies at boot.
     apply_network_env(&settings);
@@ -173,6 +186,22 @@ async fn build_ctx(db_path: PathBuf) -> AppResult<NwHeadlessCtx> {
         inflight: Arc::new(DashSet::new()),
         scan_inflight: Arc::new(DashSet::new()),
     })
+}
+
+/// Delete the whole `nw_stage/` scratch tree. Staging writes per-upload
+/// <nw_stage>/<uuid>/ subdirs; on a clean run persist_sink removes each, so
+/// anything left is orphaned by a killed process. Best-effort, blocking fs.
+fn sweep_nw_stage(db_path: &Path) {
+    let Some(stage) = db_path.parent().map(|p| p.join("nw_stage")) else {
+        return;
+    };
+    if !stage.exists() {
+        return;
+    }
+    match std::fs::remove_dir_all(&stage) {
+        Ok(()) => info!("swept stale nw_stage dir {}", stage.display()),
+        Err(e) => warn!("nw_stage sweep failed: {e}"),
+    }
 }
 
 /// Fallible core of `startNwSync`, isolated so the JNI shim can `catch_unwind`.
