@@ -15,17 +15,25 @@ const OP_LABELS: Record<string, string> = {
   put_bucket_acl: "Set Bucket ACL",
   get_bucket_versioning: "Get Versioning",
   put_bucket_versioning: "Set Versioning",
+  get_bucket_policy: "Get Policy",
+  put_bucket_policy: "Set Policy",
+  delete_bucket_policy: "Delete Policy",
+  get_bucket_cors: "Get CORS",
+  put_bucket_cors: "Set CORS",
+  delete_bucket_cors: "Delete CORS",
   head_object: "Head Object",
   create_folder: "Create Folder",
   delete_object: "Delete Object",
   delete_objects: "Batch Delete",
   delete_object_version: "Delete Version",
+  restore_object_version: "Restore Version",
   list_objects: "List Objects",
   list_object_versions: "List Versions",
   copy_object: "Copy Object",
   put_object_acl: "Set Object ACL",
   presign_get: "Presign URL",
   read_object_range: "Preview Object",
+  read_object_full: "Read Object",
   get_object_tagging: "Get Tags",
   put_object_tagging: "Set Tags",
   delete_object_tagging: "Delete Tags",
@@ -44,8 +52,11 @@ const OP_COLORS: Record<string, string> = {
   delete_object_version: "#ef4444",
   delete_object_tagging: "#ef4444",
   delete_bucket:         "#ef4444",
+  delete_bucket_policy:  "#ef4444",
+  delete_bucket_cors:    "#ef4444",
   create_bucket:         "#a855f7",
   create_folder:         "#a855f7",
+  restore_object_version:"#a855f7",
   copy_object:           "#f59e0b",
   presign_get:           "#06b6d4",
   abort_multipart_upload:"#f97316",
@@ -57,8 +68,13 @@ const OP_COLORS: Record<string, string> = {
   put_bucket_acl:        "#ec4899",
   put_object_acl:        "#ec4899",
   put_bucket_versioning: "#ec4899",
+  put_bucket_policy:     "#ec4899",
+  put_bucket_cors:       "#ec4899",
   get_bucket_versioning: "#94a3b8",
+  get_bucket_policy:     "#94a3b8",
+  get_bucket_cors:       "#94a3b8",
   read_object_range:     "#06b6d4",
+  read_object_full:      "#3b82f6",
   get_object_tagging:    "#94a3b8",
   put_object_tagging:    "#f59e0b",
 };
@@ -224,7 +240,7 @@ export function RequestLogs() {
       </div>
 
       <Show when={loading()}>
-        <div class="loading-row"><span class="spinner" /> Loading…</div>
+        <div class="loading-row logs-loading"><span class="spinner" /> Loading…</div>
       </Show>
       <Show when={!loading()}>
         <Show when={fetchError()}>

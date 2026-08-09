@@ -1,5 +1,11 @@
 /* ── logs page helpers ──────────────────────────────────────────────────── */
 
+/* Center the loading state in the remaining vertical space. */
+.logs-loading {
+  flex: 1;
+  justify-content: center;
+}
+
 .logs-search-wrap {
   position: relative; flex: 1; min-width: 0;
   display: flex; align-items: center;

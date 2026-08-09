@@ -29,6 +29,9 @@ use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 /// (bucket, prefix) pair. Prevents the 1.5s poll from flooding the table.
 const LIST_OBJECTS_LOG_COOLDOWN: Duration = Duration::from_secs(10);
 
+/// Prune the cooldown map once it exceeds this many (bucket, prefix) entries.
+const LIST_LOG_MAP_MAX: usize = 512;
+
 pub struct LoggingStore {
     inner: Arc<dyn ObjectStore>,
     db: Db,
@@ -306,6 +309,15 @@ impl ObjectStore for LoggingStore {
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage> {
         let prefix = opts.prefix.clone().unwrap_or_default();
         let cache_key = (bucket.to_string(), prefix.clone());
+        // Drop stale cooldown entries so the map can't grow unbounded across
+        // every (bucket, prefix) ever browsed. Entries past the cooldown are
+        // safe to drop; the next list re-inserts and logs anyway. Done before
+        // the entry() borrow below to avoid a self-deadlock on the shard.
+        if self.list_objects_last_logged.len() > LIST_LOG_MAP_MAX {
+            let now = Instant::now();
+            self.list_objects_last_logged
+                .retain(|_, last| now.duration_since(*last) < LIST_OBJECTS_LOG_COOLDOWN);
+        }
         let should_log = {
             let now = Instant::now();
             match self.list_objects_last_logged.entry(cache_key) {

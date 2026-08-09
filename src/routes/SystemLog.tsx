@@ -102,7 +102,7 @@ export function SystemLog() {
         </Show>
       </div>
       <Show when={loading()}>
-        <div class="loading-row"><span class="spinner" /> Loading logs…</div>
+        <div class="loading-row logs-loading"><span class="spinner" /> Loading logs…</div>
       </Show>
       <Show when={!loading()}>
         <Show
