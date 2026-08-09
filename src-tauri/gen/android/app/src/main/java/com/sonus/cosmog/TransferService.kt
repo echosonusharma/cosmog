@@ -40,11 +40,33 @@ class TransferService : Service() {
         }
 
         val notif = buildNotification(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(FG_NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(FG_NOTIFICATION_ID, notif)
+        // A14+ can throw (ForegroundServiceStartNotAllowedException, or a
+        // missing type-permission) right here. Mirror NightWatchService: never
+        // let it crash the process; release the lock and bail if refused.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(FG_NOTIFICATION_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(FG_NOTIFICATION_ID, notif)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("TransferService", "startForeground refused: $t")
+            try { wakeLock?.takeIf { it.isHeld }?.release() } catch (_: Throwable) {}
+            wakeLock = null
+            stopSelf()
         }
+    }
+
+    // A14+ dataSync 6h/24h cap. Transfers are bounded so this rarely fires, but
+    // a single huge/slow transfer could hit it. We cannot meaningfully continue
+    // past the cap, so comply cleanly (the process, and the transfer, ends here).
+    override fun onTimeout(startId: Int) = handleTimeout()
+    override fun onTimeout(startId: Int, fgsType: Int) = handleTimeout()
+
+    private fun handleTimeout() {
+        android.util.Log.w("TransferService", "dataSync FGS timed out; stopping")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

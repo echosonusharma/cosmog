@@ -347,7 +347,7 @@ export function ObjectBrowser(props: {
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    toast.info("Drag-drop unsupported here, use Upload button");
+    toast.info("Drag-and-drop not supported here", "Opening the Upload dialog for this folder instead");
     setShowUpload(props.prefix);
   }
 

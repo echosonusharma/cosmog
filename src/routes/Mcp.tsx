@@ -94,7 +94,12 @@ export default function Mcp() {
 
   async function setEnabled(v: boolean) {
     if (await patch({ enabled: v })) {
-      toast.ok(v ? "MCP server started" : "MCP server stopped");
+      toast.ok(
+        v ? "MCP server started" : "MCP server stopped",
+        v
+          ? "Local AI clients can now drive S3 operations"
+          : "The local endpoint is closed; clients can no longer connect",
+      );
     }
   }
 
@@ -132,11 +137,14 @@ export default function Mcp() {
       toast.err("Port must be between 1024 and 65535.");
       return;
     }
-    if (await patch({ port: p })) toast.ok("Port updated");
+    if (await patch({ port: p })) toast.ok("Port updated", `MCP server now listens on port ${p}`);
   }
 
   async function saveRoot() {
-    if (await patch({ fs_root: rootDraft().trim() })) toast.ok("Folder updated");
+    const root = rootDraft().trim();
+    if (await patch({ fs_root: root })) {
+      toast.ok("Folder updated", root ? `MCP file operations are now rooted at "${root}"` : "MCP file root cleared");
+    }
   }
 
   async function regenerate() {
@@ -151,7 +159,7 @@ export default function Mcp() {
     try {
       await mcpRegenerateToken();
       await refetch();
-      toast.ok("Token regenerated");
+      toast.ok("Token regenerated", "Reconfigure every client with the new token to reconnect");
     } catch (e) {
       toast.err(e);
     } finally {
@@ -161,7 +169,7 @@ export default function Mcp() {
 
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).then(
-      () => toast.ok(`${label} copied`),
+      () => toast.ok(`${label} copied`, "Now on the clipboard"),
       () => toast.err("Copy failed"),
     );
   }

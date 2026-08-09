@@ -174,7 +174,7 @@ export default function NightWatcher() {
       await nwDeleteWatch(w.id);
       await refetchWatches();
       await refetchStatus();
-      toast.ok("Watch deleted");
+      toast.ok("Watch deleted", `Stopped syncing "${w.local_dir}"; remote files were left untouched`);
     } catch (e) { toast.err(e); }
   }
 

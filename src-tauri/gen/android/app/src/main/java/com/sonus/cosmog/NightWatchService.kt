@@ -1,8 +1,10 @@
 package com.sonus.cosmog
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -10,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 
 /**
@@ -79,6 +82,30 @@ class NightWatchService : Service() {
         // Watcher must survive the user swiping the app away so scheduled syncs
         // keep firing. Just defer to the default.
         super.onTaskRemoved(rootIntent)
+    }
+
+    // A14 (API 34) caps a dataSync FGS at ~6h cumulative per 24h; A15+ enforces
+    // it harder. When the budget is spent the OS calls onTimeout, and we MUST
+    // stop the foreground state within a few seconds or the app is killed with
+    // ForegroundServiceDidNotStopInTimeException. Night Watcher is 24/7, so it
+    // WILL hit this daily. Comply, then re-arm: an exact alarm relaunches us once
+    // the rolling window frees budget, and a boot-pending flag makes the next app
+    // foreground resume us too (belt-and-suspenders if the alarm is refused).
+    override fun onTimeout(startId: Int) = handleTimeout()
+    override fun onTimeout(startId: Int, fgsType: Int) = handleTimeout()
+
+    private fun handleTimeout() {
+        android.util.Log.w("NightWatchService", "dataSync FGS timed out; rescheduling")
+        setBootPending(this, true)
+        scheduleRestart(this)
+        try {
+            stopNwSync()
+        } catch (t: Throwable) {
+            android.util.Log.w("NightWatchService", "stopNwSync on timeout failed: $t")
+        }
+        releaseWakelock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -205,7 +232,50 @@ class NightWatchService : Service() {
 
         @JvmStatic
         fun stop(ctx: Context) {
+            cancelRestart(ctx)
             ctx.stopService(Intent(ctx, NightWatchService::class.java))
+        }
+
+        // Delay before an FGS-timeout restart. The dataSync budget refills over a
+        // rolling 24h window, so an immediate relaunch would just time out again;
+        // ~1h back gives usable budget while keeping the duty cycle high.
+        private const val RESTART_DELAY_MS = 60L * 60L * 1000L
+        private const val RESTART_REQ = 424244
+
+        private fun restartPendingIntent(ctx: Context): PendingIntent {
+            val i = Intent(ctx, NwRestartReceiver::class.java)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            return PendingIntent.getBroadcast(ctx.applicationContext, RESTART_REQ, i, flags)
+        }
+
+        // Schedule an exact wake alarm that relaunches the service after the cap
+        // window. An exact alarm firing grants the app a temporary allowlist to
+        // start an FGS from the background; an inexact one would not, so fall back
+        // to that only when exact alarms are unavailable and rely on boot-pending.
+        @JvmStatic
+        fun scheduleRestart(ctx: Context) {
+            try {
+                val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val at = SystemClock.elapsedRealtime() + RESTART_DELAY_MS
+                val pi = restartPendingIntent(ctx)
+                val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+                if (exact) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+                } else {
+                    am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("NightWatchService", "scheduleRestart failed: $t")
+            }
+        }
+
+        @JvmStatic
+        fun cancelRestart(ctx: Context) {
+            try {
+                val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                am.cancel(restartPendingIntent(ctx))
+            } catch (_: Throwable) {}
         }
 
         // Persist whether Night Watcher should relaunch after boot. Read by
@@ -218,6 +288,8 @@ class NightWatchService : Service() {
                 // Clearing the enable flag also cancels any deferred boot resume.
                 .apply { if (!enabled) remove(KEY_BOOT_PENDING) }
                 .apply()
+            // Disabling also drops any pending FGS-timeout restart alarm.
+            if (!enabled) cancelRestart(ctx)
         }
 
         // Mark that a boot-time resume was deferred (A12+ cannot start a
