@@ -1,6 +1,6 @@
 # Cosmog - Developer Docs
 
-Desktop and Android app for managing S3-compatible object storage. v0.1.25.
+Desktop and Android app for managing S3-compatible object storage. v0.1.27.
 
 ---
 
@@ -15,6 +15,7 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.25.
 | Vite 6 | Build tool / dev server |
 | Tauri 2 | Native bridge (IPC, commands) |
 | CodeMirror 6 | Text editor with syntax highlighting |
+| Cropper.js | In-app image editor (crop, rotate, flip, re-encode) |
 | ExcelJS | Spreadsheet parse / edit |
 | pdfjs-dist 6 | PDF rendering (legacy build for WebKit compat) |
 | TanStack Solid Virtual | Virtualized list rendering |
@@ -31,12 +32,13 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.25.
 | tokio-rusqlite / rusqlite | SQLite (WAL mode, FTS5) |
 | keyring 3 | OS keychain (Apple / Windows / Linux Secret Service) |
 | age 0.11 | Client-side encryption (X25519 + ChaCha20-Poly1305 streaming) |
+| base64 | MCP modern-transport payload encoding |
 | zeroize | Best-effort scrub of key material |
 | serde / serde_json | Serialization |
 | tracing + tracing-appender | Structured logging, rolling files |
 | thiserror / anyhow | Error handling |
 
-**Tauri plugins:** `dialog`, `fs`, `notification`, `opener`, `single-instance`, `autostart` (desktop background-run)
+**Tauri plugins:** `dialog`, `fs`, `notification`, `opener`, `single-instance`, `autostart` (desktop background-run), `store` (frontend UI prefs), `window-state` (persist window size/position)
 
 ### Android (Kotlin / JNI)
 
@@ -47,6 +49,7 @@ Desktop and Android app for managing S3-compatible object storage. v0.1.25.
 | `TransferService.kt` | Foreground service (dataSync); keeps transfers alive when backgrounded |
 | `NightWatchService.kt` | Foreground service in its own `:nightwatch` process; hosts the headless Night Watcher sync loop (see below) |
 | `BootReceiver.kt` | Re-arms Night Watcher after reboot (defers the dataSync FGS start to first foreground on Android 12+) |
+| `NwRestartReceiver.kt` | Relaunches `NightWatchService` after the Android 14+ dataSync FGS timeout cap, via an exact alarm that grants a temporary FGS-start allowlist |
 | `NwTreePicker.kt` | SAF tree picker (`ACTION_OPEN_DOCUMENT_TREE`) bridge, polled from Rust |
 | `SecretStore.kt` | EncryptedSharedPreferences backed by Android Keystore |
 | `saf.rs` | JNI bridge for Storage Access Framework (upload staging, download finalize, delete placeholder, SAF tree walk) |
@@ -232,6 +235,10 @@ headless `NwCtx` on its own tokio runtime and drives the same reconcile core.
 - `NwTreePicker` fires `ACTION_OPEN_DOCUMENT_TREE` from `MainActivity`, polled by
   `nw_pick_tree`. `START_STICKY` so an LMK-killed service process is recreated;
   `BootReceiver` re-arms after reboot.
+- Android 14+ caps a `dataSync` foreground service at ~6h; the `onTimeout`
+  handler stops cleanly instead of crashing, and Night Watcher re-arms via an
+  exact-alarm restart (`NwRestartReceiver`, which fires inside a temporary
+  FGS-start allowlist) with the next foreground resume as fallback.
 - Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8
   cannot see JNI call sites).
 
@@ -253,6 +260,14 @@ handler at `127.0.0.1:<port>/mcp` (default `4123`), not the rmcp SDK. Implements
 `apply(state)` reconciles the running listener with settings: stops any live
 server, starts fresh when `mcp_enabled`. Called at startup and after every
 config change, so a toggle restarts the listener rather than mutating it.
+
+**Dual-era protocol.** Two transport paths, selected per request so old and new
+clients both work off one endpoint:
+- *Modern (`2026-07-28`):* `server/discover`, per-request protocol version in
+  `_meta`, `HeaderMismatch` / `UnsupportedProtocolVersion` validation, a typed
+  `resultType`, `405` on `GET`/`DELETE`, no JSON-RPC batch.
+- *Legacy:* the classic `initialize` handshake.
+Unit-tested; base64 dep carries modern payloads.
 
 **Auth (`mcp/auth.rs`).** Three guards, all mandatory (axum middleware):
 1. Bind `127.0.0.1` only, never `0.0.0.0`.
@@ -341,6 +356,33 @@ Uses pdfjs-dist v6 legacy build (`pdfjs-dist/legacy/build/pdf.mjs`) loaded lazil
 - Pinch-to-zoom + pan via Pointer Events; Move / Select mode toggle
 - Max zoom 4x, canvas pixel cap 6144px - deeper zoom needs windowed rendering (out of scope)
 - Drag events suppressed to prevent triggering app's file upload drop handler
+
+---
+
+## Image Editor
+
+In-app image edit (`routes/browse/preview/ImageEditor.tsx`), Cropper.js. Crop,
+rotate, flip, zoom, then re-encode via canvas.
+
+- Bytes fetched through Rust `preview_object` (CORS-free; handles encrypted
+  buckets); edited bytes shipped back over IPC via `put_object_bytes`.
+- Canvas re-encodes to png / jpeg / webp only; source extension maps to the
+  nearest target, exotic formats flatten to png.
+- Overwrite blocked when the output format differs from the source extension
+  (would leave e.g. `photo.gif` holding png bytes); save-as writes a
+  `name-edited.<ext>` copy. Local save-as uses the fs dialog.
+- Whole image decodes and rasterizes in memory, so a 30 MiB source cap
+  (`EDITOR_MAX_BYTES`) guards against webview OOM.
+
+---
+
+## Frontend UI Prefs
+
+Frontend-only UI state (view mode, last-viewed location) persists via
+`@tauri-apps/plugin-store` (`prefs.json`), separate from the Rust settings DB
+which holds backend-relevant config. `state/prefs.ts` loads the store once at
+boot into a sync cache so Solid signals can read at creation time; writes
+auto-save. Window size/position persist via `tauri-plugin-window-state`.
 
 ---
 
