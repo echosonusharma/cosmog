@@ -1,12 +1,14 @@
-import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, onMount, onCleanup, Index, Show } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
 import type { RequestLog } from "../types";
 import { toast } from "../state/toast";
 import { confirmDialog } from "../state/confirm";
-import { IconSearch, IconTrash } from "../utils/icons";
+import { IconSearch, IconTrash, IconX } from "../utils/icons";
 import { Select } from "../utils/Select";
+import { isMobile } from "../utils/breakpoint";
+import { useBackHandler } from "../utils/androidBack";
 
 const OP_LABELS: Record<string, string> = {
   list_buckets: "List Buckets",
@@ -80,6 +82,14 @@ const OP_COLORS: Record<string, string> = {
   put_object_tagging:    "#f59e0b",
 };
 
+// Fixed row height — must match CSS. Detail lives outside the list (right pane
+// / bottom sheet), so the virtualizer never measures variable heights.
+const ROW_H_DESKTOP = 40;
+const ROW_H_MOBILE = 64;
+const ROW_H = typeof window !== "undefined" && window.innerWidth <= 768
+  ? ROW_H_MOBILE
+  : ROW_H_DESKTOP;
+
 function durationClass(ms: number): string {
   if (ms < 200) return "duration-fast";
   if (ms < 800) return "duration-medium";
@@ -116,7 +126,114 @@ function truncateKey(key: string | null, max = 48): string {
   return `${key.slice(0, half)}…${key.slice(-half)}`;
 }
 
+function prettyJson(raw: string): string {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); }
+  catch { return raw; }
+}
+
 const PAGE = 100;
+
+function RequestLogDetail(props: { log: RequestLog }) {
+  const color = () => opColor(props.log.operation);
+  const isErr = () => props.log.status === "error";
+  return (
+    <div class="req-log-detail">
+      <div class="req-log-detail-header" style={{ "border-left-color": color() }}>
+        <Show when={props.log.http_method}>
+          <span class="req-log-http-method">{props.log.http_method}</span>
+        </Show>
+        <span class="req-log-detail-op" style={{ color: color() }}>
+          {opLabel(props.log.operation)}
+        </span>
+        <span class="req-log-detail-raw-op">{props.log.operation}</span>
+        <div class="flex-1" />
+        <Show when={props.log.response_status}>
+          <span class={`req-log-http-status ${isErr() ? "req-log-http-status-err" : "req-log-http-status-ok"}`}>
+            HTTP {props.log.response_status}
+          </span>
+        </Show>
+        <span
+          class={`req-log-detail-status-badge ${isErr() ? "req-log-detail-err-badge" : "req-log-detail-ok-badge"}`}
+        >
+          {isErr() ? "✕ error" : "✓ ok"}
+        </span>
+      </div>
+
+      <Show when={props.log.request_url}>
+        <div class="req-log-url-bar">
+          <span class="req-log-chip-label req-log-chip-label-url">URL</span>
+          <span class="req-log-url-text">{props.log.request_url}</span>
+          <button
+            class="req-log-copy-btn"
+            onClick={() => navigator.clipboard.writeText(props.log.request_url!)}
+          >⎘</button>
+        </div>
+      </Show>
+
+      <div class="req-log-detail-chips">
+        <Show when={props.log.account_name}>
+          <span class="req-log-chip req-log-chip-account">
+            <span class="req-log-chip-label">account</span>
+            {props.log.account_name}
+          </span>
+        </Show>
+        <Show when={props.log.bucket}>
+          <span class="req-log-chip req-log-chip-bucket">
+            <span class="req-log-chip-label">bucket</span>
+            {props.log.bucket}
+          </span>
+        </Show>
+        <span class={`req-log-chip req-log-chip-duration ${durationClass(props.log.duration_ms)}`}>
+          <span class="req-log-chip-label">duration</span>
+          {props.log.duration_ms}ms
+        </span>
+        <span class="req-log-chip req-log-chip-time">
+          <span class="req-log-chip-label">time</span>
+          {new Date(props.log.created_at * 1000).toISOString().replace("T", " ").replace("Z", " UTC")}
+        </span>
+      </div>
+
+      <Show when={props.log.key}>
+        <div class="req-log-detail-key-row">
+          <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
+          <code class="req-log-detail-key">{props.log.key}</code>
+        </div>
+      </Show>
+
+      <Show when={props.log.request_params && props.log.request_params !== "null"}>
+        <div class="req-log-params-block">
+          <div class="req-log-params-header">
+            <span class="req-log-chip-label">request params</span>
+          </div>
+          <pre class="req-log-params-json">{prettyJson(props.log.request_params!)}</pre>
+        </div>
+      </Show>
+
+      <Show when={props.log.response_meta && props.log.response_meta !== "null"}>
+        <div class="req-log-params-block">
+          <div class="req-log-params-header">
+            <span class="req-log-chip-label">response</span>
+          </div>
+          <pre class="req-log-params-json">{prettyJson(props.log.response_meta!)}</pre>
+        </div>
+      </Show>
+
+      <Show when={isErr()}>
+        <div class="req-log-detail-error-box">
+          <div class="req-log-detail-error-header">
+            <Show when={props.log.error_code}>
+              <span class="req-log-detail-error-code">{props.log.error_code}</span>
+            </Show>
+            <span class="req-log-detail-error-label">ERROR</span>
+          </div>
+          <Show when={props.log.error_msg}>
+            <p class="req-log-detail-error-msg">{props.log.error_msg}</p>
+          </Show>
+        </div>
+      </Show>
+    </div>
+  );
+}
 
 export function RequestLogs() {
   const [logs, setLogs] = createSignal<RequestLog[]>([]);
@@ -125,24 +242,38 @@ export function RequestLogs() {
   const [hasMore, setHasMore] = createSignal(false);
   const [fetchError, setFetchError] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal("");
-  const [statusFilter, setStatusFilter] = createSignal("");   // "" | "ok" | "error"
-  const [opFilter, setOpFilter] = createSignal("");           // "" | operation
-  const [expanded, setExpanded] = createSignal<string | null>(null);
+  const [statusFilter, setStatusFilter] = createSignal("");
+  const [opFilter, setOpFilter] = createSignal("");
+  const [selectedId, setSelectedId] = createSignal<string | null>(null);
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
   let eventTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  // Virtualize: only the visible rows (not all 100) are in the DOM, so a
-  // 250ms-burst reload re-renders a handful of rows instead of the whole list.
-  // Rows are variable height (expanded detail), so the virtualizer measures
-  // each row's real height via measureElement.
+  const selected = createMemo(() => {
+    const id = selectedId();
+    if (!id) return null;
+    return logs().find((r) => r.id === id) ?? null;
+  });
+
+  createEffect(() => {
+    const id = selectedId();
+    if (id && !logs().some((r) => r.id === id)) setSelectedId(null);
+  });
+
+  useBackHandler(() => selectedId() !== null, () => {
+    setSelectedId(null);
+    return true;
+  });
+
   let scrollDiv: HTMLDivElement | undefined;
   const [virtScrollEl, setVirtScrollEl] = createSignal<HTMLDivElement | null>(null);
   const rowVirtualizer = createVirtualizer({
     get count() { return logs().length; },
     getScrollElement: () => virtScrollEl(),
-    estimateSize: () => (window.innerWidth <= 768 ? 64 : 40),
+    getItemKey: (i) => logs()[i]?.id ?? i,
+    estimateSize: () => ROW_H,
     overscan: 12,
   });
+
   const refreshViewport = () => {
     if (!scrollDiv) return;
     if (rowVirtualizer.getVirtualItems().length > 0 || logs().length === 0) {
@@ -153,6 +284,8 @@ export function RequestLogs() {
     requestAnimationFrame(() => { if (scrollDiv) setVirtScrollEl(scrollDiv); });
   };
   createEffect(() => { logs().length; requestAnimationFrame(refreshViewport); });
+  // Side pane open/close changes list width → remasure viewport.
+  createEffect(() => { selectedId(); isMobile(); requestAnimationFrame(refreshViewport); });
   onMount(() => {
     if (!scrollDiv) return;
     const ro = new ResizeObserver(() => requestAnimationFrame(refreshViewport));
@@ -160,10 +293,8 @@ export function RequestLogs() {
     onCleanup(() => ro.disconnect());
   });
 
-  // Generation counter: a slow in-flight response must not overwrite the
-  // result of a newer search/filter change.
   let loadGen = 0;
-  let lastPageOffset = -1;   // guards the tail effect from re-firing the same page
+  let lastPageOffset = -1;
   async function load() {
     const gen = ++loadGen;
     lastPageOffset = -1;
@@ -191,12 +322,10 @@ export function RequestLogs() {
     }
   }
 
-  // Infinite scroll: append the next page. A concurrent search/filter change
-  // (bumps loadGen) discards this in-flight page.
   async function loadMore() {
     if (loadingMore() || !hasMore()) return;
     const offset = logs().length;
-    if (offset === lastPageOffset) return;   // tail effect fires per scroll tick; only fetch each offset once
+    if (offset === lastPageOffset) return;
     lastPageOffset = offset;
     const gen = loadGen;
     setLoadingMore(true);
@@ -209,8 +338,6 @@ export function RequestLogs() {
         operation: opFilter() || undefined,
       });
       if (gen !== loadGen) return;
-      // Head inserts (live traffic) shift the offset window, so a page can
-      // re-return rows already held; de-dupe by id to avoid duplicate rows.
       setLogs((prev) => {
         const seen = new Set(prev.map((r) => r.id));
         const fresh = rows.filter((r) => !seen.has(r.id));
@@ -224,7 +351,6 @@ export function RequestLogs() {
     }
   }
 
-  // Pull the next page once the virtualizer renders within 10 rows of the tail.
   createEffect(() => {
     const items = rowVirtualizer.getVirtualItems();
     const last = items[items.length - 1];
@@ -232,10 +358,6 @@ export function RequestLogs() {
   });
 
   load();
-  // Push-based: backend emits "request-log-added" after each DB insert.
-  // Coalesce bursts (bulk delete/upload = hundreds of events) into one reload.
-  // onCleanup must be registered synchronously — inside listen()'s .then there
-  // is no reactive owner and the cleanup would silently never run.
   let disposed = false;
   let unlistenFn: (() => void) | null = null;
   onCleanup(() => {
@@ -246,8 +368,6 @@ export function RequestLogs() {
   });
   listen<void>("request-log-added", () => {
     clearTimeout(eventTimeout);
-    // Only auto-refresh (reset to page 1) when parked near the top; if the user
-    // scrolled into older pages, don't yank them back on a new event.
     eventTimeout = setTimeout(() => {
       if (!scrollDiv || scrollDiv.scrollTop < 120) load();
     }, 250);
@@ -275,6 +395,7 @@ export function RequestLogs() {
       setLogs([]);
       setHasMore(false);
       lastPageOffset = -1;
+      setSelectedId(null);
       toast.ok("Request logs cleared", "All recorded S3 request history was deleted");
     } catch (e) {
       toast.err(e);
@@ -282,6 +403,19 @@ export function RequestLogs() {
   }
 
   const today = () => new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  function selectRow(id: string) {
+    setSelectedId((cur) => (cur === id ? null : id));
+  }
+
+  const detailToolbar = () => (
+    <div class="req-log-detail-toolbar">
+      <span class="req-log-detail-toolbar-title">Request detail</span>
+      <button class="icon-btn" aria-label="Close detail" onClick={() => setSelectedId(null)}>
+        <IconX size={16} />
+      </button>
+    </div>
+  );
 
   return (
     <div class="view-container min-h-0">
@@ -315,10 +449,7 @@ export function RequestLogs() {
           onChange={(v) => { setStatusFilter(v); load(); }}
         />
         <Show when={logs().length > 0}>
-          <button
-            class="btn-ghost logs-clear-btn"
-            onClick={doClear}
-          >
+          <button class="btn-ghost logs-clear-btn" onClick={doClear}>
             <IconTrash size={13} /> Clear all
           </button>
         </Show>
@@ -330,9 +461,7 @@ export function RequestLogs() {
       <Show when={!loading()}>
         <Show when={fetchError()}>
           <div class="empty-state">
-            <span class="logs-fetch-err">
-              Error: {fetchError()}
-            </span>
+            <span class="logs-fetch-err">Error: {fetchError()}</span>
           </div>
         </Show>
         <Show
@@ -347,206 +476,106 @@ export function RequestLogs() {
             </Show>
           }
         >
-          <div
-            ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
-            class="logs-body min-h-0"
-            id="req-log-scroll"
-          >
-            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-              <For each={rowVirtualizer.getVirtualItems()}>
-                {(vrow) => {
-                  const log = () => logs()[vrow.index];
-                  return (
-                    <Show when={log()}>
-                      {(() => {
-                        let el: HTMLDivElement | undefined;
-                        const isExpanded = () => expanded() === log()!.id;
-                        const dateLabel = () => fmtDate(log()!.created_at);
-                        const color = () => opColor(log()!.operation);
-                        const isErr = () => log()!.status === "error";
-                        const remeasure = () => requestAnimationFrame(() => { if (el) rowVirtualizer.measureElement(el); });
-                        return (
-                  <div
-                    ref={(node) => {
-                      el = node;
-                      rowVirtualizer.measureElement(node);
-                      // Mobile only: 2-line wrap settles after commit, so remeasure
-                      // once post-paint. On desktop this rAF re-fires per scroll tick
-                      // and jitters the expanded row, so skip it there.
-                      if (window.innerWidth <= 768) {
-                        requestAnimationFrame(() => { if (el) rowVirtualizer.measureElement(el); });
-                      }
-                    }}
-                    data-index={vrow.index}
-                    class={`req-log-row${isErr() ? " req-log-error" : ""}${isExpanded() ? " req-log-open" : ""}`}
-                    style={{
-                      position: "absolute", top: 0, left: 0, width: "100%",
-                      transform: `translateY(${vrow.start}px)`,
-                      "--row-color": isErr() ? "#ef4444" : color(),
-                    }}
-                    onClick={() => { setExpanded(isExpanded() ? null : log()!.id); remeasure(); }}
-                  >
-                    <div class="req-log-main">
-                      <span class="req-log-dot" style={{ background: isErr() ? "#ef4444" : "#22c55e" }} />
+          <div class="req-log-layout">
+            <div
+              ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
+              class="logs-body min-h-0"
+              id="req-log-scroll"
+            >
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
+                <Index each={rowVirtualizer.getVirtualItems()}>
+                  {(vrow) => {
+                    const log = () => logs()[vrow().index];
+                    return (
+                      <Show when={log()}>
+                        {(() => {
+                          const dateLabel = () => fmtDate(log()!.created_at);
+                          const color = () => opColor(log()!.operation);
+                          const isErr = () => log()!.status === "error";
+                          const isSelected = () => selectedId() === log()!.id;
+                          return (
+                            <div
+                              class={`req-log-row${isErr() ? " req-log-error" : ""}${isSelected() ? " req-log-open" : ""}`}
+                              style={{
+                                position: "absolute", top: 0, left: 0, width: "100%",
+                                height: `${ROW_H}px`,
+                                transform: `translateY(${vrow().start}px)`,
+                                "--row-color": isErr() ? "#ef4444" : color(),
+                              }}
+                              onClick={() => selectRow(log()!.id)}
+                            >
+                              <div class="req-log-main">
+                                <span class="req-log-dot" style={{ background: isErr() ? "#ef4444" : "#22c55e" }} />
 
-                      <span class="req-log-ts">
-                        <Show when={dateLabel() !== today()}>
-                          <span class="req-log-ts-date">{dateLabel()}</span>
-                        </Show>
-                        {fmtTime(log()!.created_at)}
-                      </span>
+                                <span class="req-log-ts">
+                                  <Show when={dateLabel() !== today()}>
+                                    <span class="req-log-ts-date">{dateLabel()}</span>
+                                  </Show>
+                                  {fmtTime(log()!.created_at)}
+                                </span>
 
-                      <span
-                        class="req-log-op"
-                        style={{ "--op-color": color() }}
-                      >
-                        {opLabel(log()!.operation)}
-                      </span>
+                                <span class="req-log-op" style={{ "--op-color": color() }}>
+                                  {opLabel(log()!.operation)}
+                                </span>
 
-                      <Show when={log()!.account_name}>
-                        <span class="req-log-account">{log()!.account_name}</span>
+                                <Show when={log()!.account_name}>
+                                  <span class="req-log-account">{log()!.account_name}</span>
+                                </Show>
+
+                                <Show when={log()!.bucket || log()!.key}>
+                                  <span class="req-log-target">
+                                    <Show when={log()!.bucket}>
+                                      <span class="req-log-bucket">{log()!.bucket}</span>
+                                    </Show>
+                                    <Show when={log()!.key}>
+                                      <span class="req-log-sep">/</span>
+                                      <span class="req-log-key">{truncateKey(log()!.key)}</span>
+                                    </Show>
+                                  </span>
+                                </Show>
+
+                                <div class="flex-1" />
+
+                                <span class={`req-log-duration ${durationClass(log()!.duration_ms)}`}>
+                                  {fmtDuration(log()!.duration_ms)}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </Show>
-
-                      <Show when={log()!.bucket || log()!.key}>
-                        <span class="req-log-target">
-                          <Show when={log()!.bucket}>
-                            <span class="req-log-bucket">{log()!.bucket}</span>
-                          </Show>
-                          <Show when={log()!.key}>
-                            <span class="req-log-sep">/</span>
-                            <span class="req-log-key">{truncateKey(log()!.key)}</span>
-                          </Show>
-                        </span>
-                      </Show>
-
-                      <div class="flex-1" />
-
-                      <span class={`req-log-duration ${durationClass(log()!.duration_ms)}`}>
-                        {fmtDuration(log()!.duration_ms)}
-                      </span>
-
-                      <span class="req-log-chevron">{isExpanded() ? "▾" : "▸"}</span>
-                    </div>
-
-                    <Show when={isExpanded()}>
-                      {/* stop propagation: text selection inside the card must
-                          not bubble to the row's collapse toggle */}
-                      <div class="req-log-detail" onClick={(e) => e.stopPropagation()}>
-                        <div class="req-log-detail-header" style={{ "border-left-color": color() }}>
-                          <Show when={log()!.http_method}>
-                            <span class="req-log-http-method">{log()!.http_method}</span>
-                          </Show>
-                          <span class="req-log-detail-op" style={{ color: color() }}>
-                            {opLabel(log()!.operation)}
-                          </span>
-                          <span class="req-log-detail-raw-op">{log()!.operation}</span>
-                          <div class="flex-1" />
-                          <Show when={log()!.response_status}>
-                            <span class={`req-log-http-status ${isErr() ? "req-log-http-status-err" : "req-log-http-status-ok"}`}>
-                              HTTP {log()!.response_status}
-                            </span>
-                          </Show>
-                          <span
-                            class={`req-log-detail-status-badge ${isErr() ? "req-log-detail-err-badge" : "req-log-detail-ok-badge"}`}
-                          >
-                            {isErr() ? "✕ error" : "✓ ok"}
-                          </span>
-                        </div>
-
-                        <Show when={log()!.request_url}>
-                          <div class="req-log-url-bar">
-                            <span class="req-log-chip-label req-log-chip-label-url">URL</span>
-                            <span class="req-log-url-text">{log()!.request_url}</span>
-                            <button
-                              class="req-log-copy-btn"
-
-                              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(log()!.request_url!); }}
-                            >⎘</button>
-                          </div>
-                        </Show>
-
-                        <div class="req-log-detail-chips">
-                          <Show when={log()!.account_name}>
-                            <span class="req-log-chip req-log-chip-account">
-                              <span class="req-log-chip-label">account</span>
-                              {log()!.account_name}
-                            </span>
-                          </Show>
-                          <Show when={log()!.bucket}>
-                            <span class="req-log-chip req-log-chip-bucket">
-                              <span class="req-log-chip-label">bucket</span>
-                              {log()!.bucket}
-                            </span>
-                          </Show>
-                          <span class={`req-log-chip req-log-chip-duration ${durationClass(log()!.duration_ms)}`}>
-                            <span class="req-log-chip-label">duration</span>
-                            {log()!.duration_ms}ms
-                          </span>
-                          <span class="req-log-chip req-log-chip-time">
-                            <span class="req-log-chip-label">time</span>
-                            {new Date(log()!.created_at * 1000).toISOString().replace("T", " ").replace("Z", " UTC")}
-                          </span>
-                        </div>
-
-                        <Show when={log()!.key}>
-                          <div class="req-log-detail-key-row">
-                            <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
-                            <code class="req-log-detail-key">{log()!.key}</code>
-                          </div>
-                        </Show>
-
-                        <Show when={log()!.request_params && log()!.request_params !== "null"}>
-                          <div class="req-log-params-block">
-                            <div class="req-log-params-header">
-                              <span class="req-log-chip-label">request params</span>
-                            </div>
-                            <pre class="req-log-params-json">{(() => {
-                              try { return JSON.stringify(JSON.parse(log()!.request_params!), null, 2); }
-                              catch { return log()!.request_params; }
-                            })()}</pre>
-                          </div>
-                        </Show>
-
-                        <Show when={log()!.response_meta && log()!.response_meta !== "null"}>
-                          <div class="req-log-params-block">
-                            <div class="req-log-params-header">
-                              <span class="req-log-chip-label">response</span>
-                            </div>
-                            <pre class="req-log-params-json">{(() => {
-                              try { return JSON.stringify(JSON.parse(log()!.response_meta!), null, 2); }
-                              catch { return log()!.response_meta; }
-                            })()}</pre>
-                          </div>
-                        </Show>
-
-                        <Show when={isErr()}>
-                          <div class="req-log-detail-error-box">
-                            <div class="req-log-detail-error-header">
-                              <Show when={log()!.error_code}>
-                                <span class="req-log-detail-error-code">{log()!.error_code}</span>
-                              </Show>
-                              <span class="req-log-detail-error-label">ERROR</span>
-                            </div>
-                            <Show when={log()!.error_msg}>
-                              <p class="req-log-detail-error-msg">{log()!.error_msg}</p>
-                            </Show>
-                          </div>
-                        </Show>
-                      </div>
-                    </Show>
-                  </div>
-                        );
-                      })()}
-                    </Show>
-                  );
-                }}
-              </For>
+                    );
+                  }}
+                </Index>
+              </div>
+              <Show when={loadingMore()}>
+                <div class="req-log-more"><span class="spinner" /> Loading more…</div>
+              </Show>
             </div>
-            <Show when={loadingMore()}>
-              <div class="req-log-more"><span class="spinner" /> Loading more…</div>
+
+            {/* Desktop: right inspector pane */}
+            <Show when={!isMobile() && selectedId()}>
+              <aside class="req-log-detail-pane">
+                {detailToolbar()}
+                <Show when={selected()}>
+                  {(log) => <RequestLogDetail log={log()} />}
+                </Show>
+              </aside>
             </Show>
           </div>
         </Show>
+      </Show>
+
+      {/* Mobile: bottom sheet */}
+      <Show when={isMobile() && selectedId()}>
+        <div class="req-log-sheet-backdrop" onClick={() => setSelectedId(null)}>
+          <div class="req-log-sheet" onClick={(e) => e.stopPropagation()}>
+            {detailToolbar()}
+            <Show when={selected()}>
+              {(log) => <RequestLogDetail log={log()} />}
+            </Show>
+          </div>
+        </div>
       </Show>
     </div>
   );

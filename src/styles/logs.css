@@ -75,10 +75,23 @@
   flex-shrink: 0;
 }
 .logs-body {
-  flex: 1; overflow-y: auto;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 8px 0;
+  padding: 0;
+  min-height: 0;
+}
+
+.req-log-layout {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
 }
 .log-line {
   display: flex; align-items: baseline; gap: 14px;
@@ -157,9 +170,13 @@
 .logs-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 /* ── request log rows ────────────────────────────────────────────────────── */
+/* Fixed height set inline from ROW_H (40 desktop / 64 mobile). Detail opens
+   in a side pane / bottom sheet — never inside the row. */
 
 .req-log-row {
   --row-color: var(--muted);
+  box-sizing: border-box;
+  overflow: hidden;
   border-bottom: 1px solid var(--border);
   border-left: 4px solid var(--row-color);
   background: color-mix(in srgb, var(--row-color) 4%, transparent);
@@ -173,7 +190,10 @@
 
 .req-log-main {
   display: flex; align-items: center; gap: 9px;
-  padding: 8px 14px 8px 10px;
+  padding: 0 14px 0 10px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   font-size: 12px;
   min-width: 0;
 }
@@ -256,23 +276,59 @@
   transition: color 0.2s;
 }
 
-.req-log-chevron {
-  color: var(--text-faint);
-  font-size: 10px;
-  flex-shrink: 0;
-  margin-left: 2px;
-  transition: transform 0.15s;
+/* ── detail pane (desktop right) + sheet (mobile) ───────────────────────── */
+
+.req-log-detail-pane {
+  /* Cap width; min-width:0 so long URL/JSON can't force the pane wider
+     than this and crush the list (flex default min-width:auto). */
+  box-sizing: border-box;
+  flex: 0 0 min(520px, 48%);
+  width: min(520px, 48%);
+  max-width: 48%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  overflow: hidden;
+  animation: req-log-pane-in 0.12s ease;
+}
+@keyframes req-log-pane-in {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
-/* ── detail card ─────────────────────────────────────────────────────────── */
+.req-log-detail-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.req-log-detail-toolbar-title {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-soft);
+}
+
+.req-log-sheet-backdrop {
+  display: none;
+}
 
 .req-log-detail {
-  padding: 0 14px 14px 13px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-top: 1px solid var(--border);
   background: var(--bg);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .req-log-detail-header {
@@ -391,7 +447,10 @@
 /* ── detail: URL bar ─────────────────────────────────────────────────────── */
 
 .req-log-url-bar {
-  display: flex; align-items: center; gap: 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
   padding: 7px 10px;
   background: var(--bg-active);
   border: 1px solid var(--border);
@@ -399,9 +458,10 @@
   font-family: var(--font-mono); font-size: 11px;
 }
 .req-log-url-text {
-  flex: 1;
+  min-width: 0;
   color: var(--info);
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   user-select: text;
   cursor: text;
 }
