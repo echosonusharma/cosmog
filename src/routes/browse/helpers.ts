@@ -161,7 +161,7 @@ export function discardSafDownload(transferId: string): void {
 }
 
 export const IMAGE_EXTS  = new Set(["jpg","jpeg","png","gif","webp","svg","bmp","ico","avif","tiff","tif"]);
-export const TEXT_EXTS   = new Set(["txt","md","json","xml","yaml","yml","toml","log","sh","js","ts","tsx","jsx","css","html","htm","rs","go","py","rb","java","c","cpp","h"]);
+export const TEXT_EXTS   = new Set(["txt","md","json","xml","yaml","yml","toml","log","sh","js","ts","tsx","jsx","css","html","htm","rs","go","py","rb","java","c","cpp","h","sql"]);
 export const SHEET_EXTS  = new Set(["xlsx","xls","xlsm","xlsb","ods","csv"]);
 export const PDF_EXTS    = new Set(["pdf"]);
 export const AUDIO_EXTS  = new Set(["mp3","wav","ogg","oga","m4a","aac","flac","opus","weba"]);
