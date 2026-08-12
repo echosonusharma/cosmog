@@ -32,4 +32,6 @@ initPrefs().then(() => {
   initEditorTheme();
   restoreBrowseState();
   render(() => <App />, document.getElementById("root")!);
+  // Warm the CodeMirror chunk so the first text preview doesn't flash a spinner.
+  void import("./utils/CodeEditor");
 });

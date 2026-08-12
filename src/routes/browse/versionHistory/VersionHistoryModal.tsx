@@ -151,23 +151,27 @@ export function VersionHistoryModal(props: {
         </div>
 
         <div class="vh-body">
-          <Show when={data.loading}>
+          <Show when={data.loading && data.latest == null}>
             <div class="vh-loading">
               <span class="spinner" /> Loading versions…
             </div>
           </Show>
 
-          <Show when={data.error}>
+          <Show when={data.error && data.latest == null}>
             <div class="status-msg err">{errMsg(data.error)}</div>
           </Show>
 
-          <Show when={!data.loading && !data.error && data()}>
+          <Show when={data.error && data.latest != null}>
+            <div class="status-msg err">Couldn't refresh versions: {errMsg(data.error)}</div>
+          </Show>
+
+          <Show when={data.latest ?? data()}>
             {(d) => (
               <Show
                 when={d().versions.length > 0}
                 fallback={<div class="vh-empty">No versions found for this object.</div>}
               >
-                <div class="vh-list">
+                <div class="vh-list" classList={{ loading: data.loading }}>
                   <For each={d().versions}>
                     {(v) => (
                       <VersionRow

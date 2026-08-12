@@ -126,14 +126,14 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       </div>
 
       <div class="bucket-grid-body">
-        <Show when={buckets.loading}>
+        <Show when={buckets.loading && buckets.latest == null}>
           <div class="loading-row"><span class="spinner" /> Loading buckets…</div>
         </Show>
         <Show when={buckets.error && !errDismissed()}>
           <ErrorPopup error={buckets.error} onClose={() => setErrDismissed(true)} />
         </Show>
-        <Show when={!buckets.loading && !buckets.error}>
-          <Show when={(buckets() ?? []).length > 0}
+        <Show when={buckets.latest != null}>
+          <Show when={(buckets.latest ?? []).length > 0}
                 fallback={
                   <div class="empty-state">
                     <span class="empty-icon"><IconBucket size={40} /></span>
@@ -146,7 +146,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                 No buckets match "{filter()}"
               </div>
             </Show>
-            <div class="bucket-grid">
+            <div class="bucket-grid" classList={{ loading: buckets.loading }}>
               <For each={filtered()}>
                 {(b) => (
                   <div

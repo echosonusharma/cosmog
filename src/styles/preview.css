@@ -7,11 +7,27 @@
   background: var(--bg-elev-1);
   display: flex; flex-direction: column;
   overflow: hidden;
-  animation: preview-in 0.1s ease;
+}
+
+/* Overlay on desktop so opening preview doesn't reflow the file list/columns. */
+.browse-area > .preview-pane {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.18);
+  animation: preview-in 0.05s ease;
 }
 @keyframes preview-in {
-  from { opacity: 0; transform: translateX(12px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.preview-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Grow with content only — flex:1 left a tall empty gap above MetaList. */
 }
 .preview-header {
   display: flex; align-items: center;
@@ -407,12 +423,16 @@
 }
 .preview-meta {
   display: grid;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 90px minmax(0, 1fr);
   gap: 6px 10px;
   font-size: 12px;
 }
 .preview-meta dt { color: var(--text-muted); }
-.preview-meta dd { color: var(--text-soft); word-break: break-word; }
+.preview-meta dd {
+  color: var(--text-soft);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
 /* ── preview-pane inline UI ─────────────────────────────────────────────── */
 .preview-err-inline {

@@ -13,25 +13,31 @@ export function IndexBar(props: {
   refetchIndex: () => void;
   onReindex: () => void;
 }) {
+  // Prefer the in-flight resource value. Do NOT fall back to `.latest` while
+  // loading — after a bucket switch `.latest` is still the previous bucket.
+  // Same-bucket refetch keeps `()` as the prior value in Solid, so the bar
+  // stays stable without showing the wrong bucket's stats.
+  const st = () => props.indexStatus() ?? (!props.indexStatus.loading ? props.indexStatus.latest : undefined);
+
   return (
     <div class="index-bar">
-      <Show when={props.indexStatus.loading}>
+      <Show when={props.indexStatus.loading && st() == null}>
         <span class="muted index-bar-item">Checking index…</span>
       </Show>
-      <Show when={!props.indexStatus.loading && props.indexStatus()}>
-        {(st) => (
+      <Show when={st()}>
+        {(s) => (
           <>
-            <span class={`index-dot ${st().enabled ? "enabled" : "disabled"}`} />
-            <span class="index-bar-item">{st().enabled ? "Indexed" : "Not indexed"}</span>
-            <Show when={st().object_count > 0}>
+            <span class={`index-dot ${s().enabled ? "enabled" : "disabled"}`} />
+            <span class="index-bar-item">{s().enabled ? "Indexed" : "Not indexed"}</span>
+            <Show when={s().object_count > 0}>
               <span class="dot-sep">·</span>
-              <span class="index-bar-item">{st().object_count.toLocaleString()} objects</span>
+              <span class="index-bar-item">{s().object_count.toLocaleString()} objects</span>
             </Show>
-            <Show when={st().last_full_sync_at}>
+            <Show when={s().last_full_sync_at}>
               <span class="dot-sep">·</span>
-              <span class="index-bar-item faint">synced {formatRelative(st().last_full_sync_at!)}</span>
+              <span class="index-bar-item faint">synced {formatRelative(s().last_full_sync_at!)}</span>
             </Show>
-            <Show when={st().scan_continuation}>
+            <Show when={s().scan_continuation}>
               <span class="dot-sep">·</span>
               <span class="muted index-bar-item">scanning…</span>
               <button class="btn-ghost index-bar-btn" onClick={() => cancelBucketScan(props.accountId, props.bucket).then(props.refetchIndex)}>Cancel</button>
@@ -40,7 +46,7 @@ export function IndexBar(props: {
         )}
       </Show>
       <div class="index-bar-spacer" />
-      <Show when={props.indexStatus()?.enabled}>
+      <Show when={st()?.enabled}>
         <button class="icon-btn" title="Re-index" disabled={props.indexBusy} onClick={props.onReindex}>
           <IconRefresh size={14} />
         </button>

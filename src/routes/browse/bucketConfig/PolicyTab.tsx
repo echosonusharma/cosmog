@@ -109,18 +109,20 @@ export function PolicyTab(props: {
     return (e as Error)?.message ?? String(e);
   }
 
+  const snap = () => loaded.latest ?? loaded();
+
   return (
     <div class="bcfg-tab">
-      <Show when={!loaded.loading} fallback={<div class="bcfg-loading"><span class="spinner spinner-lg" /><span>Loading policy…</span></div>}>
-        <Show when={!loaded.error} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
-          <Show when={loaded()!.unsupported}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><span class="spinner spinner-lg" /><span>Loading policy…</span></div>}>
+        <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
+          <Show when={snap()!.unsupported}>
             <div class="status-msg warn">Not supported by this provider</div>
           </Show>
-          <Show when={loaded()!.denied}>
+          <Show when={snap()!.denied}>
             <div class="status-msg err">{deniedMessage("policy", "get")}</div>
           </Show>
 
-          <Show when={!loaded()!.unsupported && !loaded()!.denied}>
+          <Show when={!snap()!.unsupported && !snap()!.denied}>
             <Show when={capWarning(props.providerId, props.providerLabel, "policy")}>
               {(w) => <div class="status-msg warn bcfg-provider-warn">{w()}</div>}
             </Show>

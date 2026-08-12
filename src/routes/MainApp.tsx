@@ -82,14 +82,21 @@ export default function MainApp() {
     if (s) setTheme(s.theme ?? "system");
   });
 
-  // load buckets for active account; refetch on global bucket refresh tick
+  // Load buckets for active account; refetch on global bucket refresh tick.
+  // Keep the previous list visible while refreshing the same account — clearing
+  // on every tick made the sidebar flash empty on create/delete.
+  let sidebarAccountId = "";
   createEffect(() => {
     const id = browseState.accountId;
     bucketsRefreshTick();
-    setSidebarBuckets([]);
+    if (id !== sidebarAccountId) {
+      sidebarAccountId = id ?? "";
+      setSidebarBuckets([]);
+    }
     if (!id) return;
+    const reqId = id;
     listBuckets(id)
-      .then((b) => setSidebarBuckets(b))
+      .then((b) => { if (browseState.accountId === reqId) setSidebarBuckets(b); })
       .catch(() => {});
   });
 

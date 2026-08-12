@@ -288,6 +288,9 @@
   }
 
   /* ── preview pane: full-screen overlay (respect status bar) ──────────── */
+  .browse-area.has-preview > .browse-view {
+    padding-right: 0;
+  }
   .preview-pane {
     position: fixed;
     left: env(safe-area-inset-left);

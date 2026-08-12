@@ -130,10 +130,12 @@
 .view-slot-fill { display: flex; flex: 1; min-height: 0; }
 
 /* ── browse loading overlay ──────────────────────────────────────────────── */
+/* First-ever paint only (initialLoaded still false). Bucket switches no longer
+   flip that flag — they clear rows in place so this overlay doesn't flash. */
 .browse-loading-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg, #0d0d0d);
+  background: color-mix(in srgb, var(--bg, #0d0d0d) 72%, transparent);
   z-index: 10;
   pointer-events: none;
 }

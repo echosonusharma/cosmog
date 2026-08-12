@@ -10,6 +10,7 @@
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 10px;
 }
+.bucket-grid.loading { opacity: 0.55; transition: opacity 0.15s ease; }
 .bucket-card {
   display: flex; align-items: center;
   background: var(--bg-elev-1);

@@ -161,7 +161,7 @@ export function ColumnPane(props: {
       }>
         <ColumnPaneVirtual
           items={items()}
-          loading={state.loading}
+          loading={state.loading && items().length > 0}
           selectedKey={props.selectedKey}
           active={props.active}
           onSelectFolder={props.onSelectFolder}

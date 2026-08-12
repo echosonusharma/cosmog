@@ -104,13 +104,13 @@ export function ListView(props: {
         <div
           ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
           class={`object-list object-list-scroll ${props.hasSel ? "has-selection" : ""}`}
-          classList={{ loading: props.browseData.loading }}
+          classList={{ loading: props.browseData.loading && listItems().length > 0 }}
         >
           <Show when={props.browseData.error}>
             <div class="status-msg err list-status-msg">{errMsg(props.browseData.error)}</div>
           </Show>
 
-          <Show when={props.browseData.loading && !props.browseData.initialLoaded}>
+          <Show when={props.browseData.loading && listItems().length === 0}>
             <div class="loading-row"><span class="spinner" /> Loading…</div>
           </Show>
 

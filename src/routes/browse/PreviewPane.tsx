@@ -10,7 +10,7 @@ import {
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import { resolvedTheme } from "../../state/theme";
-import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf } from "./helpers";
+import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf, isDotEnvName, editorExtOf } from "./helpers";
 import { PdfPreview } from "./preview/PdfModal";
 
 // Heavy libs (CodeMirror core, cropperjs, exceljs) are code-split: each chunk
@@ -68,11 +68,25 @@ function PreviewErrorCard(props: { err: unknown; storageClass?: string | null })
 export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; onListChanged?: () => void; }) {
   const ct = () => props.obj.content_type ?? "";
   const ext = () => extOf(props.obj.basename);
+  const editorExt = () => editorExtOf(props.obj.basename);
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
   const isSheet = () => SHEET_EXTS.has(ext());
   const isPdf = () => ct() === "application/pdf" || PDF_EXTS.has(ext());
   const isAudio = () => ct().startsWith("audio/") || AUDIO_EXTS.has(ext());
-  const isText = () => !isSheet() && !isPdf() && !isAudio() && (ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript") || TEXT_EXTS.has(ext()));
+  const isText = () => !isSheet() && !isPdf() && !isAudio() && (
+    ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript")
+    || TEXT_EXTS.has(ext()) || isDotEnvName(props.obj.basename)
+  );
+
+  type PreviewKind = "image" | "text" | "sheet" | "pdf" | "audio" | "binary";
+  const targetKind = (): PreviewKind => {
+    if (isImage()) return "image";
+    if (isText()) return "text";
+    if (isSheet()) return "sheet";
+    if (isPdf()) return "pdf";
+    if (isAudio()) return "audio";
+    return "binary";
+  };
 
   const [loadRequested, setLoadRequested] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
@@ -138,12 +152,17 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     setDisplayUrl(r.url);
     setDisplayKey(r.key);
   });
-  // Reset latch when the preview target changes to a non-image (so we don't
-  // keep showing an old image over a text/binary preview).
-  createEffect(() => {
-    if (!isImage()) { setDisplayUrl(null); setDisplayKey(null); }
-  });
+
   onCleanup(() => { if (priorBlob) URL.revokeObjectURL(priorBlob); });
+
+  function clearImageLatch() {
+    if (priorBlob) {
+      URL.revokeObjectURL(priorBlob);
+      priorBlob = null;
+    }
+    setDisplayUrl(null);
+    setDisplayKey(null);
+  }
 
   const [imgLoaded, setImgLoaded] = createSignal(false);
   createEffect(() => { if (displayUrl()) setImgLoaded(false); });;
@@ -167,8 +186,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     if (!p || !k) return;
     setDisplayText({ key: k, bytes: p.bytes, content_type: p.content_type });
   });
-  // Clear latch when target is no longer a text preview (e.g. switched to image).
-  createEffect(() => { if (!isText() || isImage()) setDisplayText(null); });
+
   // Fresh preview available for the current target?
   const cur = () => {
     const d = displayText();
@@ -180,48 +198,57 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     catch { return ""; }
   }
 
-  const imgSrc = () => displayUrl() ?? "";
-  // Min-duration switching flag: turns on the moment a switch begins (target
-  // key differs from displayed key) and stays on until the new content lands
-  // AND a floor delay has elapsed, so fast fetches still show the overlay.
-  const SWITCH_MIN_MS = 350;
-  const [imgSwitching, setImgSwitching] = createSignal(false);
-  let imgSwitchTimer: number | null = null;
-  createEffect(() => {
-    const targetKey = props.obj.key;
-    const shown = displayKey();
-    if (isImage() && shown !== null && shown !== targetKey) {
-      setImgSwitching(true);
-      if (imgSwitchTimer !== null) { clearTimeout(imgSwitchTimer); imgSwitchTimer = null; }
-      imgSwitchTimer = window.setTimeout(() => {
-        imgSwitchTimer = null;
-        if (displayKey() === props.obj.key) setImgSwitching(false);
-      }, SWITCH_MIN_MS);
-    } else if (shown === targetKey && imgSwitchTimer === null) {
-      setImgSwitching(false);
-    }
-  });
-  onCleanup(() => { if (imgSwitchTimer !== null) clearTimeout(imgSwitchTimer); });
+  // Cross-format latch: keep showing the previous kind until the new target is
+  // ready, so binary↔text / image↔text switches don't blank the stage and
+  // remount CodeMirror mid-frame (that was the whole-UI hitch).
+  const isKindReady = (kind: PreviewKind): boolean => {
+    if (kind === "image") return displayKey() === props.obj.key && !!displayUrl();
+    if (kind === "text") return displayText()?.key === props.obj.key;
+    // sheet/pdf/audio/binary render sync from props — always "ready"
+    return true;
+  };
 
-  const [textSwitching, setTextSwitchingLatched] = createSignal(false);
-  let textSwitchTimer: number | null = null;
+  const [pinnedKind, setPinnedKind] = createSignal<PreviewKind | null>(null);
+  const displayKind = (): PreviewKind | null => {
+    const t = targetKind();
+    if (isKindReady(t)) return t;
+    const pinned = pinnedKind();
+    // Hold prior text/image while the next async preview loads.
+    if (pinned === "text" || pinned === "image") return pinned;
+    return t;
+  };
+
   createEffect(() => {
-    const targetKey = props.obj.key;
-    const d = displayText();
-    const shown = d?.key ?? null;
-    if (isText() && !isImage() && shown !== null && shown !== targetKey) {
-      setTextSwitchingLatched(true);
-      if (textSwitchTimer !== null) { clearTimeout(textSwitchTimer); textSwitchTimer = null; }
-      textSwitchTimer = window.setTimeout(() => {
-        textSwitchTimer = null;
-        const cur = displayText();
-        if ((cur?.key ?? null) === props.obj.key) setTextSwitchingLatched(false);
-      }, SWITCH_MIN_MS);
-    } else if (shown === targetKey && textSwitchTimer === null) {
-      setTextSwitchingLatched(false);
+    const t = targetKind();
+    if (isKindReady(t)) {
+      setPinnedKind(t);
+      if (t !== "text") setDisplayText(null);
+      if (t !== "image") clearImageLatch();
+      return;
+    }
+    // Sync kinds (binary/sheet/pdf/audio): switch immediately, drop latches.
+    if (t === "binary" || t === "sheet" || t === "pdf" || t === "audio") {
+      setPinnedKind(t);
+      setDisplayText(null);
+      clearImageLatch();
     }
   });
-  onCleanup(() => { if (textSwitchTimer !== null) clearTimeout(textSwitchTimer); });
+
+  const crossLoading = () => {
+    const t = targetKind();
+    if (!((t === "text" || t === "image") && !isKindReady(t))) return false;
+    // Overlay only while holding prior content. Cold first load uses the
+    // inline loader alone — otherwise you get two stacked spinners.
+    const pinned = pinnedKind();
+    return pinned === "text" || pinned === "image";
+  };
+
+  // Once CodeEditor has mounted once, keep it in the tree (hidden) so format
+  // switches don't pay the CodeMirror init cost again.
+  const [cmWarm, setCmWarm] = createSignal(false);
+  createEffect(() => { if (displayText()) setCmWarm(true); });
+
+  const imgSrc = () => displayUrl() ?? "";
 
   async function saveEdit(content: string) {
     const ct = props.obj.content_type || `text/${ext() || "plain"}`;
@@ -238,10 +265,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         <div class="preview-header">
           <FileIcon name={props.obj.basename} size={20} />
           <span class="preview-title">{props.obj.basename}</span>
-          <Show when={isImage() && displayUrl()}>
+          <Show when={displayKind() === "image" && displayUrl()}>
             <button class="icon-btn" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
           </Show>
-          <Show when={isText() && cur()}>
+          <Show when={displayKind() === "text" && cur()}>
             <button class="icon-btn" onClick={() => setEditOpen(true)}><IconEdit size={15} /></button>
           </Show>
           <button class="icon-btn" onClick={props.onClose}><IconX size={16} /></button>
@@ -251,7 +278,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <PreviewErrorCard err={preview.error} storageClass={props.obj.storage_class} />
           </Show>
 
-          <Show when={isImage()}>
+          <div class="preview-stage">
+          <Show when={displayKind() === "image"}>
             <div class="preview-img-area rel">
               <Show when={!imageAutoLoad() && !loadRequested() && !displayUrl()}>
                 <div class="preview-load-hint">
@@ -275,13 +303,12 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               <Show when={displayUrl()}>
                 <img
                   class="preview-thumb preview-img-thumb-zoom"
-                  classList={{ "preview-thumb-switching": imgSwitching() }}
                   src={imgSrc()}
                   onClick={() => setExpanded(true)}
                   onLoad={() => setImgLoaded(true)}
                   onError={() => setImgLoaded(true)}
                 />
-                <Show when={!imgLoaded() || imgSwitching()}>
+                <Show when={!imgLoaded()}>
                   <div class="preview-switching-overlay">
                     <span class="spinner spinner-lg" />
                   </div>
@@ -290,30 +317,22 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             </div>
           </Show>
 
-          <Show when={isText() && !isImage() && !preview.error}>
-            <Show when={textAutoLoad()}>
-              <Show when={preview.loading && !displayText()}>
-                <div class="preview-loader">
-                  <span class="spinner spinner-lg" />
-                  <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
-                </div>
-              </Show>
-              <Show when={displayText()}>
-                <div class="preview-editor rel">
-                  <Suspense fallback={chunkSpinner()}>
-                  <CodeEditor value={textContent()} ext={ext()} readOnly dark={resolvedTheme() === "dark"} />
-                  </Suspense>
-                  <Show when={textSwitching()}>
-                    <div class="preview-switching-overlay">
-                      <span class="spinner spinner-lg" />
-                    </div>
-                  </Show>
-                </div>
-              </Show>
+          <Show when={displayKind() === "text" && !preview.error}>
+            <Show when={textAutoLoad() && preview.loading && !displayText()}>
+              <div class="preview-loader">
+                <span class="spinner spinner-lg" />
+                <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+              </div>
             </Show>
-            <Show when={!textAutoLoad()}>
+            <Show when={!textAutoLoad() && !displayText()}>
               <div class="preview-img-area rel">
-                <Show when={!loadRequested() && !displayText()}>
+                <Show when={!loadRequested()}
+                      fallback={
+                        <div class="preview-loader">
+                          <span class="spinner spinner-lg" />
+                          <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+                        </div>
+                      }>
                   <Show when={tooBig()}
                         fallback={
                           <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
@@ -323,47 +342,49 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                     <span class="muted text-xs">File too large to preview</span>
                   </Show>
                 </Show>
-                <Show when={loadRequested() && !displayText()}>
-                  <div class="preview-loader">
-                    <span class="spinner spinner-lg" />
-                    <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
-                  </div>
-                </Show>
-                <Show when={displayText()}>
-                  <div class="preview-editor full">
-                    <Suspense fallback={chunkSpinner()}>
-                    <CodeEditor value={textContent()} ext={ext()} readOnly dark={resolvedTheme() === "dark"} />
-                    </Suspense>
-                    <Show when={textSwitching()}>
-                      <div class="preview-switching-overlay">
-                        <span class="spinner spinner-lg" />
-                      </div>
-                    </Show>
-                  </div>
-                </Show>
               </div>
             </Show>
           </Show>
 
-          <Show when={isSheet()}>
+          {/* Keep one CodeEditor mounted once warmed so format switches don't
+              re-init CodeMirror (major source of the whole-UI hitch). */}
+          <Show when={(cmWarm() || !!displayText()) && !preview.error}>
+            <div
+              class="preview-editor rel"
+              classList={{ hidden: displayKind() !== "text" || !displayText() }}
+            >
+              <Suspense fallback={chunkSpinner()}>
+                <CodeEditor value={textContent()} ext={editorExt()} readOnly dark={resolvedTheme() === "dark"} />
+              </Suspense>
+            </div>
+          </Show>
+
+          <Show when={displayKind() === "sheet"}>
             <Suspense fallback={chunkSpinner()}>
               <SheetPreview obj={props.obj} />
             </Suspense>
           </Show>
 
-          <Show when={isPdf()}>
+          <Show when={displayKind() === "pdf"}>
             <PdfPreview obj={props.obj} />
           </Show>
 
-          <Show when={isAudio()}>
+          <Show when={displayKind() === "audio"}>
             <AudioPreview obj={props.obj} encrypted={props.encrypted} />
           </Show>
 
-          <Show when={!isImage() && !isText() && !isSheet() && !isPdf() && !isAudio()}>
+          <Show when={displayKind() === "binary"}>
             <div class="muted preview-binary-note">
               Binary content · {formatBytes(props.obj.size)}
             </div>
           </Show>
+
+          <Show when={crossLoading()}>
+            <div class="preview-switching-overlay">
+              <span class="spinner spinner-lg" />
+            </div>
+          </Show>
+          </div>
 
           <MetaList obj={props.obj} />
 
@@ -392,7 +413,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         <Suspense fallback={chunkSpinner()}>
         <EditorModal
           value={textContent()}
-          ext={ext()}
+          ext={editorExt()}
           filename={props.obj.basename}
           dark={resolvedTheme() === "dark"}
           onSave={saveEdit}

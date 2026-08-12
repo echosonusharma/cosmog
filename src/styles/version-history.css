@@ -55,6 +55,7 @@
   flex-direction: column;
   gap: 8px;
 }
+.vh-list.loading { opacity: 0.55; transition: opacity 0.15s ease; }
 
 .vh-row {
   display: flex;

@@ -189,7 +189,12 @@
 .object-browser { position: relative; }
 
 .browse-area {
+  position: relative;
   display: flex; flex: 1; overflow: hidden; min-height: 0;
+}
+/* Keep file list clear of the absolute preview pane so rows under it stay clickable. */
+.browse-area.has-preview > .browse-view {
+  padding-right: 360px;
 }
 .browse-view {
   flex: 1; overflow: hidden;

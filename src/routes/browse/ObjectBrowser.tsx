@@ -435,8 +435,9 @@ export function ObjectBrowser(props: {
     });
   }
 
+  // Only scroll on folder/column navigation — not on every preview file click
+  // (that smooth-scroll was the whole-UI hitch when switching files).
   createEffect(() => { colPrefixes(); scrollColumnsRight(); });
-  createEffect(() => { previewTarget(); scrollColumnsRight(); });
 
   return (
     <div class="object-browser"
@@ -527,7 +528,7 @@ export function ObjectBrowser(props: {
       </Show>
 
       {/* ── view area: all view modes + shared preview as flex-row siblings ── */}
-      <div class="browse-area" classList={{ hidden: !!searchQuery() }}>
+      <div class="browse-area" classList={{ hidden: !!searchQuery(), "has-preview": !!previewTarget() }}>
 
         <div class="browse-view" classList={{ hidden: viewMode() !== "columns" || !!searchQuery() }}>
           <div class="columns-scroll" ref={columnsScrollEl}>

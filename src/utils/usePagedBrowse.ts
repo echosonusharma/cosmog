@@ -40,11 +40,10 @@ export function createPagedBrowse(getKey: () => {
   let lastBucket = "";
 
   // Refetch first page whenever the identity (account/bucket/prefix/refresh)
-  // changes. Always stale-while-revalidate: previous rows stay visible (with
-  // `loading` true) until the new page lands, so folder navigation doesn't
-  // flash a blank content area. Reset initialLoaded only on bucket/account
-  // change (sidebar bucket switch) so the loading overlay shows there but not
-  // on prefix navigation within the same bucket.
+  // changes. Stale-while-revalidate within a bucket (keep rows, dim via CSS
+  // loading). On bucket/account switch: clear rows immediately so the wrong
+  // bucket never flashes, but keep `initialLoaded` so we don't remount panes
+  // / slam the opaque full-view overlay (that looked like a hard refresh).
   createEffect(() => {
     const key = getKey();
     void key.prefix; void key.refresh;
@@ -53,7 +52,18 @@ export function createPagedBrowse(getKey: () => {
     lastAccountId = key.accountId;
     lastBucket = key.bucket;
     nextContinuation = null;
-    setState({ continuation: null, truncated: false, error: null, ...(bucketChanged ? { initialLoaded: false } : {}) });
+    if (bucketChanged) {
+      setState({
+        objects: [],
+        subprefixes: [],
+        continuation: null,
+        truncated: false,
+        error: null,
+        loading: true,
+      });
+    } else {
+      setState({ continuation: null, truncated: false, error: null });
+    }
     setFetchTrigger((n) => n + 1);
   });
 
