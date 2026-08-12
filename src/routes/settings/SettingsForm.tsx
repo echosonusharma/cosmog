@@ -2,6 +2,7 @@ import { createSignal, createResource, Show } from "solid-js";
 import { Select } from "../../utils/Select";
 import { getSettings, updateSettings, resetSettings } from "../../api/settings";
 import { setTheme } from "../../state/theme";
+import { editorHighlightTheme, setEditorHighlightTheme, EDITOR_HIGHLIGHT_THEMES, type EditorHighlightThemeId } from "../../state/editorTheme";
 import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import type { AppSettings } from "../../types";
@@ -71,6 +72,13 @@ export function SettingsForm() {
               { value: "light", label: "Light" },
             ]}
             onChange={(v) => patch("theme", v as "light" | "dark" | "system")}
+          />
+
+          <label class="settings-label">Editor highlight theme</label>
+          <Select
+            value={editorHighlightTheme()}
+            options={EDITOR_HIGHLIGHT_THEMES.map((t) => ({ value: t.id, label: t.label }))}
+            onChange={(v) => setEditorHighlightTheme(v as EditorHighlightThemeId)}
           />
 
           <label class="settings-label">Default download directory</label>

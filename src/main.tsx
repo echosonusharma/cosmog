@@ -9,6 +9,7 @@ import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import { initPrefs } from "./state/prefs";
+import { initEditorTheme } from "./state/editorTheme";
 import { restoreBrowseState } from "./state/app";
 import "./styles/index.css";
 
@@ -28,6 +29,7 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // Load UI prefs and restore last-viewed location before first paint so the
 // app reopens where the user left off.
 initPrefs().then(() => {
+  initEditorTheme();
   restoreBrowseState();
   render(() => <App />, document.getElementById("root")!);
 });

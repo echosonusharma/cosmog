@@ -4,57 +4,14 @@ import { toast } from "../state/toast";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
+import { indentOnInput, bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
 import { lintKeymap, linter, lintGutter } from "@codemirror/lint";
 import { closeBrackets, autocompletion, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
-
-// ── app-theme CodeMirror theme ────────────────────────────────────────────────
-// Reads from CSS custom properties at creation time so it follows dark/light.
-
-function appTheme(dark: boolean): Extension {
-  const s = getComputedStyle(document.documentElement);
-  const v = (name: string) => s.getPropertyValue(name).trim();
-
-  return EditorView.theme({
-    "&": {
-      fontSize: "12.5px",
-      fontFamily: "var(--font-mono, monospace)",
-      background: v("--bg") || (dark ? "#0f1117" : "#ffffff"),
-      color: v("--text") || (dark ? "#e2e8f0" : "#1a202c"),
-      height: "100%",
-      borderRadius: "6px",
-    },
-    ".cm-content": { padding: "8px 0", caretColor: v("--accent") || "#8b5cf6" },
-    ".cm-cursor": { borderLeftColor: v("--accent") || "#8b5cf6" },
-    ".cm-scroller": { fontFamily: "inherit", overflow: "auto" },
-    ".cm-gutters": {
-      background: v("--panel") || (dark ? "#161b22" : "#f6f8fa"),
-      color: v("--muted") || "#6b7280",
-      border: "none",
-      borderRight: `1px solid ${v("--border") || "#2d3748"}`,
-    },
-    ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px" },
-    ".cm-activeLineGutter": { background: v("--panel-2") || (dark ? "#1e2530" : "#edf2f7") },
-    ".cm-activeLine": { background: v("--panel-2") || (dark ? "#1e2530" : "#edf2f7") },
-    ".cm-selectionBackground, ::selection": { background: `${v("--accent") || "#8b5cf6"}33` },
-    ".cm-focused .cm-selectionBackground": { background: `${v("--accent") || "#8b5cf6"}44` },
-    ".cm-matchingBracket": { color: v("--accent") || "#8b5cf6", fontWeight: "bold" },
-    ".cm-foldGutter .cm-gutterElement": { cursor: "pointer" },
-    ".cm-tooltip": {
-      background: v("--panel") || "#1e2530",
-      border: `1px solid ${v("--border") || "#2d3748"}`,
-      borderRadius: "6px",
-    },
-    ".cm-diagnostic": { padding: "2px 6px" },
-    ".cm-diagnostic-error": { borderLeft: "3px solid var(--err, #ef4444)" },
-    ".cm-diagnostic-warning": { borderLeft: "3px solid var(--warn, #f59e0b)" },
-    ".cm-lintRange-error": { backgroundImage: "url(\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='3'><path d='m0 3 l2 -2 l1 0 l2 2 l1 0' stroke='%23ef4444' fill='none' stroke-width='1.2'/></svg>\")" },
-    ".cm-lintRange-warning": { backgroundImage: "url(\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='3'><path d='m0 3 l2 -2 l1 0 l2 2 l1 0' stroke='%23f59e0b' fill='none' stroke-width='1.2'/></svg>\")" },
-  }, { dark });
-}
+import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
+import { loadEditorTheme } from "./codemirrorThemes";
 
 // ── language loader (lazy) ────────────────────────────────────────────────────
 
@@ -143,10 +100,25 @@ export function CodeEditor(props: {
   let view: EditorView | null = null;
   const langComp = new Compartment();
   const roComp   = new Compartment();
-  const themeComp = new Compartment();
+  const editorThemeComp = new Compartment();
 
   let destroyed = false;
   let langGen = 0;
+  let themeGen = 0;
+  const [editorReady, setEditorReady] = createSignal(false);
+
+  function loadTheme(dark: boolean, themeId: EditorHighlightThemeId) {
+    const gen = ++themeGen;
+    void (async () => {
+      try {
+        const theme = await loadEditorTheme(themeId, dark);
+        if (destroyed || !view || gen !== themeGen) return;
+        view.dispatch({ effects: editorThemeComp.reconfigure(theme) });
+      } catch (err) {
+        console.warn("[CodeEditor] theme load failed:", err);
+      }
+    })();
+  }
 
   function loadLang(ext: string) {
     const gen = ++langGen;
@@ -163,7 +135,6 @@ export function CodeEditor(props: {
 
   onMount(() => {
     try {
-      const dark = props.dark ?? true;
       const showGutters = props.gutters ?? false;
 
       const gutterExts = showGutters
@@ -173,7 +144,7 @@ export function CodeEditor(props: {
       const state = EditorState.create({
         doc: props.value,
         extensions: [
-          themeComp.of(appTheme(dark)),
+          editorThemeComp.of([]),
           langComp.of([]),
           roComp.of(EditorState.readOnly.of(props.readOnly ?? false)),
           ...gutterExts,
@@ -185,7 +156,6 @@ export function CodeEditor(props: {
           highlightSelectionMatches(),
           history(),
           indentOnInput(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           bracketMatching(),
           closeBrackets(),
           autocompletion(),
@@ -207,6 +177,7 @@ export function CodeEditor(props: {
       });
 
       view = new EditorView({ state, parent: container });
+      setEditorReady(true);
       loadLang(props.ext);
     } catch (err) {
       console.warn("[CodeEditor] mount failed:", err);
@@ -226,10 +197,12 @@ export function CodeEditor(props: {
     view?.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(props.readOnly ?? false)) });
   });
 
-  // Sync theme changes
+  // Sync editor theme when app light/dark or highlight theme changes
   createEffect(() => {
+    if (!editorReady()) return;
     const dark = props.dark ?? true;
-    view?.dispatch({ effects: themeComp.reconfigure(appTheme(dark)) });
+    const themeId = editorHighlightTheme();
+    loadTheme(dark, themeId);
   });
 
   // Replace content when file changes
@@ -241,7 +214,7 @@ export function CodeEditor(props: {
     }
   });
 
-  onCleanup(() => { destroyed = true; view?.destroy(); view = null; });
+  onCleanup(() => { destroyed = true; setEditorReady(false); view?.destroy(); view = null; });
 
   return <div ref={container} class="code-editor-host" />;
 }
