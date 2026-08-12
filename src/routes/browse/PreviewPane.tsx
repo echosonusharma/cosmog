@@ -301,7 +301,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               <Show when={displayText()}>
                 <div class="preview-editor rel">
                   <Suspense fallback={chunkSpinner()}>
-                  <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
+                  <CodeEditor value={textContent()} ext={ext()} readOnly dark={resolvedTheme() === "dark"} />
                   </Suspense>
                   <Show when={textSwitching()}>
                     <div class="preview-switching-overlay">
@@ -332,7 +332,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <Show when={displayText()}>
                   <div class="preview-editor full">
                     <Suspense fallback={chunkSpinner()}>
-                    <CodeEditor value={textContent()} ext={extOf(displayText()!.key)} readOnly dark={resolvedTheme() === "dark"} />
+                    <CodeEditor value={textContent()} ext={ext()} readOnly dark={resolvedTheme() === "dark"} />
                     </Suspense>
                     <Show when={textSwitching()}>
                       <div class="preview-switching-overlay">

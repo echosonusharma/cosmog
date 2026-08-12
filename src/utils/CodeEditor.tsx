@@ -146,15 +146,25 @@ export function CodeEditor(props: {
   const themeComp = new Compartment();
 
   let destroyed = false;
+  let langGen = 0;
 
-  onMount(async () => {
+  function loadLang(ext: string) {
+    const gen = ++langGen;
+    void (async () => {
+      try {
+        const lang = await langExtension(ext);
+        if (destroyed || !view || gen !== langGen) return;
+        view.dispatch({ effects: langComp.reconfigure(lang) });
+      } catch (err) {
+        console.warn("[CodeEditor] language load failed:", err);
+      }
+    })();
+  }
+
+  onMount(() => {
     try {
       const dark = props.dark ?? true;
       const showGutters = props.gutters ?? false;
-      const lang = await langExtension(props.ext);
-
-      // Component may have unmounted while awaiting the language pack
-      if (destroyed || !container.isConnected) return;
 
       const gutterExts = showGutters
         ? [lineNumbers(), lintGutter(), highlightActiveLineGutter(), foldGutter()]
@@ -164,7 +174,7 @@ export function CodeEditor(props: {
         doc: props.value,
         extensions: [
           themeComp.of(appTheme(dark)),
-          langComp.of(lang),
+          langComp.of([]),
           roComp.of(EditorState.readOnly.of(props.readOnly ?? false)),
           ...gutterExts,
           drawSelection(),
@@ -197,9 +207,18 @@ export function CodeEditor(props: {
       });
 
       view = new EditorView({ state, parent: container });
+      loadLang(props.ext);
     } catch (err) {
       console.warn("[CodeEditor] mount failed:", err);
     }
+  });
+
+  // Swap syntax/lint mode when the file extension changes (preview pane keeps
+  // one editor mounted while switching between text files).
+  createEffect(() => {
+    const ext = props.ext;
+    if (!view) return;
+    loadLang(ext);
   });
 
   // Sync readOnly changes (guard: view may not be ready yet)
