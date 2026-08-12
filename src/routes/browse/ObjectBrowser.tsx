@@ -2,7 +2,7 @@ import { createSignal, createResource, For, Show, createEffect, onMount, onClean
 import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import {
   searchObjects, bucketIndexStatus,
-  enableBucketIndex, disableBucketIndex, reindexBucket,
+  enableBucketIndex, disableBucketIndex, reindexBucket, syncPrefix,
 } from "../../api/search";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../../api/encryption";
 import {
@@ -39,6 +39,7 @@ export function ObjectBrowser(props: {
   defaultDownloadDir: string;
 }) {
   const [refresh, setRefresh] = createSignal(0);
+  const [refreshing, setRefreshing] = createSignal(false);
 
   const [searchQuery, setSearchQuery] = createSignal("");
   const [debouncedQuery, setDebouncedQuery] = createSignal("");
@@ -157,6 +158,29 @@ export function ObjectBrowser(props: {
     } catch (e) { toast.err(e); }
     finally { setIndexBusy(false); }
   }
+
+  // Toolbar refresh: when indexed, live-LIST the current folder into the
+  // local cache (upsert + sweep), then re-read browse from the index. When
+  // not indexed, browse_prefix already hits S3 so a counter bump is enough.
+  // Spin is held for a minimum so fast syncs are still visible.
+  async function handleRefresh() {
+    if (refreshing()) return;
+    setRefreshing(true);
+    const started = Date.now();
+    try {
+      const st = indexStatus.latest ?? indexStatus();
+      const indexed = !!st?.enabled && st.last_full_sync_at != null;
+      if (indexed) {
+        await syncPrefix(props.accountId, props.bucket, props.prefix, false);
+      }
+      setRefresh((n) => n + 1);
+    } catch (e) { toast.err(e); }
+    finally {
+      const wait = 500 - (Date.now() - started);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      setRefreshing(false);
+    }
+  }
   const { state: browseData, loadMore: browseLoadMore } = createPagedBrowse(() => ({
     accountId: props.accountId,
     bucket: props.bucket,
@@ -233,7 +257,9 @@ export function ObjectBrowser(props: {
   });
 
   createEffect(() => { props.bucket; setPreviewTarget(null); });
-  const showSyncing = () => browseData.loading;
+  // Only the manual refresh path drives the toolbar spinner — browse loading
+  // already has pane/overlay feedback, and flashing a badge causes jitter.
+  const showSyncing = () => refreshing();
 
   function toggleSel(key: string) {
     const s = new Set<string>(selected());
@@ -434,7 +460,7 @@ export function ObjectBrowser(props: {
         mode={browseData.mode}
         viewMode={viewMode()}
         onViewMode={saveViewMode}
-        onRefresh={() => { setRefresh((n) => n + 1); }}
+        onRefresh={handleRefresh}
         onNewFolder={() => setShowNewFolder(props.prefix)}
         onUpload={() => setShowUpload(props.prefix)}
       />

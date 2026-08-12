@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::db::cache::SyncScope;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
-use crate::store::{ListOptions, ObjectStore};
+use crate::store::{ListOptions, ObjectMeta, ObjectStore};
 use crate::transfer::{ProgressSink, TransferEvent};
 
 /// Numbers reported back to the caller after a sync completes.
@@ -75,6 +75,10 @@ async fn sync_prefix_impl(
 
     let mut stats = SyncStats::default();
     let mut continuation: Option<String> = None;
+    // CommonPrefixes seen across pages — used to upsert folder markers into
+    // the index and drop markers for folders that disappeared remotely.
+    let mut seen_prefixes: Vec<String> = Vec::new();
+    let delimited = delimiter == Some("/");
 
     loop {
         let page = store
@@ -97,6 +101,43 @@ async fn sync_prefix_impl(
         stats.upserted += upserted as u64;
         stats.pages += 1;
 
+        if delimited {
+            // Empty folder markers often appear only in Contents (not
+            // CommonPrefixes). Keep those keys so reconcile doesn't delete
+            // matching synthetic rows we may have inserted earlier.
+            let mut content_markers = std::collections::HashSet::new();
+            for obj in &page.objects {
+                if obj.key.ends_with('/') {
+                    content_markers.insert(obj.key.clone());
+                    seen_prefixes.push(obj.key.clone());
+                }
+            }
+            // Only synthesize markers for CommonPrefixes that weren't already
+            // present as real trailing-slash objects on this page.
+            let synthetic: Vec<ObjectMeta> = page
+                .prefixes
+                .iter()
+                .filter(|p| !content_markers.contains(*p))
+                .map(|p| ObjectMeta {
+                    key: p.clone(),
+                    size: 0,
+                    etag: None,
+                    last_modified: None,
+                    storage_class: None,
+                    content_type: Some("application/x-directory".into()),
+                    version_id: None,
+                    user_metadata: Default::default(),
+                })
+                .collect();
+            if !synthetic.is_empty() {
+                let n = db
+                    .cache_upsert_objects_batch(account_id, bucket, &synthetic)
+                    .await?;
+                stats.upserted += n as u64;
+            }
+            seen_prefixes.extend(page.prefixes);
+        }
+
         if page.is_truncated {
             continuation = page.continuation;
         } else {
@@ -105,6 +146,11 @@ async fn sync_prefix_impl(
     }
 
     stats.removed = db.cache_sweep_unseen(account_id, bucket, scope).await? as u64;
+    if delimited {
+        stats.removed += db
+            .cache_reconcile_dir_markers(account_id, bucket, prefix, &seen_prefixes)
+            .await? as u64;
+    }
     stats.completed = true;
     db.prefix_sync_set(account_id, bucket, prefix).await?;
     Ok(stats)

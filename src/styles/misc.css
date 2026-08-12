@@ -70,6 +70,24 @@
   color: var(--ok);
   display: inline-flex; align-items: center; gap: 4px;
 }
+.refresh-btn.spinning {
+  pointer-events: none;
+  cursor: default;
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+}
+.refresh-btn.spinning .icon {
+  display: block;
+  flex-shrink: 0;
+  transform-origin: 50% 50%;
+  animation: refresh-spin 0.65s linear infinite;
+  /* promote to own layer — WebKit/Android WebView otherwise can skip frames */
+  will-change: transform;
+}
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .stale-badge {
   font-size: 11px;
   color: var(--warn);

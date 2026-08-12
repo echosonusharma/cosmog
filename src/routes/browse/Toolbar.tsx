@@ -40,7 +40,15 @@ export function Toolbar(props: {
       <div class="toolbar-left">
         <div class="toolbar-nav">
           <button class="icon-btn" onClick={goUpPrefix}><IconBack size={16} /></button>
-          <button class="icon-btn refresh-btn" onClick={props.onRefresh}><IconRefresh size={16} /></button>
+          <button
+            class="icon-btn refresh-btn"
+            classList={{ spinning: props.showSyncing }}
+            title={props.showSyncing ? "Refreshing…" : "Refresh"}
+            aria-busy={props.showSyncing}
+            onClick={props.onRefresh}
+          >
+            <IconRefresh size={16} />
+          </button>
         </div>
         <PathBar
           accountName={props.accountName}
@@ -87,10 +95,7 @@ export function Toolbar(props: {
       </Show>
 
       <div class="toolbar-actions">
-        <Show when={props.showSyncing}>
-          <span class="sync-badge"><span class="spinner" /> syncing</span>
-        </Show>
-        <Show when={!props.showSyncing && props.mode === "live"}>
+        <Show when={props.mode === "live"}>
           <span class="mode-badge live">live</span>
         </Show>
         <button

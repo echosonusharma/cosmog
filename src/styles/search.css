@@ -106,6 +106,8 @@
   flex: 1; overflow-y: auto;
 }
 .search-results-list .obj-row { cursor: pointer; }
+.search-results-list .obj-row.kb-active { background: var(--bg-hover); }
+.search-results-list .obj-row.kb-active .obj-actions { opacity: 1; }
 .search-load-more {
   display: flex;
   justify-content: center;

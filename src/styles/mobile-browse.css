@@ -46,16 +46,24 @@
   }
   /* nav icon buttons (back, refresh) are fixed-width and icon-only on mobile,
      so a text label can't overflow the shrunk button. Applies to both the
-     browse and bucket-grid toolbars. */
+     browse and bucket-grid toolbars. Match 36px height of index/view/upload
+     so the row doesn't look uneven while refresh spins green. */
   .app-toolbar .toolbar-nav > .icon-btn,
   .browse-toolbar .toolbar-kebab {
     flex: 0 0 auto !important;
     width: 40px !important;
     min-width: 40px !important;
     padding: 0 !important;
-    height: 34px !important;
+    height: 36px !important;
+    min-height: 36px !important;
   }
   .app-toolbar .toolbar-nav > .icon-btn .btn-label-mobile { display: none; }
+  /* keep the spinning refresh icon centered in the fixed square hit target */
+  .app-toolbar .refresh-btn.spinning {
+    color: var(--ok) !important;
+    border-color: color-mix(in srgb, var(--ok) 55%, transparent) !important;
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+  }
   .upload-btn {
     flex: 1 1 auto !important;
     min-width: 72px !important;

@@ -474,6 +474,79 @@ impl Db {
         Ok(n)
     }
 
+    /// Drop synthetic one-level directory-marker rows under `prefix` that are
+    /// not in `keep`. Only removes rows with `content_type =
+    /// application/x-directory` (inserted for CommonPrefixes) so real
+    /// trailing-slash objects are never swept here. Nested object keys are
+    /// left alone.
+    pub async fn cache_reconcile_dir_markers(
+        &self,
+        account_id: &str,
+        bucket: &str,
+        prefix: &str,
+        keep: &[String],
+    ) -> AppResult<usize> {
+        let account_id = account_id.to_string();
+        let bucket = bucket.to_string();
+        let prefix = prefix.to_string();
+        let keep: Vec<String> = keep.to_vec();
+        let n = self
+            .conn
+            .call(move |conn| {
+                let after = prefix.len() as i64 + 1;
+                // Synthetic marker = direct child key ending `/` with our
+                // directory content-type (e.g. `web/docs/`).
+                let candidates: Vec<String> = if prefix.is_empty() {
+                    let mut stmt = conn.prepare(
+                        "SELECT key FROM cached_objects
+                         WHERE account_id = ?1 AND bucket = ?2
+                           AND substr(key, -1) = '/'
+                           AND instr(rtrim(key, '/'), '/') = 0
+                           AND content_type = 'application/x-directory'",
+                    )?;
+                    let v: Vec<String> = stmt
+                        .query_map(params![account_id, bucket], |row| row.get(0))?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    v
+                } else {
+                    let pat = like_prefix(&prefix);
+                    let mut stmt = conn.prepare(
+                        "SELECT key FROM cached_objects
+                         WHERE account_id = ?1 AND bucket = ?2
+                           AND key LIKE ?3 ESCAPE '\\'
+                           AND key != ?4
+                           AND substr(key, -1) = '/'
+                           AND instr(substr(key, ?5, length(key) - ?5), '/') = 0
+                           AND content_type = 'application/x-directory'",
+                    )?;
+                    let v: Vec<String> = stmt
+                        .query_map(params![account_id, bucket, pat, prefix, after], |row| row.get(0))?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    v
+                };
+
+                let keep_set: std::collections::HashSet<&str> =
+                    keep.iter().map(String::as_str).collect();
+                let mut removed = 0usize;
+                for key in candidates {
+                    if keep_set.contains(key.as_str()) {
+                        continue;
+                    }
+                    removed += conn.execute(
+                        "DELETE FROM cached_objects
+                         WHERE account_id = ?1 AND bucket = ?2 AND key = ?3
+                           AND content_type = 'application/x-directory'",
+                        params![account_id, bucket, key],
+                    )?;
+                }
+                Ok::<_, tokio_rusqlite::Error>(removed)
+            })
+            .await?;
+        Ok(n)
+    }
+
     pub async fn prefix_sync_expire(&self, account_id: &str, bucket: &str, prefix: &str) -> AppResult<()> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
