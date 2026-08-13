@@ -106,7 +106,7 @@
   overflow: hidden;
 }
 .upload-encrypting-progress .spinner {
-  width: 11px; height: 11px; border-width: 2px; flex-shrink: 0;
+  --loader-size: 11px; --loader-border: 2px; flex-shrink: 0;
 }
 .upload-encrypting-progress-label {
   flex: 1; min-width: 0;
