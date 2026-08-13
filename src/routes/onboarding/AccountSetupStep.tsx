@@ -4,12 +4,15 @@ import { errMsg } from "../../state/toast";
 import { type ProviderDef } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 import { ProviderIconTile, LabeledField } from "./shared";
+import { AwsProfileImportStep } from "./AwsProfileImportStep";
 
 export function AccountSetupStep(props: {
   provider: ProviderDef;
   onBack: () => void;
   onDone: () => void;
 }) {
+  const [mode, setMode] = createSignal<"manual" | "import">("manual");
+  const isAws = () => props.provider.id === "aws";
   const [name, setName] = createSignal(props.provider.label);
   const [endpoint, setEndpoint] = createSignal(props.provider.endpoint);
   const [accessKey, setAccessKey] = createSignal("");
@@ -86,6 +89,16 @@ export function AccountSetupStep(props: {
   }
 
   return (
+    <Show
+      when={mode() === "manual"}
+      fallback={
+        <AwsProfileImportStep
+          provider={props.provider}
+          onBack={() => setMode("manual")}
+          onDone={props.onDone}
+        />
+      }
+    >
     <form class="card" onSubmit={handleSubmit}>
       <button type="button" class="btn-back" onClick={props.onBack}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
@@ -115,6 +128,17 @@ export function AccountSetupStep(props: {
         <LabeledField label="Secret Access Key" placeholder="••••••••••••••••••••" value={secretKey()} onInput={setSecretKey} type="password" disabled={busy()} />
       </div>
 
+      <Show when={isAws()}>
+        <button
+          type="button"
+          class="btn-ghost aws-import-link"
+          disabled={busy()}
+          onClick={() => setMode("import")}
+        >
+          Import from AWS profiles…
+        </button>
+      </Show>
+
       <Show when={status().kind !== "idle"}>
         <div
           class={`status-msg ${
@@ -142,5 +166,6 @@ export function AccountSetupStep(props: {
         </button>
       </div>
     </form>
+    </Show>
   );
 }

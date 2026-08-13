@@ -131,3 +131,84 @@
 }
 .btn-back:hover { color: var(--text); }
 
+.card-wide {
+  max-width: 520px;
+}
+
+.aws-import-link {
+  width: 100%;
+  justify-content: center;
+  margin-top: -8px;
+  color: var(--accent);
+  font-size: 12.5px;
+}
+.aws-import-link:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.aws-import-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aws-import-steps code,
+.aws-import-note code,
+.aws-import-path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.aws-import-path-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.aws-import-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+}
+.aws-import-note strong {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.ini-editor-wrap {
+  height: 220px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+}
+.ini-editor-host {
+  height: 100%;
+}
+.ini-editor-host .cm-editor {
+  height: 100%;
+}
+.ini-editor-host .cm-scroller {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aws-import-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
