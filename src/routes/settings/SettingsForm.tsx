@@ -5,6 +5,7 @@ import { setTheme } from "../../state/theme";
 import { editorHighlightTheme, setEditorHighlightTheme, EDITOR_HIGHLIGHT_THEMES, type EditorHighlightThemeId } from "../../state/editorTheme";
 import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
+import { parseSchema, settingsPatchSchema } from "../../validation";
 import type { AppSettings } from "../../types";
 
 export function SettingsForm() {
@@ -24,9 +25,15 @@ export function SettingsForm() {
   }
 
   async function save() {
+    const patch = form();
+    const result = parseSchema(settingsPatchSchema, patch);
+    if (!result.success) {
+      toast.err(result.message);
+      return;
+    }
     setBusy(true);
     try {
-      await updateSettings(form());
+      await updateSettings(patch);
       setForm({});
       await refetch();
       toast.ok("Settings saved", "Your preferences were updated");

@@ -3,6 +3,7 @@ import { addAccount, deleteAccount, testAccount } from "../../api/accounts";
 import { errMsg, toast } from "../../state/toast";
 import { type ProviderDef } from "../../providers";
 import { parseAwsCredentialsIni } from "../../utils/parseAwsCredentialsIni";
+import { accountNameSchema } from "../../validation";
 import { ProviderIconTile } from "./shared";
 import { IniEditor } from "./IniEditor";
 
@@ -31,8 +32,12 @@ export function AwsProfileImportStep(props: {
     for (const profile of profiles) {
       let id: string | null = null;
       try {
+        const nameResult = accountNameSchema.safeParse(profile.name);
+        if (!nameResult.success) {
+          throw new Error(nameResult.error.issues[0]?.message ?? "Invalid profile name");
+        }
         const acct = await addAccount({
-          name: profile.name,
+          name: nameResult.data,
           protocol: "s3",
           region: profile.region,
           access_key_id: profile.access_key_id,

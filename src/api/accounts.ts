@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Account } from "../types";
 export type { Account };
 
+export { ACCOUNT_NAME_MAX_LENGTH, clampAccountName } from "../validation";
+
 export interface AddAccountInput {
   name: string;
   protocol: string;

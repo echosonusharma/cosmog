@@ -10,11 +10,33 @@ import { AddAccountForm } from "./AddAccountForm";
 export function AccountsList() {
   const [showAdd, setShowAdd] = createSignal(false);
   const [editing, setEditing] = createSignal<Account | null>(null);
+  let formAnchor: HTMLDivElement | undefined;
+
+  function scrollToForm() {
+    queueMicrotask(() => formAnchor?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  }
+
+  function openAdd() {
+    setEditing(null);
+    setShowAdd(true);
+    scrollToForm();
+  }
+
+  function openEdit(account: Account) {
+    setEditing(account);
+    setShowAdd(true);
+    scrollToForm();
+  }
+
+  function closeForm() {
+    setShowAdd(false);
+    setEditing(null);
+  }
 
   // Sidebar "Add account" button sets this signal → auto-open the form
   createEffect(() => {
     if (openAddAccount()) {
-      setShowAdd(true);
+      openAdd();
       setOpenAddAccount(false);
     }
   });
@@ -38,17 +60,23 @@ export function AccountsList() {
     <div class="settings-section">
       <div class="settings-section-title">
         <span>Accounts</span>
-        <button class="btn-ghost" onClick={() => { setEditing(null); setShowAdd((v) => !v); }}>
-          {showAdd() && !editing() ? "Cancel" : "+ Add account"}
+        <button class="btn-ghost" onClick={() => (showAdd() ? closeForm() : openAdd())}>
+          {showAdd() ? "Cancel" : "+ Add account"}
         </button>
       </div>
 
       <Show when={showAdd()}>
-        <AddAccountForm
-          editing={editing() ?? undefined}
-          onDone={() => { setShowAdd(false); setEditing(null); bumpAccountsRefresh(); }}
-          onCancel={() => { setShowAdd(false); setEditing(null); }}
-        />
+        <Show when={editing()?.id ?? "new"} keyed>
+          {(_id) => (
+            <div ref={formAnchor}>
+              <AddAccountForm
+                editing={editing() ?? undefined}
+                onDone={() => { closeForm(); bumpAccountsRefresh(); }}
+                onCancel={closeForm}
+              />
+            </div>
+          )}
+        </Show>
       </Show>
 
       <Show when={accounts().length > 0}
@@ -72,9 +100,10 @@ export function AccountsList() {
                     </Show>
                   </span>
                 </div>
-                <button class="icon-btn"
-                        onClick={() => { setEditing(a); setShowAdd(true); }}><IconEdit size={15} /></button>
-                <button class="icon-btn danger"
+                <button type="button" class="icon-btn"
+                        aria-label={`Edit ${a.name}`}
+                        onClick={() => openEdit(a)}><IconEdit size={15} /></button>
+                <button type="button" class="icon-btn danger"
                         onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
               </div>
             )}

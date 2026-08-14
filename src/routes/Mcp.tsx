@@ -6,6 +6,7 @@ import {
   mcpGetConfig, mcpSetConfig, mcpRegenerateToken,
   type McpConfig, type McpConfigPatch,
 } from "../api/mcp";
+import { mcpFsRootSchema, mcpPortSchema, parseSchema } from "../validation";
 
 type ClientDef = {
   id: string;
@@ -132,15 +133,20 @@ export default function Mcp() {
   }
 
   async function savePort() {
-    const p = portDraft();
-    if (!Number.isInteger(p) || p < 1024 || p > 65535) {
-      toast.err("Port must be between 1024 and 65535.");
+    const result = parseSchema(mcpPortSchema, portDraft());
+    if (!result.success) {
+      toast.err(result.message);
       return;
     }
-    if (await patch({ port: p })) toast.ok("Port updated", `MCP server now listens on port ${p}`);
+    if (await patch({ port: result.data })) toast.ok("Port updated", `MCP server now listens on port ${result.data}`);
   }
 
   async function saveRoot() {
+    const result = parseSchema(mcpFsRootSchema, rootDraft());
+    if (!result.success) {
+      toast.err(result.message);
+      return;
+    }
     const root = rootDraft().trim();
     if (await patch({ fs_root: root })) {
       toast.ok("Folder updated", root ? `MCP file operations are now rooted at "${root}"` : "MCP file root cleared");

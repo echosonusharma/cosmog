@@ -15,6 +15,7 @@ import {
   nwPickTree, nwQuitBackground,
 } from "../api/nightWatcher";
 import type { NightWatch, WatchStatus } from "../types";
+import { nightWatchAddSchema, parseSchema } from "../validation";
 
 const DEFAULT_FULL_SCAN_SECS = 300;
 
@@ -100,10 +101,7 @@ export default function NightWatcher() {
   const accountName = (id: string) =>
     accounts()?.find((a) => a.id === id)?.name ?? id;
 
-  const canAdd = createMemo(() => {
-    if (!field("account_id") || !field("bucket")) return false;
-    return IS_MOBILE_OS ? !!field("tree_uri") : !!field("local_dir");
-  });
+  const canAdd = createMemo(() => nightWatchAddSchema.safeParse(form()).success);
 
   async function pickDir() {
     try {
@@ -132,17 +130,21 @@ export default function NightWatcher() {
   }
 
   async function addWatch() {
-    if (!canAdd()) return;
+    const result = parseSchema(nightWatchAddSchema, form());
+    if (!result.success) {
+      toast.err(result.message);
+      return;
+    }
     setBusy(true);
     try {
-      const f = form();
+      const f = result.data;
       await nwAddWatch({
         account_id: f.account_id,
         bucket: f.bucket,
         local_dir: f.local_dir,
         tree_uri: f.tree_uri || null,
-        key_prefix: f.key_prefix.trim(),
-        ignore_file: f.ignore_file.trim() || null,
+        key_prefix: f.key_prefix?.trim() ?? "",
+        ignore_file: f.ignore_file?.trim() || null,
         full_scan_secs: f.full_scan_secs,
         delete_policy: DELETE_POLICY,
       });

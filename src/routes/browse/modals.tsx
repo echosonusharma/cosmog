@@ -10,6 +10,14 @@ import type { CachedObjectMeta } from "../../types";
 import { pathFromDialog, resolveUploadPath, resolveDownloadPath, displayNameFromUri, registerSafFinalize, withTimestamp } from "./helpers";
 import { isMobile } from "../../utils/breakpoint";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  bucketNameSchema,
+  downloadPathSchema,
+  folderPathSchema,
+  objectKeySchema,
+  parseSchema,
+  uploadKeyPrefixSchema,
+} from "../../validation";
 
 function displayName(p: string): string {
   if (p.startsWith("content://") || p.startsWith("file://")) return displayNameFromUri(p, "file");
@@ -61,7 +69,18 @@ export function DownloadModal(props: {
   }
 
   async function submit() {
-    if (!dest().trim()) return;
+    if (mobile) {
+      if (!safUri()) {
+        setErr("Choose a save location first");
+        return;
+      }
+    } else {
+      const result = parseSchema(downloadPathSchema, dest());
+      if (!result.success) {
+        setErr(result.message);
+        return;
+      }
+    }
     setBusy(true); setErr("");
     try {
       const { path: target, safUri: resolvedUri } = await resolveDownloadPath(dest().trim(), props.obj.basename);
@@ -152,6 +171,11 @@ export function UploadModal(props: {
   async function submit() {
     const list = files();
     if (!list.length) return;
+    const prefixResult = uploadKeyPrefixSchema.safeParse(keyPrefix());
+    if (!prefixResult.success) {
+      setErr(prefixResult.error.issues[0]?.message ?? "Invalid key prefix");
+      return;
+    }
     setBusy(true); setErr(""); setCurrentIdx(0);
     try {
       for (let i = 0; i < list.length; i++) {
@@ -233,12 +257,17 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
   const [err, setErr] = createSignal("");
 
   async function submit() {
-    if (!name().trim()) return;
+    const result = parseSchema(bucketNameSchema, name());
+    if (!result.success) {
+      setErr(result.message);
+      return;
+    }
     setBusy(true);
     try {
-      await createBucket(props.accountId, name().trim());
+      const bucket = result.data.toLowerCase();
+      await createBucket(props.accountId, bucket);
       props.onDone(); props.onClose();
-      toast.ok("Bucket created", `"${name().trim()}" is ready to use`);
+      toast.ok("Bucket created", `"${bucket}" is ready to use`);
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 
@@ -247,7 +276,7 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <div class="modal-title">New bucket</div>
         <input class="field" placeholder="bucket-name" value={name()}
-               onInput={(e) => setName(e.currentTarget.value.trim())} disabled={busy()}
+               onInput={(e) => { setName(e.currentTarget.value); setErr(""); }} disabled={busy()}
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
@@ -268,11 +297,15 @@ export function NewFolderModal(props: {
 }) {
   const initial = props.prefix ? props.prefix.replace(/\/$/, "") + "/" : "";
   const [path, setPath] = createSignal(initial);
+  const [err, setErr] = createSignal("");
 
   function submit() {
-    const cleaned = path().trim().replace(/\/+/g, "/").replace(/^\//, "").replace(/\/$/, "");
-    if (!cleaned) return;
-    props.onDone(cleaned + "/");
+    const result = parseSchema(folderPathSchema, path());
+    if (!result.success) {
+      setErr(result.message);
+      return;
+    }
+    props.onDone(result.data + "/");
     props.onClose();
   }
 
@@ -283,9 +316,10 @@ export function NewFolderModal(props: {
         <div class="modal-sub modal-sub-path-label">Path</div>
         <input class="field" placeholder="path/to/folder-name"
                value={path()}
-               onInput={(e) => setPath(e.currentTarget.value.trim())}
+               onInput={(e) => { setPath(e.currentTarget.value); setErr(""); }}
                onKeyDown={(e) => e.key === "Enter" && submit()}
                ref={(el) => setTimeout(() => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 0)} />
+        <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
           <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
           <button class="btn-primary btn-half" disabled={!path().trim().replace(/\//g, "")} onClick={submit}>
@@ -307,8 +341,13 @@ export function RenameModal(props: {
   const [err, setErr] = createSignal("");
 
   async function submit() {
-    const target = newKey().trim();
-    if (!target || target === props.obj.key) { props.onClose(); return; }
+    const result = parseSchema(objectKeySchema, newKey());
+    if (!result.success) {
+      setErr(result.message);
+      return;
+    }
+    const target = result.data;
+    if (target === props.obj.key) { props.onClose(); return; }
     setBusy(true);
     try {
       await moveObject(props.obj.account_id, props.obj.bucket, props.obj.key, props.obj.bucket, target);
@@ -323,7 +362,7 @@ export function RenameModal(props: {
         <div class="modal-title">Rename / Move</div>
         <div class="modal-sub">{props.obj.key}</div>
         <input class="field" value={newKey()}
-               onInput={(e) => setNewKey(e.currentTarget.value.trim())} disabled={busy()} autofocus
+               onInput={(e) => { setNewKey(e.currentTarget.value); setErr(""); }} disabled={busy()} autofocus
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">

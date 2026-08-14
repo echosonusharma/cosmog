@@ -7,6 +7,7 @@ import type { CorsRule, CorsConfig } from "../../../types";
 import { classifyBucketError, deniedMessage } from "./errors";
 import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
+import { validateCorsRules } from "../../../validation";
 
 const METHODS = ["GET", "PUT", "POST", "DELETE", "HEAD"] as const;
 
@@ -123,31 +124,8 @@ export function CorsTab(props: {
     setRules(i, "maxAge", String(next));
   }
 
-  // A CORS AllowedOrigin is "*", or scheme://host with an optional port and an
-  // optional single "*" wildcard in the host. No path, query, or trailing slash.
-  const ORIGIN_RE = /^(\*|https?:\/\/[A-Za-z0-9.\-*]+(:\d+)?)$/;
-
   function validate(): string | null {
-    for (let i = 0; i < rules.length; i++) {
-      const r = rules[i];
-      const origins = splitList(r.origins);
-      if (origins.length === 0) return `Rule ${i + 1}: at least one allowed origin is required.`;
-      const bad = origins.find((o) => !ORIGIN_RE.test(o));
-      if (bad) {
-        return `Rule ${i + 1}: "${bad}" is not a valid origin. Use "*", "https://example.com", or "https://*.example.com" (no path or trailing slash).`;
-      }
-      if (r.methods.length === 0) return `Rule ${i + 1}: at least one allowed method is required.`;
-      const ma = r.maxAge.trim();
-      if (ma !== "") {
-        if (!/^\d+$/.test(ma) || Number.isNaN(Number(ma))) {
-          return `Rule ${i + 1}: max age must be a whole number of seconds.`;
-        }
-        if (Number(ma) > MAX_AGE_LIMIT) {
-          return `Rule ${i + 1}: max age must be ${MAX_AGE_LIMIT} seconds or less.`;
-        }
-      }
-    }
-    return null;
+    return validateCorsRules(rules);
   }
 
   async function handleSave() {

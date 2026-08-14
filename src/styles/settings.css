@@ -88,6 +88,11 @@
 
 .field-error { border-color: var(--red) !important; }
 .field-error:focus { border-color: var(--red) !important; }
+.field-hint {
+  font-size: 11px;
+  color: var(--red);
+  margin-top: 4px;
+}
 
 /* Clear-data modal */
 .cd-modal {

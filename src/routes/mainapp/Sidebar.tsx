@@ -279,37 +279,37 @@ export function Sidebar(props: {
             </div>
           </div>
         </Show>
-
-        {/* accounts */}
-        <Show when={!props.collapsed && accounts().length > 0}>
-          <div class="sidebar-group">
-            <div class="sidebar-group-header">
-              Accounts
-              <span class="sidebar-group-count">{accounts().length}</span>
-            </div>
-            <For each={accounts()}>
-              {(a) => (
-                <button
-                  class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
-                  onClick={() => selectAccount(a.id)}
-                  aria-label={a.name}
-
-                >
-                  <ProviderTile account={a} size="small" />
-                  <span class="sidebar-account-item-name">{a.name}</span>
-                  <Show when={browseState.accountId === a.id}>
-                    <span class="sidebar-active-dot" />
-                  </Show>
-                </button>
-              )}
-            </For>
-            <button class="sidebar-add-btn" onClick={() => { setOpenAddAccount(true); setCurrentView("settings"); }}>
-              <IconPlus size={12} />
-              Add account
-            </button>
-          </div>
-        </Show>
       </div>
+
+      {/* accounts — pinned above footer */}
+      <Show when={!props.collapsed && accounts().length > 0}>
+        <div class="sidebar-accounts">
+          <div class="sidebar-group-header">
+            Accounts
+            <span class="sidebar-group-count">{accounts().length}</span>
+          </div>
+          <For each={accounts()}>
+            {(a) => (
+              <button
+                class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
+                onClick={() => selectAccount(a.id)}
+                aria-label={a.name}
+
+              >
+                <ProviderTile account={a} size="small" />
+                <span class="sidebar-account-item-name">{a.name}</span>
+                <Show when={browseState.accountId === a.id}>
+                  <span class="sidebar-active-dot" />
+                </Show>
+              </button>
+            )}
+          </For>
+          <button class="sidebar-add-btn" onClick={() => { setOpenAddAccount(true); setCurrentView("settings"); }}>
+            <IconPlus size={12} />
+            Add account
+          </button>
+        </div>
+      </Show>
 
       {/* bug report button */}
       <button

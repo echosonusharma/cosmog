@@ -62,9 +62,18 @@
 .collapse-btn:hover { color: var(--text); background: var(--elev); }
 
 .sidebar-body {
-  flex: 1; overflow-y: auto;
+  flex: 1; min-height: 0;
+  overflow-y: auto;
   padding: 10px 8px;
   display: flex; flex-direction: column; gap: 2px;
+}
+
+.sidebar-accounts {
+  flex-shrink: 0;
+  display: flex; flex-direction: column;
+  padding: 10px 8px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
 }
 
 .sidebar-group { display: flex; flex-direction: column; margin-top: 18px; }
@@ -313,6 +322,7 @@
 .sidebar.collapsed .sidebar-group-header,
 .sidebar.collapsed .sidebar-item-label,
 .sidebar.collapsed .sidebar-bucket-item,
+.sidebar.collapsed .sidebar-accounts,
 .sidebar.collapsed .sidebar-account-item,
 .sidebar.collapsed .sidebar-add-btn,
 .sidebar.collapsed .sidebar-footer { display: none; }

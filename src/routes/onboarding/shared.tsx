@@ -56,6 +56,8 @@ export function LabeledField(props: {
   onInput: (v: string) => void;
   type?: string;
   disabled?: boolean;
+  maxLength?: number;
+  error?: string;
 }) {
   return (
     <div>
@@ -67,12 +69,17 @@ export function LabeledField(props: {
       </div>
       <input
         class="field"
+        classList={{ "field-error": !!props.error }}
         type={props.type ?? "text"}
         placeholder={props.placeholder}
         value={props.value}
         disabled={props.disabled}
+        maxlength={props.maxLength}
         onInput={(e) => props.onInput(e.currentTarget.value)}
       />
+      <Show when={props.error}>
+        <div class="field-hint">{props.error}</div>
+      </Show>
     </div>
   );
 }

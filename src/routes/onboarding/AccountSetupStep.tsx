@@ -3,6 +3,12 @@ import { addAccount, testAccount, deleteAccount } from "../../api/accounts";
 import { errMsg } from "../../state/toast";
 import { type ProviderDef } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
+import {
+  ACCOUNT_NAME_MAX_LENGTH,
+  clampAccountName,
+  createOnboardingAccountSchema,
+  parseSchema,
+} from "../../validation";
 import { ProviderIconTile, LabeledField } from "./shared";
 import { AwsProfileImportStep } from "./AwsProfileImportStep";
 
@@ -17,6 +23,7 @@ export function AccountSetupStep(props: {
   const [endpoint, setEndpoint] = createSignal(props.provider.endpoint);
   const [accessKey, setAccessKey] = createSignal("");
   const [secretKey, setSecretKey] = createSignal("");
+  const [errors, setErrors] = createSignal<Record<string, string>>({});
 
   const [status, setStatus] = createSignal<
     | { kind: "idle" }
@@ -25,17 +32,44 @@ export function AccountSetupStep(props: {
     | { kind: "err"; msg: string }
   >({ kind: "idle" });
 
+  function formValues() {
+    return {
+      name: name(),
+      accessKey: accessKey(),
+      secretKey: secretKey(),
+      endpoint: endpoint(),
+    };
+  }
+
+  function schema() {
+    return createOnboardingAccountSchema(props.provider);
+  }
+
+  function validateForm() {
+    const result = parseSchema(schema(), formValues());
+    if (!result.success) {
+      setErrors(result.fieldErrors);
+      return false;
+    }
+    setErrors({});
+    return true;
+  }
+
   function valid() {
-    return (
-      name().trim() &&
-      accessKey().trim() &&
-      secretKey().trim() &&
-      (!props.provider.custom_endpoint || endpoint().trim())
-    );
+    return schema().safeParse(formValues()).success;
+  }
+
+  function clearError(key: string) {
+    setErrors((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   async function doTest() {
-    if (!valid()) return;
+    if (!validateForm()) return;
     setStatus({ kind: "loading", action: "test" });
     let id: string | null = null;
     try {
@@ -59,7 +93,7 @@ export function AccountSetupStep(props: {
   }
 
   async function doSave() {
-    if (!valid()) return;
+    if (!validateForm()) return;
     setStatus({ kind: "loading", action: "save" });
     let id: string | null = null;
     try {
@@ -114,18 +148,42 @@ export function AccountSetupStep(props: {
         </div>
       </div>
       <div class="fields">
-        <LabeledField label="Account label" placeholder={props.provider.label} value={name()} onInput={setName} disabled={busy()} />
+        <LabeledField
+          label="Account label"
+          placeholder={props.provider.label}
+          value={name()}
+          maxLength={ACCOUNT_NAME_MAX_LENGTH}
+          error={errors().name}
+          onInput={(v) => { setName(clampAccountName(v)); clearError("name"); }}
+          disabled={busy()}
+        />
         <Show when={props.provider.custom_endpoint}>
           <LabeledField
             label="Endpoint"
             placeholder={props.provider.endpoint_placeholder ?? "https://…"}
             value={endpoint()}
-            onInput={setEndpoint}
+            error={errors().endpoint}
+            onInput={(v) => { setEndpoint(v); clearError("endpoint"); }}
             disabled={busy()}
           />
         </Show>
-        <LabeledField label="Access Key ID" placeholder="Your access key ID" value={accessKey()} onInput={setAccessKey} disabled={busy()} />
-        <LabeledField label="Secret Access Key" placeholder="••••••••••••••••••••" value={secretKey()} onInput={setSecretKey} type="password" disabled={busy()} />
+        <LabeledField
+          label="Access Key ID"
+          placeholder="Your access key ID"
+          value={accessKey()}
+          error={errors().accessKey}
+          onInput={(v) => { setAccessKey(v); clearError("accessKey"); }}
+          disabled={busy()}
+        />
+        <LabeledField
+          label="Secret Access Key"
+          placeholder="••••••••••••••••••••"
+          value={secretKey()}
+          error={errors().secretKey}
+          onInput={(v) => { setSecretKey(v); clearError("secretKey"); }}
+          type="password"
+          disabled={busy()}
+        />
       </div>
 
       <Show when={isAws()}>
