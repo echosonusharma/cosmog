@@ -49,9 +49,31 @@
   }
 
   .provider-grid,
-  .provider-picker,
   .onboarding-providers {
     grid-template-columns: 1fr !important;
+  }
+
+  .add-account-form .provider-picker {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .add-account-form .provider-picker-tile {
+    flex: 0 0 calc(25% - 5px);
+    width: calc(25% - 5px);
+    padding: 10px 6px;
+  }
+
+  .add-account-form .provider-picker-tile-label {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    font-size: 10px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .onboarding-actions,

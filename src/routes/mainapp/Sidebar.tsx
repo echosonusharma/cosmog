@@ -292,7 +292,7 @@ export function Sidebar(props: {
             {(a) => (
               <button
                 class={`sidebar-account-item ${browseState.accountId === a.id ? "active" : ""}`}
-                onClick={() => selectAccount(a.id)}
+                onClick={() => { selectAccount(a.id); props.onCloseMobile?.(); }}
                 aria-label={a.name}
 
               >
@@ -304,7 +304,7 @@ export function Sidebar(props: {
               </button>
             )}
           </For>
-          <button class="sidebar-add-btn" onClick={() => { setOpenAddAccount(true); setCurrentView("settings"); }}>
+          <button class="sidebar-add-btn" onClick={() => { setOpenAddAccount(true); setCurrentView("settings"); props.onCloseMobile?.(); }}>
             <IconPlus size={12} />
             Add account
           </button>
