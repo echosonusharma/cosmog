@@ -63,6 +63,7 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
         confirmLabel: "Save",
         cancelLabel: "Discard",
         dismissLabel: "Keep editing",
+        cancelDanger: true,
       });
       if (action === null) return;
       if (action === true) {

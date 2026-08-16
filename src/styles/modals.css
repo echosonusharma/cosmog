@@ -20,7 +20,36 @@
   max-height: 90vh;
   overflow-y: auto;
 }
-.modal-confirm { max-width: 380px; }
+.modal-confirm { max-width: 400px; gap: 14px; }
+.modal-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+.modal-confirm-actions--end { justify-content: flex-end; }
+.modal-confirm-dismiss {
+  flex-shrink: 0;
+  padding-left: 0;
+  color: var(--text-soft);
+}
+.modal-confirm-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.modal-confirm-actions--end .modal-confirm-btns { margin-left: 0; }
+.modal-confirm-btns .btn-primary,
+.modal-confirm-btns .btn-secondary,
+.modal-confirm-btns .btn-danger {
+  width: auto;
+  min-width: 88px;
+  font-size: 13px;
+  padding: 8px 16px;
+}
 .modal-title { font-size: 14px; font-weight: 600; }
 .modal-sub   { font-size: 12px; color: var(--text-muted); word-break: break-all; }
 .modal-sub-body {

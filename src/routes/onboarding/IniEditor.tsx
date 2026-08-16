@@ -6,7 +6,7 @@ import { linter, lintGutter } from "@codemirror/lint";
 import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme } from "../../state/editorTheme";
 import { resolvedTheme } from "../../state/theme";
-import { loadEditorTheme } from "../../utils/codemirrorThemes";
+import { loadEditorTheme, editorShellTheme } from "../../utils/codemirrorThemes";
 import { validateAwsCredentialsIni } from "../../utils/parseAwsCredentialsIni";
 
 function awsIniLinter() {
@@ -41,6 +41,7 @@ export function IniEditor(props: {
   let view: EditorView | null = null;
   const langComp = new Compartment();
   const roComp = new Compartment();
+  const shellComp = new Compartment();
   const themeComp = new Compartment();
   let destroyed = false;
   let themeGen = 0;
@@ -50,6 +51,7 @@ export function IniEditor(props: {
     const gen = ++themeGen;
     const dark = resolvedTheme() === "dark";
     const themeId = editorHighlightTheme();
+    view?.dispatch({ effects: shellComp.reconfigure(editorShellTheme(dark)) });
     void (async () => {
       try {
         const theme = await loadEditorTheme(themeId, dark);
@@ -62,9 +64,11 @@ export function IniEditor(props: {
   }
 
   onMount(() => {
+    const dark = resolvedTheme() === "dark";
     const state = EditorState.create({
       doc: props.value,
       extensions: [
+        shellComp.of(editorShellTheme(dark)),
         themeComp.of([]),
         langComp.of([]),
         roComp.of(EditorState.readOnly.of(props.disabled ?? false)),

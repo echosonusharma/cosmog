@@ -11,7 +11,7 @@ import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
-import { loadEditorTheme } from "./codemirrorThemes";
+import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
 
 // ── language loader (lazy) ────────────────────────────────────────────────────
 
@@ -100,6 +100,7 @@ export function CodeEditor(props: {
   let view: EditorView | null = null;
   const langComp = new Compartment();
   const roComp   = new Compartment();
+  const shellComp = new Compartment();
   const editorThemeComp = new Compartment();
 
   let destroyed = false;
@@ -136,6 +137,7 @@ export function CodeEditor(props: {
   onMount(() => {
     try {
       const showGutters = props.gutters ?? false;
+      const dark = props.dark ?? true;
 
       const gutterExts = showGutters
         ? [lineNumbers(), lintGutter(), highlightActiveLineGutter(), foldGutter()]
@@ -144,6 +146,7 @@ export function CodeEditor(props: {
       const state = EditorState.create({
         doc: props.value,
         extensions: [
+          shellComp.of(editorShellTheme(dark)),
           editorThemeComp.of([]),
           langComp.of([]),
           roComp.of(EditorState.readOnly.of(props.readOnly ?? false)),
@@ -179,6 +182,7 @@ export function CodeEditor(props: {
       view = new EditorView({ state, parent: container });
       setEditorReady(true);
       loadLang(props.ext);
+      loadTheme(dark, editorHighlightTheme());
     } catch (err) {
       console.warn("[CodeEditor] mount failed:", err);
     }
@@ -197,11 +201,12 @@ export function CodeEditor(props: {
     view?.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(props.readOnly ?? false)) });
   });
 
-  // Sync editor theme when app light/dark or highlight theme changes
+  // Sync shell + highlight theme when app light/dark or highlight theme changes
   createEffect(() => {
     if (!editorReady()) return;
     const dark = props.dark ?? true;
     const themeId = editorHighlightTheme();
+    view?.dispatch({ effects: shellComp.reconfigure(editorShellTheme(dark)) });
     loadTheme(dark, themeId);
   });
 
@@ -262,6 +267,7 @@ export function EditorModal(props: {
         confirmLabel: "Save",
         cancelLabel: "Discard",
         dismissLabel: "Keep editing",
+        cancelDanger: true,
       });
       if (action === null) return;
       // Failed save keeps the modal open so the edits are not lost.

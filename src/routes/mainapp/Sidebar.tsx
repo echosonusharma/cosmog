@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createMemo, createResource } from "solid-js";
+import { Show, For, createSignal, createMemo, createResource, createEffect, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion, getTauriVersion } from "@tauri-apps/api/app";
@@ -47,10 +47,26 @@ async function loadBugInfo() {
 function BugReportModal(props: { onClose: () => void }) {
   const [info] = createResource(loadBugInfo);
   const [copied, setCopied] = createSignal(false);
+  const [showLoader, setShowLoader] = createSignal(true);
+  const loadStartedAt = Date.now();
+
+  createEffect(() => {
+    if (info.error) {
+      setShowLoader(false);
+      return;
+    }
+    const data = info.latest;
+    if (!data) return;
+    const remaining = Math.max(0, 450 - (Date.now() - loadStartedAt));
+    const t = setTimeout(() => setShowLoader(false), remaining);
+    onCleanup(() => clearTimeout(t));
+  });
+
+  const infoReady = createMemo(() => !showLoader() && !!info.latest);
 
   const infoText = () => {
-    const d = info();
-    if (!d) return "Loading…";
+    const d = info.latest;
+    if (!d) return "";
     const rows = [
       `App Version:   ${d.appVersion}`,
       `Tauri Version: ${d.tauriVersion}`,
@@ -92,23 +108,32 @@ function BugReportModal(props: { onClose: () => void }) {
           <div class="bug-info-section">
             <div class="bug-info-header">
               <span class="bug-info-label">System Info</span>
-              <button class="bug-copy-btn" onClick={copyInfo}>
+              <button class="bug-copy-btn" disabled={!infoReady()} onClick={copyInfo}>
                 {copied() ? "Copied!" : "Copy"}
               </button>
             </div>
-            <Show when={info()} fallback={<div class="bug-info-loading">Loading…</div>}>
+            <Show when={infoReady()}>
               <dl class="bug-info-grid">
-                <dt>App Version</dt><dd>{info()!.appVersion}</dd>
-                <dt>Tauri Version</dt><dd>{info()!.tauriVersion}</dd>
-                <dt>OS</dt><dd>{info()!.os}</dd>
-                <dt>Arch</dt><dd>{info()!.arch}</dd>
-                <Show when={info()!.model}>
-                  <dt>Device</dt><dd>{info()!.model}</dd>
+                <dt>App Version</dt><dd>{info.latest!.appVersion}</dd>
+                <dt>Tauri Version</dt><dd>{info.latest!.tauriVersion}</dd>
+                <dt>OS</dt><dd>{info.latest!.os}</dd>
+                <dt>Arch</dt><dd>{info.latest!.arch}</dd>
+                <Show when={info.latest!.model}>
+                  <dt>Device</dt><dd>{info.latest!.model}</dd>
                 </Show>
-                <dt>Screen</dt><dd>{info()!.screen}</dd>
-                <dt>Locale</dt><dd>{info()!.locale}</dd>
-                <dt>User Agent</dt><dd>{info()!.ua}</dd>
+                <dt>Screen</dt><dd>{info.latest!.screen}</dd>
+                <dt>Locale</dt><dd>{info.latest!.locale}</dd>
+                <dt>User Agent</dt><dd>{info.latest!.ua}</dd>
               </dl>
+            </Show>
+            <Show when={showLoader() && !info.error}>
+              <div class="bug-info-loading" aria-busy="true">
+                <span class="spinner spinner-lg" />
+                <span>Loading system info…</span>
+              </div>
+            </Show>
+            <Show when={info.error}>
+              <div class="bug-info-error">Couldn't load system info. Try closing and reopening this dialog.</div>
             </Show>
           </div>
 

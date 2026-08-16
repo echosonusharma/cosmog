@@ -118,7 +118,7 @@
 .bcfg-editor {
   height: 440px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   overflow: hidden;
 }
 

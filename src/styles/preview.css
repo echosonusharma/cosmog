@@ -288,6 +288,16 @@
 }
 .editor-modal-btn { padding: 5px 14px; }
 .code-editor-host { height: 100%; overflow: auto; border-radius: 6px; }
+.code-editor-host .cm-gutters {
+  border-radius: 0;
+  background-color: var(--bg-elev-2);
+  color: var(--text-faint);
+}
+.editor-modal .code-editor-host,
+.editor-modal .code-editor-host .cm-editor,
+.editor-modal .cm-gutters {
+  border-radius: 0;
+}
 .editor-modal-footer {
   padding: 6px 16px;
   border-top: 1px solid var(--border);

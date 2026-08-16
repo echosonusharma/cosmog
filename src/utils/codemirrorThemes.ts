@@ -1,8 +1,37 @@
 import type { Extension } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import type { EditorHighlightThemeId } from "../state/editorTheme";
 
 function asExtensions(ext: Extension | readonly Extension[]): Extension[] {
   return Array.isArray(ext) ? [...ext] : [ext];
+}
+
+/** Sync shell colors so gutters/background match the app before async themes load. */
+export function editorShellTheme(dark: boolean): Extension[] {
+  return [
+    EditorView.darkTheme.of(dark),
+    EditorView.theme(
+      {
+        "&": {
+          backgroundColor: "var(--bg-elev-1)",
+          color: "var(--text-soft)",
+        },
+        ".cm-gutters": {
+          backgroundColor: "var(--bg-elev-2)",
+          color: "var(--text-faint)",
+          borderRight: "1px solid var(--border)",
+        },
+        ".cm-activeLineGutter": {
+          backgroundColor: "var(--bg-active)",
+          color: "var(--text-muted)",
+        },
+        ".cm-activeLine": {
+          backgroundColor: "color-mix(in srgb, var(--accent) 8%, transparent)",
+        },
+      },
+      { dark },
+    ),
+  ];
 }
 
 async function loadGithubTheme(dark: boolean): Promise<Extension[]> {

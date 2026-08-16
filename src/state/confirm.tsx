@@ -7,6 +7,7 @@ interface ConfirmReq {
   cancelLabel?: string;
   dismissLabel?: string;
   danger?: boolean;
+  cancelDanger?: boolean;
   resolve: (result: boolean | null) => void;
 }
 
@@ -32,21 +33,28 @@ export function ConfirmHost() {
           <div class="modal modal-confirm" onClick={(e) => e.stopPropagation()}>
             <div class="modal-title">{p().title}</div>
             <div class="modal-sub modal-sub-body">{p().body}</div>
-            <div class="btn-row mt-3">
+            <div class={`modal-confirm-actions${p().dismissLabel ? "" : " modal-confirm-actions--end"}`}>
               <Show when={p().dismissLabel}>
-                <button class="btn-ghost flex-1" onClick={() => finish(null)}>
+                <button type="button" class="btn-ghost modal-confirm-dismiss" onClick={() => finish(null)}>
                   {p().dismissLabel}
                 </button>
               </Show>
-              <button class="btn-secondary flex-1" onClick={() => finish(false)}>
-                {p().cancelLabel ?? "Cancel"}
-              </button>
-              <button
-                class={`${p().danger ? "btn-danger" : "btn-primary"} flex-1`}
-                onClick={() => finish(true)}
-              >
-                {p().confirmLabel ?? "Confirm"}
-              </button>
+              <div class="modal-confirm-btns">
+                <button
+                  type="button"
+                  class={p().cancelDanger ? "btn-danger" : "btn-secondary"}
+                  onClick={() => finish(false)}
+                >
+                  {p().cancelLabel ?? "Cancel"}
+                </button>
+                <button
+                  type="button"
+                  class={p().danger ? "btn-danger" : "btn-primary"}
+                  onClick={() => finish(true)}
+                >
+                  {p().confirmLabel ?? "Confirm"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

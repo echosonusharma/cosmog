@@ -1,4 +1,4 @@
-import { createSignal, createResource, createMemo, For, Show } from "solid-js";
+import { createSignal, createResource, createMemo, createEffect, For, Show, onCleanup } from "solid-js";
 import { listBuckets, deleteBucket } from "../../api/buckets";
 import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
 import { listEncryptedBuckets } from "../../api/encryption";
@@ -18,6 +18,8 @@ import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
 
 export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [refresh, setRefresh] = createSignal(0);
+  const [refreshing, setRefreshing] = createSignal(false);
+  let refreshStartedAt = 0;
   const [errDismissed, setErrDismissed] = createSignal(false);
   const [buckets] = createResource<Bucket[], { a: string; r: number }>(
     () => ({ a: props.accountId, r: refresh() }),
@@ -42,6 +44,21 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     const all = buckets.latest ?? [];
     if (!q) return all;
     return all.filter((b) => b.name.toLowerCase().includes(q));
+  });
+
+  function handleRefresh() {
+    if (refreshing()) return;
+    refreshStartedAt = Date.now();
+    setRefreshing(true);
+    setRefresh((n) => n + 1);
+  }
+
+  createEffect(() => {
+    if (!refreshing()) return;
+    if (buckets.loading) return;
+    const remaining = Math.max(0, 500 - (Date.now() - refreshStartedAt));
+    const t = setTimeout(() => setRefreshing(false), remaining);
+    onCleanup(() => clearTimeout(t));
   });
 
   async function handleDelete(name: string) {
@@ -99,7 +116,16 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       <div class="app-toolbar bucket-toolbar">
         <div class="toolbar-left">
           <div class="toolbar-nav">
-            <button class="icon-btn" onClick={() => setRefresh((n) => n + 1)}><IconRefresh size={16} /><span class="btn-label-mobile">Refresh</span></button>
+            <button
+              class="icon-btn refresh-btn"
+              classList={{ spinning: refreshing() }}
+              title={refreshing() ? "Refreshing…" : "Refresh"}
+              aria-busy={refreshing()}
+              onClick={handleRefresh}
+            >
+              <IconRefresh size={16} />
+              <span class="btn-label-mobile">Refresh</span>
+            </button>
           </div>
           <div class="path-bar">
             <span class="path-icon"><IconHome size={14} /></span>
