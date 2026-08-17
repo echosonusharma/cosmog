@@ -130,7 +130,7 @@ impl Default for AppSettings {
             confirm_destructive: true,
             http_proxy: None,
             custom_ca_path: None,
-            request_log_ttl_days: 14,
+            request_log_ttl_days: 30,
             mcp_enabled: false,
             mcp_port: 4123,
             mcp_allow_write: false,

@@ -210,12 +210,12 @@ pub fn run() {
             let log_dir = app_dir.join("logs");
 
             std::fs::create_dir_all(&log_dir).ok();
-            // Daily rotation, capped at 14 files so the log dir can't grow
+            // Daily rotation, capped at 30 files so the log dir can't grow
             // without bound. Falls back to plain daily if the builder fails.
             let file_appender = tracing_appender::rolling::Builder::new()
                 .rotation(tracing_appender::rolling::Rotation::DAILY)
                 .filename_prefix("cosmog.log")
-                .max_log_files(14)
+                .max_log_files(30)
                 .build(&log_dir)
                 .unwrap_or_else(|_| tracing_appender::rolling::daily(&log_dir, "cosmog.log"));
             let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
