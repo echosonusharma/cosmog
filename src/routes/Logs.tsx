@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal } from "solid-js";
 import { RequestLogs } from "./RequestLogs";
 import { SystemLog } from "./SystemLog";
 
@@ -24,8 +24,14 @@ export default function Logs() {
         </button>
       </div>
 
-      <Show when={tab() === "requests"}><RequestLogs /></Show>
-      <Show when={tab() === "system"}><SystemLog /></Show>
+      <div class="logs-panels">
+        <div class="logs-panel" classList={{ hidden: tab() !== "requests" }}>
+          <RequestLogs active={tab() === "requests"} />
+        </div>
+        <div class="logs-panel" classList={{ hidden: tab() !== "system" }}>
+          <SystemLog active={tab() === "system"} />
+        </div>
+      </div>
     </div>
   );
 }

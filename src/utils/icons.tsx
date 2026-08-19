@@ -29,6 +29,7 @@ export const IconMute         = I("volume-x");
 export const IconDoc          = I("file-text");
 export const IconArchive      = I("archive");
 export const IconCode         = I("code-2");
+export const IconDashboard    = I("bar-chart-2");
 export const IconBrowse       = I("layout-grid");
 export const IconSearch       = I("search");
 export const IconTransfer     = I("arrow-up-down");

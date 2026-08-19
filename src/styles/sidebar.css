@@ -16,16 +16,27 @@
 
 /* account header — pill card inside padded area */
 .sidebar-account-header {
-  padding: 10px 10px 8px;
+  height: var(--panel-header-h);
+  min-height: var(--panel-header-h);
+  max-height: var(--panel-header-h);
+  padding: var(--panel-header-inset-y) var(--panel-header-pad);
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-account-header .sidebar-account-pill {
+  width: 100%;
+  min-height: 0;
 }
 
 /* pill card */
 .sidebar-account-pill {
   display: flex; align-items: center;
   gap: 9px;
-  padding: 8px 9px;
+  padding: 7px 10px;
   border-radius: 9px;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -36,7 +47,16 @@
   font-size: 10.5px;
 }
 
-.sidebar-account-info { flex: 1; min-width: 0; overflow: hidden; }
+.sidebar-account-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.2;
+}
 .sidebar-account-name {
   font-size: 12.5px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -315,7 +335,7 @@
   justify-content: center;
 }
 
-.sidebar.collapsed .sidebar-account-header { padding: 10px 8px 8px; }
+.sidebar.collapsed .sidebar-account-header { padding: 0 8px; }
 .sidebar.collapsed .sidebar-account-pill { justify-content: center; padding: 6px; border-radius: 8px; }
 .sidebar.collapsed .sidebar-account-info,
 .sidebar.collapsed .sidebar-account-pill .collapse-btn { display: none; }

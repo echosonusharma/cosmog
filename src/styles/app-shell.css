@@ -33,3 +33,43 @@
   min-height: 0;
 }
 
+/* Shared top strip — sidebar account card + view headers (dashboard, transfers, etc.) */
+.panel-header,
+.transfer-filterbar,
+.view-header,
+.logs-header.logs-tabbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: var(--panel-header-inset-y) var(--panel-header-pad);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+@media (min-width: 769px) {
+  .panel-header,
+  .transfer-filterbar,
+  .view-header,
+  .logs-header.logs-tabbar {
+    height: var(--panel-header-h);
+    min-height: var(--panel-header-h);
+    max-height: var(--panel-header-h);
+  }
+}
+
+.transfer-filterbar,
+.view-header,
+.logs-header.logs-tabbar {
+  justify-content: flex-start;
+}
+
+/* Dashboard toolbar carries a subtitle — allow natural height */
+.api-dash-toolbar.panel-header {
+  height: auto;
+  min-height: var(--panel-header-h);
+  max-height: none;
+}
+

@@ -2,6 +2,7 @@ import { createSignal, createResource, createEffect, onCleanup } from "solid-js"
 import Browse from "./Browse";
 import Transfers from "./Transfers";
 import Settings from "./Settings";
+import Dashboard from "./Dashboard";
 import Logs from "./Logs";
 import NightWatcher from "./NightWatcher";
 import Mcp from "./Mcp";
@@ -330,6 +331,9 @@ export default function MainApp() {
         <Show when={isMobile()}>
           <MobileHeader onOpenSidebar={() => openDrawer()} />
         </Show>
+        <div class="view-slot" classList={{ hidden: currentView() !== "dashboard" }}>
+          <Dashboard />
+        </div>
         <div class="view-slot" classList={{ hidden: currentView() !== "browse" }}>
           <Browse defaultDownloadDir={defaultDownloadDir()} />
         </div>

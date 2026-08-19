@@ -7,7 +7,8 @@ import { parseLine, type ParsedLine } from "../utils/parseLine";
 import { sourceByKey, sourceLabel } from "../utils/logSource";
 import { LogRow } from "./LogRow";
 
-export function SystemLog() {
+export function SystemLog(props: { active?: boolean }) {
+  const isActive = () => props.active !== false;
   const [lines, setLines] = createSignal<ParsedLine[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [clearedAt, setClearedAt] = createSignal<string | null>(null);
@@ -29,10 +30,10 @@ export function SystemLog() {
     } catch { setLines([]); } finally { setLoading(false); }
   }
 
-  // Logs view stays mounted (hidden via CSS) and this tab keeps its selection,
-  // so only poll the 512 KB tail while the Logs view is actually visible.
+  // Both log tabs stay mounted (hidden via CSS) to preserve scroll/selection;
+  // only poll the 512 KB tail while this tab is selected and Logs is visible.
   createEffect(() => {
-    if (currentView() !== "logs") return;
+    if (currentView() !== "logs" || !isActive()) return;
     load();
     const timer = setInterval(load, 3000);
     onCleanup(() => clearInterval(timer));

@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal } from "solid-js";
+import { onMount, onCleanup, createEffect, createSignal, Show } from "solid-js";
 import { EditorView, keymap, drawSelection, highlightActiveLine } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -45,20 +45,43 @@ export function IniEditor(props: {
   const themeComp = new Compartment();
   let destroyed = false;
   let themeGen = 0;
+  let langGen = 0;
   const [ready, setReady] = createSignal(false);
+  const [langReady, setLangReady] = createSignal(false);
+  const [themeReady, setThemeReady] = createSignal(false);
+  const showEditorLoader = () => ready() && (!langReady() || !themeReady());
 
   function loadTheme() {
     const gen = ++themeGen;
     const dark = resolvedTheme() === "dark";
     const themeId = editorHighlightTheme();
+    setThemeReady(false);
     view?.dispatch({ effects: shellComp.reconfigure(editorShellTheme(dark)) });
     void (async () => {
       try {
         const theme = await loadEditorTheme(themeId, dark);
         if (destroyed || !view || gen !== themeGen) return;
         view.dispatch({ effects: themeComp.reconfigure(theme) });
+        setThemeReady(true);
       } catch (err) {
         console.warn("[IniEditor] theme load failed:", err);
+        if (!destroyed && gen === themeGen) setThemeReady(true);
+      }
+    })();
+  }
+
+  function loadLang() {
+    const gen = ++langGen;
+    setLangReady(false);
+    void (async () => {
+      try {
+        const lang = await iniLanguage();
+        if (destroyed || !view || gen !== langGen) return;
+        view.dispatch({ effects: langComp.reconfigure(lang) });
+        setLangReady(true);
+      } catch (err) {
+        console.warn("[IniEditor] language load failed:", err);
+        if (!destroyed && gen === langGen) setLangReady(true);
       }
     })();
   }
@@ -87,12 +110,7 @@ export function IniEditor(props: {
 
     view = new EditorView({ state, parent: container });
     setReady(true);
-
-    void (async () => {
-      const lang = await iniLanguage();
-      if (destroyed || !view) return;
-      view.dispatch({ effects: langComp.reconfigure(lang) });
-    })();
+    loadLang();
     loadTheme();
   });
 
@@ -118,9 +136,20 @@ export function IniEditor(props: {
   onCleanup(() => {
     destroyed = true;
     setReady(false);
+    setLangReady(false);
+    setThemeReady(false);
     view?.destroy();
     view = null;
   });
 
-  return <div ref={container} class="ini-editor-host" />;
+  return (
+    <div class="ini-editor-wrap rel">
+      <div ref={container} class="ini-editor-host" />
+      <Show when={showEditorLoader()}>
+        <div class="preview-switching-overlay">
+          <span class="spinner spinner-lg" />
+        </div>
+      </Show>
+    </div>
+  );
 }

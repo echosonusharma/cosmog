@@ -506,6 +506,7 @@ pub fn run() {
             // -------- request_logs: S3 API call history --------
             commands::request_logs::list_request_logs,
             commands::request_logs::count_request_logs,
+            commands::request_logs::get_request_log_stats,
             commands::request_logs::clear_request_logs,
             commands::request_logs::purge_old_request_logs,
 

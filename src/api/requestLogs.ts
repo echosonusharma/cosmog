@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RequestLog } from "../types";
+import type { RequestLog, RequestLogStats } from "../types";
 
 export interface ListRequestLogsOpts {
   limit?: number;
@@ -34,4 +34,8 @@ export function clearRequestLogs(): Promise<void> {
 
 export function purgeOldRequestLogs(): Promise<number> {
   return invoke("purge_old_request_logs");
+}
+
+export function getRequestLogStats(days?: number): Promise<RequestLogStats> {
+  return invoke("get_request_log_stats", { days: days ?? null });
 }

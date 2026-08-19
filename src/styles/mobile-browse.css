@@ -19,12 +19,14 @@
     padding: 6px 6px;
   }
 
-  /* ── toolbar: 2-row on mobile. row1 nav+actions, row2 full-width path ── */
+  /* ── toolbar: multi-row on mobile. row1 nav+actions, row2 path, row3 search ── */
   .app-toolbar {
     padding: 6px 8px;
     gap: 6px;
     row-gap: 6px;
     height: auto;
+    min-height: 0;
+    max-height: none;
     flex: 0 0 auto;
     flex-wrap: wrap;
     align-items: center;
@@ -42,7 +44,7 @@
     min-width: 0;
     padding: 0 8px;
     gap: 6px;
-    height: 34px;
+    height: 36px;
   }
   /* nav icon buttons (back, refresh) are fixed-width and icon-only on mobile,
      so a text label can't overflow the shrunk button. Applies to both the
@@ -122,19 +124,21 @@
   /* segmented view toggle is desktop-only; mobile uses the single button */
   .view-mode-toggle { display: none !important; }
   .toolbar-overflow { display: inline-flex !important; }
-  /* search gets its own full-width row below the breadcrumb */
-  .browse-toolbar .toolbar-search {
+  /* path + search each get a full-width row (browse + bucket grid) */
+  .app-toolbar .toolbar-search {
     order: 11;
     flex: 1 1 100%;
     width: 100%;
     max-width: none;
     min-width: 0;
-    height: 34px;
+    height: 36px;
   }
   .toolbar-btn {
     font-size: 12px !important;
     padding: 0 6px !important;
     min-width: 36px;
+    height: 36px !important;
+    min-height: 36px !important;
     gap: 6px;
     justify-content: center;
     align-items: center;
@@ -295,7 +299,7 @@
     position: fixed;
     left: env(safe-area-inset-left);
     right: env(safe-area-inset-right);
-    top: calc(env(safe-area-inset-top) + 48px);
+    top: calc(env(safe-area-inset-top) + var(--mobile-header-h));
     bottom: env(safe-area-inset-bottom);
     width: auto;
     height: auto;
@@ -305,7 +309,14 @@
     border-radius: 0;
   }
   .preview-header {
+    height: auto;
+    min-height: 0;
+    max-height: none;
     padding: 10px 12px;
+  }
+  .preview-header .icon-btn {
+    width: 36px;
+    height: 36px;
   }
   .preview-body {
     padding: 12px;
@@ -362,10 +373,7 @@
     padding: 8px 10px;
   }
 
-  /* ── view-header: tighter padding ────────────────────────────────────── */
-  .view-header {
-    padding: 10px 12px 8px;
-  }
+  /* view-header mobile rules live in mobile-forms.css */
 
   /* ── enc identity banner ─────────────────────────────────────────────── */
   .enc-identity-banner {

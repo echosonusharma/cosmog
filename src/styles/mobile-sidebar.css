@@ -58,9 +58,10 @@
   .mobile-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    height: 48px;
-    padding: 0 6px;
+    gap: 6px;
+    height: var(--mobile-header-h);
+    min-height: var(--mobile-header-h);
+    padding: 0 8px;
     background: #13141b;
     border-bottom: 1px solid rgba(255,255,255,0.07);
     color: #e9eaf0;
@@ -101,11 +102,12 @@
 
   .mobile-header-section {
     flex: 1;
-    text-align: right;
-    padding-right: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    color: #959aab;
+    min-width: 0;
+    text-align: center;
+    padding: 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #e9eaf0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -115,13 +117,39 @@
   .sidebar-account-header {
     background: #13141b;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    padding: 12px 12px 10px;
+  }
+  .sidebar-account-header .sidebar-account-pill {
+    min-height: 0;
+    padding: 10px 12px;
+    gap: 10px;
   }
   .sidebar-account-pill {
     background: #191b24;
     border-color: rgba(255,255,255,0.08);
   }
-  .sidebar-account-name { color: #e9eaf0; }
-  .sidebar-account-provider { color: #959aab; }
+  .sidebar-account-info {
+    gap: 2px;
+    line-height: 1.25;
+  }
+  .sidebar-account-name {
+    color: #e9eaf0;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+  .sidebar-account-provider {
+    color: #959aab;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  .sidebar-account-pill .collapse-btn {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+  }
   .collapse-btn { color: #959aab; }
   .collapse-btn:hover { color: #e9eaf0; background: #22242f; }
 }

@@ -7,6 +7,7 @@ import { UpdateModal } from "./UpdateModal";
 
 function viewTitle() {
   switch (currentView()) {
+    case "dashboard": return "Dashboard";
     case "browse":    return "Browser";
     case "transfers": return "Transfers";
     case "logs":      return "Logs";

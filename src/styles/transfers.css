@@ -1,32 +1,48 @@
 /* ── transfers ──────────────────────────────────────────────────────────── */
 
 .transfer-filterbar {
-  display: flex; align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  background: var(--panel);
+  gap: 14px;
 }
+
+.transfer-filterbar-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-right: 14px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+}
+
 .filter-chips {
   display: flex;
+  align-items: center;
+  flex-shrink: 0;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 2px;
+  border-radius: 8px;
+  padding: 3px;
   gap: 2px;
 }
+
 .chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--muted);
-  font: inherit; font-size: 12px;
+  font: inherit;
+  font-size: 12px;
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
   font-weight: 500;
+  white-space: nowrap;
 }
 .chip:hover { color: var(--text); background: var(--elev); }
 .chip.active {
@@ -36,10 +52,22 @@
 }
 .chip-count {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  opacity: 0.7;
+  font-size: 10px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
 }
-.chip.active .chip-count { opacity: 0.9; }
+.chip.active .chip-count { color: var(--muted); }
+.transfer-clear-btn {
+  font-size: 12px;
+  height: 32px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
 
 .transfer-list {
   flex: 1; overflow-y: auto;
@@ -135,13 +163,6 @@
 .transfer-error-keyload-text { flex: 1; min-width: 0; }
 .transfer-error-keyload-btn { padding: 4px 8px; font-size: 11px; }
 
-.transfer-filterbar-title {
-  margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
-}
-.transfer-clear-btn {
-  font-size: 12px; padding: 6px 11px;
-  border: 1px solid var(--border); border-radius: 8px;
-}
 .transfer-err-msg { margin: 12px 20px; }
 .transfer-footer-speed { display: flex; align-items: center; gap: 4px; }
 

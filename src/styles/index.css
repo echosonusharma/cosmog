@@ -32,6 +32,7 @@
 @import "./bug-report.css";
 @import "./modals.css";
 @import "./logs.css";
+@import "./api-log-dashboard.css";
 
 @import "./context-menu.css";
 @import "./misc.css";

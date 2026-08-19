@@ -18,7 +18,7 @@
   padding: 0 12px;
   gap: 8px;
   min-width: 120px;
-  height: 34px;
+  height: var(--toolbar-control-h);
   overflow: hidden;
 }
 .toolbar-search:focus-within { border-color: var(--border-focus); }
@@ -42,7 +42,7 @@
 
 .index-toggle-btn {
   display: flex; align-items: center; gap: 6px;
-  padding: 0 10px; height: 32px; border-radius: 7px;
+  padding: 0 10px; height: var(--toolbar-control-h); border-radius: 7px;
   border: 1px solid var(--border-strong);
   background: var(--bg-elev-1);
   font-size: 12px; white-space: nowrap;

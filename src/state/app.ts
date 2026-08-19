@@ -3,7 +3,7 @@ import { createStore } from "solid-js/store";
 import type { Account, Bucket, CachedObjectMeta, Transfer } from "../types";
 import { getPref, setPref } from "./prefs";
 
-export type View = "browse" | "transfers" | "settings" | "logs" | "night-watcher" | "mcp";
+export type View = "dashboard" | "browse" | "transfers" | "settings" | "logs" | "night-watcher" | "mcp";
 
 export interface BrowseState {
   accountId: string | null;

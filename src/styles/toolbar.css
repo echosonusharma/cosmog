@@ -1,14 +1,54 @@
 /* ── top toolbar / path bar ─────────────────────────────────────────────── */
 
 .app-toolbar {
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 0 14px;
-  height: 48px;
-  flex: 0 0 48px;
+  padding: var(--panel-header-inset-y) var(--panel-header-pad);
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--panel);
+}
+
+@media (min-width: 769px) {
+  .app-toolbar {
+    height: var(--panel-header-h);
+    min-height: var(--panel-header-h);
+    max-height: var(--panel-header-h);
+  }
+
+  /* Uniform control height — keeps nav, search, badges, and actions on one baseline */
+  .app-toolbar .icon-btn {
+    width: var(--toolbar-control-h);
+    height: var(--toolbar-control-h);
+    flex-shrink: 0;
+  }
+
+  .app-toolbar .path-bar,
+  .app-toolbar .toolbar-search,
+  .app-toolbar .index-toggle-btn,
+  .app-toolbar .toolbar-btn {
+    height: var(--toolbar-control-h);
+  }
+
+  .app-toolbar .view-mode-toggle {
+    height: var(--toolbar-control-h);
+    padding: 3px;
+    box-sizing: border-box;
+  }
+
+  .app-toolbar .view-mode-btn {
+    width: 28px;
+    height: 100%;
+  }
+
+  .app-toolbar .mode-badge {
+    display: inline-flex;
+    align-items: center;
+    height: var(--toolbar-control-h);
+    box-sizing: border-box;
+  }
 }
 
 /* mobile-only single view toggle; the segmented .view-mode-toggle is desktop */
@@ -48,7 +88,7 @@
   padding: 0 14px;
   min-width: 80px;
   max-width: 320px;
-  height: 34px;
+  height: var(--toolbar-control-h);
   overflow: hidden;
 }
 .path-bar:focus-within { border-color: var(--accent); }
@@ -89,7 +129,7 @@
 
 .toolbar-btn {
   display: flex !important; align-items: center; gap: 6px;
-  height: 32px !important; padding: 0 12px !important;
+  height: var(--toolbar-control-h) !important; padding: 0 12px !important;
   border-radius: 7px; font-size: 12.5px !important; font-weight: 500;
   white-space: nowrap; flex-shrink: 0; width: auto !important;
 }
@@ -105,9 +145,11 @@
   .app-toolbar {
     flex-wrap: wrap;
     height: auto;
+    min-height: var(--panel-header-h);
+    max-height: none;
     flex: 0 0 auto;
     row-gap: 8px;
-    padding: 8px 14px;
+    padding: var(--panel-header-inset-y) var(--panel-header-pad);
     align-items: center;
   }
   /* row 1: breadcrumb takes the whole first line */
@@ -126,18 +168,14 @@
 }
 
 /* ── view header ────────────────────────────────────────────────────────── */
-
-.view-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px 10px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
+/* Layout shared with sidebar via .view-header in app-shell.css */
 
 .section-title {
   font-size: 11px; font-weight: 600;
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
 }
 
 /* ── account picker (top-of-view, when needed) ──────────────────────────── */

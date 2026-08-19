@@ -30,15 +30,31 @@
   /* Grow with content only — flex:1 left a tall empty gap above MetaList. */
 }
 .preview-header {
-  display: flex; align-items: center;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  padding: var(--panel-header-inset-y) var(--panel-header-pad);
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border);
   gap: 8px;
+  flex-shrink: 0;
+  background: var(--panel);
+}
+
+@media (min-width: 769px) {
+  .preview-header {
+    height: var(--panel-header-h);
+    min-height: var(--panel-header-h);
+  }
 }
 .preview-title {
   flex: 1;
   font-size: 13px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview-header .icon-btn {
+  width: var(--toolbar-control-h);
+  height: var(--toolbar-control-h);
+  flex-shrink: 0;
 }
 .preview-body {
   flex: 1; overflow-y: auto;
@@ -287,6 +303,12 @@
   display: flex; align-items: center; gap: 6px; margin-left: auto;
 }
 .editor-modal-btn { padding: 5px 14px; }
+.code-editor-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+.code-editor-wrap .code-editor-host { height: 100%; }
 .code-editor-host { height: 100%; overflow: auto; border-radius: 6px; }
 .code-editor-host .cm-gutters {
   border-radius: 0;

@@ -2,6 +2,7 @@ use chrono::Utc;
 use rusqlite::params;
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::error::AppResult;
@@ -48,6 +49,59 @@ pub struct NewRequestLog {
     pub error_code: Option<String>,
     pub error_msg: Option<String>,
     pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogAccountStat {
+    pub account_id: Option<String>,
+    pub account_name: Option<String>,
+    pub count: i64,
+    pub error_count: i64,
+    pub avg_duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogOperationStat {
+    pub operation: String,
+    pub count: i64,
+    pub error_count: i64,
+    pub avg_duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogDayStat {
+    pub day: i64,
+    pub count: i64,
+    pub error_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogDayAccountStat {
+    pub day: i64,
+    pub account_id: Option<String>,
+    pub account_name: Option<String>,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogBucketStat {
+    pub bucket: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestLogStats {
+    pub period_days: u32,
+    pub since_ts: i64,
+    pub total: i64,
+    pub ok_count: i64,
+    pub error_count: i64,
+    pub avg_duration_ms: i64,
+    pub by_account: Vec<RequestLogAccountStat>,
+    pub by_operation: Vec<RequestLogOperationStat>,
+    pub by_day: Vec<RequestLogDayStat>,
+    pub by_day_by_account: Vec<RequestLogDayAccountStat>,
+    pub top_buckets: Vec<RequestLogBucketStat>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,6 +263,185 @@ impl Db {
             })
             .await?;
         Ok(())
+    }
+
+    /// Aggregate request-log metrics since `since_ts` for dashboard charts.
+    /// Single table scan — aggregates in memory to avoid six separate GROUP BY passes.
+    pub async fn request_log_stats(&self, since_ts: i64) -> AppResult<RequestLogStats> {
+        let stats = self
+            .conn
+            .call(move |conn| {
+                let period_days = ((Utc::now().timestamp() - since_ts) / 86_400).max(1) as u32;
+
+                #[derive(Default)]
+                struct Agg {
+                    count: i64,
+                    error_count: i64,
+                    duration_sum: i64,
+                }
+
+                let mut total = 0i64;
+                let mut ok_count = 0i64;
+                let mut error_count = 0i64;
+                let mut duration_sum = 0i64;
+                let mut by_account_map: HashMap<(Option<String>, Option<String>), Agg> =
+                    HashMap::new();
+                let mut by_operation_map: HashMap<String, Agg> = HashMap::new();
+                let mut by_day_map: HashMap<i64, (i64, i64)> = HashMap::new();
+                let mut by_day_account_map: HashMap<(i64, Option<String>, Option<String>), i64> =
+                    HashMap::new();
+                let mut bucket_map: HashMap<String, i64> = HashMap::new();
+
+                let mut stmt = conn.prepare(
+                    "SELECT account_id, account_name, operation, bucket, status, duration_ms, created_at
+                     FROM request_logs WHERE created_at >= ?1",
+                )?;
+                let rows = stmt.query_map(params![since_ts], |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, i64>(5)?,
+                        r.get::<_, i64>(6)?,
+                    ))
+                })?;
+
+                for row in rows {
+                    let (
+                        account_id,
+                        account_name,
+                        operation,
+                        bucket,
+                        status,
+                        duration_ms,
+                        created_at,
+                    ) = row?;
+                    total += 1;
+                    duration_sum += duration_ms;
+                    let is_ok = status == "ok";
+                    let is_error = status == "error";
+                    if is_ok {
+                        ok_count += 1;
+                    }
+                    if is_error {
+                        error_count += 1;
+                    }
+
+                    let acc = by_account_map
+                        .entry((account_id.clone(), account_name.clone()))
+                        .or_default();
+                    acc.count += 1;
+                    if is_error {
+                        acc.error_count += 1;
+                    }
+                    acc.duration_sum += duration_ms;
+
+                    let op = by_operation_map.entry(operation).or_default();
+                    op.count += 1;
+                    if is_error {
+                        op.error_count += 1;
+                    }
+                    op.duration_sum += duration_ms;
+
+                    let day = (created_at / 86400) * 86400;
+                    let day_entry = by_day_map.entry(day).or_insert((0, 0));
+                    day_entry.0 += 1;
+                    if is_error {
+                        day_entry.1 += 1;
+                    }
+
+                    *by_day_account_map
+                        .entry((day, account_id, account_name))
+                        .or_insert(0) += 1;
+
+                    if let Some(b) = bucket.filter(|s| !s.is_empty()) {
+                        *bucket_map.entry(b).or_insert(0) += 1;
+                    }
+                }
+
+                let avg_duration_ms = if total > 0 {
+                    duration_sum / total
+                } else {
+                    0
+                };
+
+                let mut by_account: Vec<RequestLogAccountStat> = by_account_map
+                    .into_iter()
+                    .map(|((account_id, account_name), agg)| RequestLogAccountStat {
+                        account_id,
+                        account_name,
+                        count: agg.count,
+                        error_count: agg.error_count,
+                        avg_duration_ms: if agg.count > 0 {
+                            agg.duration_sum / agg.count
+                        } else {
+                            0
+                        },
+                    })
+                    .collect();
+                by_account.sort_by(|a, b| b.count.cmp(&a.count));
+
+                let mut by_operation: Vec<RequestLogOperationStat> = by_operation_map
+                    .into_iter()
+                    .map(|(operation, agg)| RequestLogOperationStat {
+                        operation,
+                        count: agg.count,
+                        error_count: agg.error_count,
+                        avg_duration_ms: if agg.count > 0 {
+                            agg.duration_sum / agg.count
+                        } else {
+                            0
+                        },
+                    })
+                    .collect();
+                by_operation.sort_by(|a, b| b.count.cmp(&a.count));
+
+                let mut by_day: Vec<RequestLogDayStat> = by_day_map
+                    .into_iter()
+                    .map(|(day, (count, error_count))| RequestLogDayStat {
+                        day,
+                        count,
+                        error_count,
+                    })
+                    .collect();
+                by_day.sort_by_key(|d| d.day);
+
+                let mut by_day_by_account: Vec<RequestLogDayAccountStat> = by_day_account_map
+                    .into_iter()
+                    .map(|((day, account_id, account_name), count)| RequestLogDayAccountStat {
+                        day,
+                        account_id,
+                        account_name,
+                        count,
+                    })
+                    .collect();
+                by_day_by_account.sort_by_key(|d| (d.day, d.account_id.clone(), d.account_name.clone()));
+
+                let mut top_buckets: Vec<RequestLogBucketStat> = bucket_map
+                    .into_iter()
+                    .map(|(bucket, count)| RequestLogBucketStat { bucket, count })
+                    .collect();
+                top_buckets.sort_by(|a, b| b.count.cmp(&a.count));
+                top_buckets.truncate(10);
+
+                Ok::<_, tokio_rusqlite::Error>(RequestLogStats {
+                    period_days,
+                    since_ts,
+                    total,
+                    ok_count,
+                    error_count,
+                    avg_duration_ms,
+                    by_account,
+                    by_operation,
+                    by_day,
+                    by_day_by_account,
+                    top_buckets,
+                })
+            })
+            .await?;
+        Ok(stats)
     }
 }
 

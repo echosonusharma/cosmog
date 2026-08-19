@@ -1,0 +1,767 @@
+/* ── API request analytics dashboard ─────────────────────────────────────── */
+
+.api-dash-layout {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.api-dash-toolbar {
+  min-width: 0;
+}
+
+.api-dash-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.api-dash-info-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.api-dash-popover {
+  position: fixed;
+  z-index: 1300;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  color: var(--text-soft);
+  pointer-events: auto;
+  opacity: 0;
+}
+
+.api-dash-popover.is-ready {
+  opacity: 1;
+  animation: api-dash-pop-in 0.12s ease;
+}
+
+.api-dash-popover[data-placement="above"]::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: var(--arrow-x);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--panel-2);
+}
+
+.api-dash-popover[data-placement="below"]::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: var(--arrow-x);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: var(--panel-2);
+}
+
+@keyframes api-dash-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.api-dash-popover-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.api-dash-popover-body strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.api-dash-info-btn {
+  flex-shrink: 0;
+  color: var(--muted);
+  width: 28px;
+  height: 28px;
+}
+
+.api-dash-info-btn:hover {
+  color: var(--text-soft);
+}
+
+.api-dash-info-btn.active {
+  color: var(--accent);
+}
+
+.api-dash-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.api-dash-card-head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.api-dash-stat-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.api-dash-stat-info-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.api-dash-toolbar-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.api-dash-period {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.api-dash-period-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-soft);
+  line-height: 1.35;
+}
+
+.api-dash-refresh {
+  font-size: 12px;
+  height: 32px;
+  width: 88px;
+  min-width: 88px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.api-dash-refresh.is-busy {
+  cursor: progress;
+}
+
+.api-dash-refresh-spinner {
+  --loader-size: 12px;
+  --loader-border: 2px;
+}
+
+.api-dash-loading {
+  flex: 1;
+  justify-content: center;
+}
+
+.api-dash-main-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.api-dash-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 0%, color-mix(in srgb, #4f9dff 10%, transparent), transparent 50%),
+    var(--bg);
+}
+
+.api-dash-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.api-dash-empty-hint {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.api-dash-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.api-dash-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+.api-dash-stat::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  pointer-events: none;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%);
+}
+
+.api-dash-stat-primary {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.api-dash-stat-err::before {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--err) 22%, transparent), transparent 60%);
+}
+
+.api-dash-stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.api-dash-stat-lbl {
+  font-size: 11.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.api-dash-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(6px);
+  margin-bottom: 16px;
+}
+
+.api-dash-card-wide {
+  padding-bottom: 8px;
+}
+
+.api-dash-account-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.api-dash-account-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.api-dash-account-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 2px;
+}
+
+.api-dash-account-filter-btn {
+  font-size: 11.5px;
+  height: 26px;
+  padding: 0 8px;
+}
+
+.api-dash-account-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.api-dash-account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(200px, 100%);
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.api-dash-account-chip:hover {
+  border-color: color-mix(in srgb, var(--chip-color, var(--accent)) 45%, var(--border));
+  color: var(--text);
+}
+
+.api-dash-account-chip.active {
+  border-color: color-mix(in srgb, var(--chip-color, var(--accent)) 55%, var(--border));
+  background: color-mix(in srgb, var(--chip-color, var(--accent)) 14%, var(--panel-2));
+  color: var(--text);
+}
+
+.api-dash-account-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: var(--chip-color, var(--muted));
+  opacity: 0.45;
+}
+
+.api-dash-account-chip.active .api-dash-account-chip-dot {
+  opacity: 1;
+}
+
+.api-dash-account-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.api-dash-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.api-dash-stats > .api-dash-card {
+  margin-bottom: 0;
+}
+
+.api-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.api-dash-grid .api-dash-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  height: 360px;
+  min-height: 360px;
+  max-height: 360px;
+  overflow: hidden;
+}
+
+.api-dash-grid .api-dash-card-head {
+  flex-shrink: 0;
+}
+
+.api-dash-grid .api-dash-donut-row {
+  flex-shrink: 0;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.api-dash-grid .api-dash-bars {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  gap: 5px;
+}
+
+.api-dash-card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.api-dash-card-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.api-dash-chart {
+  margin-top: 4px;
+}
+
+.api-dash-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.api-dash-chart-wrap-hover .u-legend {
+  display: none !important;
+}
+
+.api-dash-chart-tooltip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.api-dash-chart-tooltip-date {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.api-dash-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.api-dash-chart-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.api-dash-chart-tooltip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+}
+
+.api-dash-chart-tooltip-val {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.api-dash-chart .uplot {
+  font-family: var(--font-mono);
+}
+
+.api-dash-chart .u-cursor-pt {
+  stroke-width: 2;
+}
+
+.api-dash-donut-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.api-dash-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.api-dash-bar-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 1.2fr) 1fr 52px 48px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.api-dash-bar-row-bucket {
+  grid-template-columns: minmax(120px, 1.5fr) 1fr 52px;
+}
+
+.api-dash-bar-label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-soft);
+}
+
+.api-dash-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.api-dash-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.35s ease;
+}
+
+.api-dash-bar-val {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.api-dash-bar-meta {
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 768px) {
+  .api-dash-toolbar.panel-header {
+    height: auto;
+    min-height: 72px;
+    max-height: none;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .api-dash-toolbar-text {
+    min-width: 0;
+  }
+
+  .api-dash-period-desc {
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
+
+  .api-dash-refresh {
+    align-self: center;
+    width: 84px;
+    min-width: 84px;
+  }
+
+  .api-dash-popover {
+    max-width: min(280px, calc(100vw - 20px));
+  }
+
+  .api-dash-scroll {
+    padding: 12px 12px 16px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  .api-dash-hero {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .api-dash-stat {
+    padding: 12px 10px;
+  }
+
+  .api-dash-stat-primary {
+    grid-column: 1 / -1;
+  }
+
+  .api-dash-stat-val {
+    font-size: 18px;
+  }
+
+  .api-dash-stat-lbl {
+    font-size: 10.5px;
+  }
+
+  .api-dash-card {
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+  }
+
+  .api-dash-card-title {
+    font-size: 13px;
+  }
+
+  .api-dash-card-sub {
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .api-dash-card-head {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .api-dash-info-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .api-dash-account-filters {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .api-dash-account-filter-bar {
+    gap: 4px;
+  }
+
+  .api-dash-account-filter-btn {
+    min-height: 0;
+    height: 32px;
+    padding: 0 10px;
+  }
+
+  .api-dash-account-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+    margin: 0 -2px;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+
+  .api-dash-account-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .api-dash-account-chip {
+    flex-shrink: 0;
+    max-width: min(220px, 78vw);
+    min-height: 32px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .api-dash-chart-wrap {
+    max-width: 100%;
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  .api-dash-chart .uplot {
+    max-width: 100%;
+  }
+
+  .api-dash-chart-tooltip {
+    min-width: 0;
+    max-width: min(240px, calc(100vw - 32px));
+    font-size: 10.5px;
+  }
+
+  .api-dash-bar-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 4px 8px;
+    align-items: center;
+  }
+
+  .api-dash-bar-label {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .api-dash-bar-track {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .api-dash-bar-val {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 11px;
+  }
+
+  .api-dash-bar-meta {
+    display: none;
+  }
+
+  .api-dash-bar-row-bucket {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .api-dash-donut-row {
+    margin-bottom: 10px;
+  }
+
+  .api-dash-donut-row .donut {
+    align-self: center;
+  }
+
+  .api-dash-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .api-dash-grid .api-dash-card {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .api-dash-grid .api-dash-donut-row {
+    max-height: none;
+  }
+
+  .api-dash-grid .api-dash-bars {
+    max-height: 220px;
+  }
+
+  .api-dash-empty {
+    padding: 32px 16px;
+  }
+}

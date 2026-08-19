@@ -2,6 +2,16 @@
 
 @media (max-width: 768px) {
 
+  .content-area {
+    min-height: 0;
+    flex: 1;
+  }
+
+  .view-slot:not(.hidden) {
+    min-height: 0;
+    flex: 1;
+  }
+
   /* ── titlebar: hidden entirely on mobile ─────────────────────────────── */
   .titlebar { display: none; }
 
@@ -128,29 +138,64 @@
 
   /* ── transfers ────────────────────────────────────────────────────────── */
   .transfer-filterbar {
-    padding: 10px 12px;
-    gap: 8px;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    padding: 12px 12px 10px;
+    gap: 10px;
     flex-wrap: wrap;
     flex-direction: column;
     align-items: stretch;
   }
-  .transfer-filterbar-title { font-size: 14px; }
+  /* MobileHeader already shows the active view title */
+  .transfer-filterbar-title {
+    display: none;
+  }
+  .transfer-filterbar > .flex-1 {
+    display: none;
+  }
   .filter-chips {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     width: 100%;
     min-width: 0;
+    height: auto;
     gap: 4px;
+    overflow: visible;
+    background: none;
+    border: none;
+    padding: 0;
   }
   .chip {
-    flex: 1 1 0;
+    flex: unset;
+    width: 100%;
     min-width: 0;
-    padding: 6px 4px;
-    font-size: 11.5px;
+    min-height: 36px;
+    padding: 6px 2px;
+    font-size: 10.5px;
+    flex-direction: column;
+    gap: 1px;
     justify-content: center;
     text-align: center;
     white-space: nowrap;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel-2);
   }
-  .transfer-clear-btn { align-self: flex-start; }
+  .chip-count {
+    font-size: 9.5px;
+    line-height: 1.1;
+  }
+  .chip.active {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .transfer-clear-btn {
+    align-self: stretch;
+    width: 100%;
+    min-height: 38px;
+    height: auto;
+    justify-content: center;
+  }
 
   .transfer-list { padding: 6px 0; gap: 4px; }
   .transfer-row {
@@ -341,7 +386,13 @@
   }
   .logs-tabbar::-webkit-scrollbar { display: none; }
   .logs-tabbar-title { font-size: 14px; margin-right: 8px; }
-  .logs-tab { padding: 10px 8px 8px; font-size: 12px; flex-shrink: 0; }
+  .logs-tab {
+    padding: 10px 8px 8px;
+    font-size: 12px;
+    flex-shrink: 0;
+    align-self: auto;
+    height: auto;
+  }
 
   .logs-header {
     padding: 8px 10px;
@@ -502,8 +553,17 @@
   }
 
   /* ── full-width content across all views ──────────────────────────────── */
-  .view-header {
-    padding: 12px 12px 10px;
+  .panel-header,
+  .view-header,
+  .logs-header.logs-tabbar,
+  .transfer-filterbar {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
   .transfer-footer-bar {
     padding: 6px 12px;
@@ -557,5 +617,15 @@
     margin: 8px 0 0;
     padding: 0;
     border-top: none;
+  }
+
+  /* ── dashboard: mobile layout ─────────────────────────────────────────── */
+  .view-slot:not(.hidden) .view-container,
+  .view-slot:not(.hidden) .api-dash-layout {
+    min-height: 0;
+  }
+
+  .api-dash-main {
+    min-height: 0;
   }
 }

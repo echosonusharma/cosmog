@@ -11,7 +11,7 @@ import {
 } from "../../state/app";
 import { providerLabel } from "../../providers";
 import {
-  IconBrowse, IconTransfer, IconSettings,
+  IconDashboard, IconBrowse, IconTransfer, IconSettings,
   IconSidebar, IconPlus, IconActivity, IconBucket, IconSearch, IconX, IconBug, IconLock, IconEye, IconMcp,
 } from "../../utils/icons";
 import { listEncryptedBuckets } from "../../api/encryption";
@@ -159,6 +159,7 @@ function BugReportModal(props: { onClose: () => void }) {
 }
 
 const NAV: { view: View; label: string; icon: () => JSX.Element; desktopOnly?: boolean; beta?: boolean }[] = [
+  { view: "dashboard", label: "Dashboard", icon: () => <IconDashboard size={16} /> },
   { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
   { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },
   { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} />, beta: true },

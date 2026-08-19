@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::db::request_logs::{RequestLog, RequestLogFilter};
+use crate::db::request_logs::{RequestLog, RequestLogFilter, RequestLogStats};
 use crate::error::AppResult;
 use crate::state::AppState;
 
@@ -39,6 +39,20 @@ pub async fn count_request_logs(
 #[tauri::command]
 pub async fn clear_request_logs(state: State<'_, AppState>) -> AppResult<()> {
     state.db.clear_all_request_logs().await
+}
+
+#[tauri::command]
+pub async fn get_request_log_stats(
+    state: State<'_, AppState>,
+    days: Option<u32>,
+) -> AppResult<RequestLogStats> {
+    let settings = state.load_settings().await?;
+    let capped = match days {
+        Some(d) => d.clamp(1, 365).min(settings.request_log_ttl_days),
+        None => settings.request_log_ttl_days,
+    };
+    let since_ts = chrono::Utc::now().timestamp() - (capped as i64 * 86_400);
+    state.db.request_log_stats(since_ts).await
 }
 
 #[tauri::command]

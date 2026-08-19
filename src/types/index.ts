@@ -129,6 +129,53 @@ export interface RequestLog {
   created_at: number;
 }
 
+export interface RequestLogAccountStat {
+  account_id: string | null;
+  account_name: string | null;
+  count: number;
+  error_count: number;
+  avg_duration_ms: number;
+}
+
+export interface RequestLogOperationStat {
+  operation: string;
+  count: number;
+  error_count: number;
+  avg_duration_ms: number;
+}
+
+export interface RequestLogDayStat {
+  day: number;
+  count: number;
+  error_count: number;
+}
+
+export interface RequestLogDayAccountStat {
+  day: number;
+  account_id: string | null;
+  account_name: string | null;
+  count: number;
+}
+
+export interface RequestLogBucketStat {
+  bucket: string;
+  count: number;
+}
+
+export interface RequestLogStats {
+  period_days: number;
+  since_ts: number;
+  total: number;
+  ok_count: number;
+  error_count: number;
+  avg_duration_ms: number;
+  by_account: RequestLogAccountStat[];
+  by_operation: RequestLogOperationStat[];
+  by_day: RequestLogDayStat[];
+  by_day_by_account: RequestLogDayAccountStat[];
+  top_buckets: RequestLogBucketStat[];
+}
+
 export type SearchScope =
   | { kind: "bucket" }
   | { kind: "prefix"; prefix: string; recursive: boolean };

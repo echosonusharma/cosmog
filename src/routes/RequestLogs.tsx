@@ -10,77 +10,7 @@ import { Select } from "../utils/Select";
 import { isMobile } from "../utils/breakpoint";
 import { useBackHandler } from "../utils/androidBack";
 
-const OP_LABELS: Record<string, string> = {
-  list_buckets: "List Buckets",
-  create_bucket: "Create Bucket",
-  delete_bucket: "Delete Bucket",
-  head_bucket: "Head Bucket",
-  put_bucket_acl: "Set Bucket ACL",
-  get_bucket_versioning: "Get Versioning",
-  put_bucket_versioning: "Set Versioning",
-  get_bucket_policy: "Get Policy",
-  put_bucket_policy: "Set Policy",
-  delete_bucket_policy: "Delete Policy",
-  get_bucket_cors: "Get CORS",
-  put_bucket_cors: "Set CORS",
-  delete_bucket_cors: "Delete CORS",
-  head_object: "Head Object",
-  create_folder: "Create Folder",
-  delete_object: "Delete Object",
-  delete_objects: "Batch Delete",
-  delete_object_version: "Delete Version",
-  restore_object_version: "Restore Version",
-  list_objects: "List Objects",
-  list_object_versions: "List Versions",
-  copy_object: "Copy Object",
-  put_object_acl: "Set Object ACL",
-  presign_get: "Presign URL",
-  read_object_range: "Preview Object",
-  read_object_full: "Read Object",
-  get_object_tagging: "Get Tags",
-  put_object_tagging: "Set Tags",
-  delete_object_tagging: "Delete Tags",
-  put_object: "Upload",
-  put_object_bytes: "Save Object",
-  get_object: "Download",
-  abort_multipart_upload: "Abort Multipart",
-};
-
-const OP_COLORS: Record<string, string> = {
-  put_object:            "#22c55e",
-  put_object_bytes:      "#22c55e",
-  get_object:            "#3b82f6",
-  delete_object:         "#ef4444",
-  delete_objects:        "#ef4444",
-  delete_object_version: "#ef4444",
-  delete_object_tagging: "#ef4444",
-  delete_bucket:         "#ef4444",
-  delete_bucket_policy:  "#ef4444",
-  delete_bucket_cors:    "#ef4444",
-  create_bucket:         "#a855f7",
-  create_folder:         "#a855f7",
-  restore_object_version:"#a855f7",
-  copy_object:           "#f59e0b",
-  presign_get:           "#06b6d4",
-  abort_multipart_upload:"#f97316",
-  head_bucket:           "#6366f1",
-  head_object:           "#6366f1",
-  list_buckets:          "#14b8a6",
-  list_objects:          "#8b5cf6",
-  list_object_versions:  "#6366f1",
-  put_bucket_acl:        "#ec4899",
-  put_object_acl:        "#ec4899",
-  put_bucket_versioning: "#ec4899",
-  put_bucket_policy:     "#ec4899",
-  put_bucket_cors:       "#ec4899",
-  get_bucket_versioning: "#94a3b8",
-  get_bucket_policy:     "#94a3b8",
-  get_bucket_cors:       "#94a3b8",
-  read_object_range:     "#06b6d4",
-  read_object_full:      "#3b82f6",
-  get_object_tagging:    "#94a3b8",
-  put_object_tagging:    "#f59e0b",
-};
+import { OP_LABELS, opLabel, opColor } from "../utils/requestLogMeta";
 
 // Fixed row height — must match CSS. Detail lives outside the list (right pane
 // / bottom sheet), so the virtualizer never measures variable heights.
@@ -94,14 +24,6 @@ function durationClass(ms: number): string {
   if (ms < 200) return "duration-fast";
   if (ms < 800) return "duration-medium";
   return "duration-slow";
-}
-
-function opLabel(op: string): string {
-  return OP_LABELS[op] ?? op.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function opColor(op: string): string {
-  return OP_COLORS[op] ?? "#6b7280";
 }
 
 function fmtTime(ts: number): string {
@@ -235,7 +157,8 @@ function RequestLogDetail(props: { log: RequestLog }) {
   );
 }
 
-export function RequestLogs() {
+export function RequestLogs(props: { active?: boolean }) {
+  const isActive = () => props.active !== false;
   const [logs, setLogs] = createSignal<RequestLog[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [loadingMore, setLoadingMore] = createSignal(false);
@@ -357,7 +280,11 @@ export function RequestLogs() {
     if (last && last.index >= logs().length - 10) loadMore();
   });
 
-  load();
+  createEffect(() => {
+    if (!isActive()) return;
+    load();
+  });
+
   let disposed = false;
   let unlistenFn: (() => void) | null = null;
   onCleanup(() => {
@@ -366,14 +293,17 @@ export function RequestLogs() {
     clearTimeout(eventTimeout);
     unlistenFn?.();
   });
-  listen<void>("request-log-added", () => {
-    clearTimeout(eventTimeout);
-    eventTimeout = setTimeout(() => {
-      if (!scrollDiv || scrollDiv.scrollTop < 120) load();
-    }, 250);
-  }).then((unlisten) => {
-    if (disposed) unlisten();
-    else unlistenFn = unlisten;
+  onMount(() => {
+    listen<void>("request-log-added", () => {
+      if (!isActive()) return;
+      clearTimeout(eventTimeout);
+      eventTimeout = setTimeout(() => {
+        if (!scrollDiv || scrollDiv.scrollTop < 120) load();
+      }, 250);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else unlistenFn = unlisten;
+    });
   });
 
   function onSearch(q: string) {
