@@ -144,6 +144,12 @@ pub struct GetOptions {
     /// Inclusive end of an HTTP `Range: bytes=` request. Setting only
     /// `range_end` requests bytes `0..=range_end`.
     pub range_end: Option<u64>,
+    /// Append-mode resume signal: only append to `dest` when this is set by
+    /// the transfer manager after confirming a partial file from a prior
+    /// attempt exists. Without it, any pre-existing unrelated file at the
+    /// destination would silently gain appended bytes.
+    #[serde(default)]
+    pub resume: bool,
 }
 
 /// Outcome of a single `delete_objects` call. `deleted` is the keys the server

@@ -149,6 +149,12 @@ pub async fn cleanup_stale_multiparts(
     bucket: String,
     older_than_secs: i64,
 ) -> AppResult<usize> {
+    // Floor the age threshold at 1 hour. A negative or tiny value would put
+    // the cutoff in the future and abort LIVE multipart uploads (including
+    // this user's own active transfers); clamping keeps the operation
+    // strictly "clean up old junk".
+    const MIN_STALE_SECS: i64 = 3600;
+    let older_than_secs = older_than_secs.max(MIN_STALE_SECS);
     let now = chrono::Utc::now().timestamp();
     let cutoff = now - older_than_secs;
     let store = state.store_for(&account_id).await?;

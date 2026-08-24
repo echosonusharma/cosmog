@@ -169,6 +169,7 @@ async fn range_get_returns_partial() {
                 version_id: None,
                 range_start: Some(100),
                 range_end: Some(199),
+                ..Default::default()
             },
             TransferCtx::new("r"),
         )
@@ -199,8 +200,50 @@ async fn download_resume_appends_to_partial_file() {
     let dst_dir = tempfile::tempdir().unwrap();
     let dst = dst_dir.path().join("f.bin");
 
-    // Write the first 40 KiB as if a previous download was interrupted.
+    // Write the first 40 KiB as if a previous download was interrupted, and
+    // mark the request as an explicit resume so the store appends instead of
+    // truncating (resume is no longer inferred from dest.exists()).
     tokio::fs::write(&dst, &payload[..40 * 1024]).await.unwrap();
+
+    store
+        .get_object(
+            &bucket,
+            "f.bin",
+            dst.clone(),
+            GetOptions { range_start: Some(40 * 1024), resume: true, ..Default::default() },
+            TransferCtx::new("r"),
+        )
+        .await
+        .unwrap();
+
+    let got = tokio::fs::read(&dst).await.unwrap();
+    assert_eq!(got.len(), payload.len());
+    assert_eq!(got, payload);
+
+    common::cleanup_bucket(&store, &bucket).await;
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn ranged_get_without_resume_truncates_existing_dest() {
+    require_minio!();
+    let store = common::make_store().await;
+    let bucket = common::create_test_bucket(&store, "cosmog-rangetrunc").await;
+
+    let payload: Vec<u8> = (0u8..=255).cycle().take(100 * 1024).collect();
+    let src = tempfile::NamedTempFile::new().unwrap();
+    tokio::fs::write(src.path(), &payload).await.unwrap();
+    store
+        .put_object(&bucket, "f.bin", src.path().into(), PutOptions::default(), TransferCtx::new("u"))
+        .await
+        .unwrap();
+
+    let dst_dir = tempfile::tempdir().unwrap();
+    let dst = dst_dir.path().join("f.bin");
+    // Stale content from an unrelated previous write must NOT survive a fresh
+    // ranged GET: without `resume`, the destination is truncated, not appended.
+    tokio::fs::write(&dst, b"stale-bytes-that-must-not-survive").await
+        .unwrap();
 
     store
         .get_object(
@@ -214,8 +257,7 @@ async fn download_resume_appends_to_partial_file() {
         .unwrap();
 
     let got = tokio::fs::read(&dst).await.unwrap();
-    assert_eq!(got.len(), payload.len());
-    assert_eq!(got, payload);
+    assert_eq!(got, &payload[40 * 1024..]);
 
     common::cleanup_bucket(&store, &bucket).await;
 }

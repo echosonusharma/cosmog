@@ -98,6 +98,8 @@ pub async fn upload_directory_cmd(
     let cancel = state.register_bulk(&transfer_id);
     let result = upload_directory(
         &state.transfers,
+        &state.db,
+        &state.db_path,
         store,
         &account_id,
         &bucket,
@@ -134,7 +136,12 @@ pub async fn download_directory_cmd(
             let _ = channel.send(event);
         })
     };
-    download_directory(
+    // Same bulk-op registry wiring as upload_directory_cmd so cancel_bulk_op
+    // can abort a running download too (the LIST walk + per-object enqueue
+    // both listen on this token).
+    let transfer_id = Uuid::new_v4().to_string();
+    let cancel = state.register_bulk(&transfer_id);
+    let result = download_directory(
         &state.transfers,
         store,
         &account_id,
@@ -142,6 +149,9 @@ pub async fn download_directory_cmd(
         &prefix,
         &local_root,
         factory,
+        cancel,
     )
-    .await
+    .await;
+    state.unregister_bulk(&transfer_id);
+    result
 }

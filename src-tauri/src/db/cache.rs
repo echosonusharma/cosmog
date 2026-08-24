@@ -153,6 +153,14 @@ pub fn build_fts_query(input: &str) -> Option<String> {
     if terms.is_empty() { None } else { Some(terms.join(" ")) }
 }
 
+/// 1-indexed CHARACTER offset just past `prefix`, for SQLite `substr()`.
+/// SQLite string functions count characters, not bytes, so a multibyte
+/// prefix (e.g. "文档/") must not use `prefix.len()` — that would skip past
+/// the first '/' and misclassify nested keys as direct children.
+fn substr_offset_past_prefix(prefix: &str) -> i64 {
+    prefix.chars().count() as i64 + 1
+}
+
 /// Wrap a query string in `%…%` LIKE wildcards with proper escaping.
 fn like_contains(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
@@ -370,7 +378,7 @@ impl Db {
         let row = self
             .conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(&sql)?;
+                let mut stmt = conn.prepare_cached(&sql)?;
                 let row = stmt
                     .query_row(params![account_id, bucket, key], row_to_cached)
                     .optional()?;
@@ -401,7 +409,7 @@ impl Db {
                         )?;
                     }
                     SyncScope::PrefixDirect { prefix } => {
-                        let after = prefix.len() as i64 + 1;
+                        let after = substr_offset_past_prefix(&prefix);
                         let pat = like_prefix(&prefix);
                         conn.execute(
                             "UPDATE cached_objects SET seen = 0
@@ -446,7 +454,7 @@ impl Db {
                         params![account_id, bucket],
                     )?,
                     SyncScope::PrefixDirect { prefix } => {
-                        let after = prefix.len() as i64 + 1;
+                        let after = substr_offset_past_prefix(&prefix);
                         let pat = like_prefix(&prefix);
                         conn.execute(
                             "DELETE FROM cached_objects
@@ -493,25 +501,27 @@ impl Db {
         let n = self
             .conn
             .call(move |conn| {
-                let after = prefix.len() as i64 + 1;
+                let after = substr_offset_past_prefix(&prefix);
                 // Synthetic marker = direct child key ending `/` with our
                 // directory content-type (e.g. `web/docs/`).
                 let candidates: Vec<String> = if prefix.is_empty() {
-                    let mut stmt = conn.prepare(
+                    let mut stmt = conn.prepare_cached(
                         "SELECT key FROM cached_objects
                          WHERE account_id = ?1 AND bucket = ?2
                            AND substr(key, -1) = '/'
                            AND instr(rtrim(key, '/'), '/') = 0
                            AND content_type = 'application/x-directory'",
                     )?;
-                    let v: Vec<String> = stmt
-                        .query_map(params![account_id, bucket], |row| row.get(0))?
-                        .filter_map(|r| r.ok())
-                        .collect();
+                    // Propagate row errors: silently skipping rows would break
+                    // callers that assume the returned set matches the DB.
+                    let mut v = Vec::new();
+                    for r in stmt.query_map(params![account_id, bucket], |row| row.get(0))? {
+                        v.push(r?);
+                    }
                     v
                 } else {
                     let pat = like_prefix(&prefix);
-                    let mut stmt = conn.prepare(
+                    let mut stmt = conn.prepare_cached(
                         "SELECT key FROM cached_objects
                          WHERE account_id = ?1 AND bucket = ?2
                            AND key LIKE ?3 ESCAPE '\\'
@@ -520,10 +530,10 @@ impl Db {
                            AND instr(substr(key, ?5, length(key) - ?5), '/') = 0
                            AND content_type = 'application/x-directory'",
                     )?;
-                    let v: Vec<String> = stmt
-                        .query_map(params![account_id, bucket, pat, prefix, after], |row| row.get(0))?
-                        .filter_map(|r| r.ok())
-                        .collect();
+                    let mut v = Vec::new();
+                    for r in stmt.query_map(params![account_id, bucket, pat, prefix, after], |row| row.get(0))? {
+                        v.push(r?);
+                    }
                     v
                 };
 
@@ -937,22 +947,27 @@ impl Db {
         let bucket = bucket.to_string();
         self.conn
             .call(move |conn| {
-                conn.execute(
+                // One transaction: the four deletes are one logical purge, and
+                // a partial purge (e.g. cache rows gone but index rows left)
+                // would leave inconsistent state.
+                let tx = conn.transaction()?;
+                tx.execute(
                     "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
-                conn.execute(
+                tx.execute(
                     "DELETE FROM prefix_sync WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
-                conn.execute(
+                tx.execute(
                     "DELETE FROM bucket_index WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
-                conn.execute(
+                tx.execute(
                     "DELETE FROM bucket_capabilities WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
+                tx.commit()?;
                 Ok::<_, tokio_rusqlite::Error>(())
             })
             .await?;
@@ -966,19 +981,35 @@ impl Db {
         let bucket = bucket.to_string();
         self.conn
             .call(move |conn| {
-                conn.execute(
-                    "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2",
-                    params![account_id, bucket],
-                )?;
-                conn.execute(
+                let tx = conn.transaction()?;
+                {
+                    // Chunked delete bounds per-statement work on buckets with
+                    // millions of cached rows instead of one huge DELETE.
+                    const CHUNK: usize = 5000;
+                    loop {
+                        let deleted = tx.execute(
+                            "DELETE FROM cached_objects
+                              WHERE rowid IN (
+                                  SELECT rowid FROM cached_objects
+                                   WHERE account_id = ?1 AND bucket = ?2
+                                   LIMIT ?3)",
+                            params![account_id, bucket, CHUNK],
+                        )?;
+                        if deleted < CHUNK {
+                            break;
+                        }
+                    }
+                }
+                tx.execute(
                     "DELETE FROM prefix_sync WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
-                conn.execute(
+                tx.execute(
                     "UPDATE bucket_index SET enabled = 0, last_full_sync_at = NULL, object_count = 0
                      WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
+                tx.commit()?;
                 Ok::<_, tokio_rusqlite::Error>(())
             })
             .await?;
@@ -1009,36 +1040,40 @@ impl Db {
 
         self.conn
             .call(move |conn| {
-                let after = prefix.len() as i64 + 1; // 1-indexed offset past prefix
+                // substr() is character-based (1-indexed); see
+                // [`substr_offset_past_prefix`].
+                let after = substr_offset_past_prefix(&prefix);
                 // Fetch one extra row to detect a further page without a COUNT.
                 let fetch_limit = (FILE_LIMIT + 1) as i64;
                 let first_page = offset == 0;
 
                 let (mut files, subprefixes) = if prefix.is_empty() {
                     let files: Vec<CachedObjectMeta> = {
-                        let mut stmt = conn.prepare(
+                        let mut stmt = conn.prepare_cached(
                             "SELECT co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
                                AND instr(co.key, '/') = 0
                              ORDER BY co.key LIMIT ?3 OFFSET ?4",
                         )?;
-                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, fetch_limit, offset], row_to_cached)?
-                            .filter_map(|r| r.ok())
-                            .collect();
+                        let mut v = Vec::new();
+                        for r in stmt.query_map(params![account_id, bucket, fetch_limit, offset], row_to_cached)? {
+                            v.push(r?);
+                        }
                         v
                     };
                     let subprefixes: Vec<String> = if first_page {
-                        let mut stmt = conn.prepare(
+                        let mut stmt = conn.prepare_cached(
                             "SELECT DISTINCT substr(co.key, 1, instr(co.key, '/')) AS folder
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
                                AND instr(co.key, '/') > 0
                              ORDER BY folder",
                         )?;
-                        let v: Vec<String> = stmt.query_map(params![account_id, bucket], |row| row.get(0))?
-                            .filter_map(|r| r.ok())
-                            .collect();
+                        let mut v = Vec::new();
+                        for r in stmt.query_map(params![account_id, bucket], |row| row.get(0))? {
+                            v.push(r?);
+                        }
                         v
                     } else {
                         Vec::new()
@@ -1047,7 +1082,7 @@ impl Db {
                 } else {
                     let like_pat = like_prefix(&prefix);
                     let files: Vec<CachedObjectMeta> = {
-                        let mut stmt = conn.prepare(
+                        let mut stmt = conn.prepare_cached(
                             "SELECT co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
@@ -1056,13 +1091,14 @@ impl Db {
                                AND instr(substr(co.key, ?5), '/') = 0
                              ORDER BY co.key LIMIT ?6 OFFSET ?7",
                         )?;
-                        let v: Vec<CachedObjectMeta> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit, offset], row_to_cached)?
-                            .filter_map(|r| r.ok())
-                            .collect();
+                        let mut v = Vec::new();
+                        for r in stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit, offset], row_to_cached)? {
+                            v.push(r?);
+                        }
                         v
                     };
                     let subprefixes: Vec<String> = if first_page {
-                        let mut stmt = conn.prepare(
+                        let mut stmt = conn.prepare_cached(
                             "SELECT DISTINCT substr(co.key, 1, (?5 - 1) + instr(substr(co.key, ?5), '/')) AS folder
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
@@ -1070,9 +1106,10 @@ impl Db {
                                AND instr(substr(co.key, ?5), '/') > 0
                              ORDER BY folder",
                         )?;
-                        let v: Vec<String> = stmt.query_map(params![account_id, bucket, like_pat, prefix, after], |row| row.get(0))?
-                            .filter_map(|r| r.ok())
-                            .collect();
+                        let mut v = Vec::new();
+                        for r in stmt.query_map(params![account_id, bucket, like_pat, prefix, after], |row| row.get(0))? {
+                            v.push(r?);
+                        }
                         v
                     } else {
                         Vec::new()
@@ -1355,7 +1392,7 @@ impl Db {
                     "SELECT COUNT(*) FROM {from_sql} {where_sql} {like_clause}"
                 );
                 let total: i64 = {
-                    let mut stmt = conn.prepare(&count_sql)?;
+                    let mut stmt = conn.prepare_cached(&count_sql)?;
                     let mut all = base_params.clone();
                     for p in &short_like_terms {
                         all.push(Value::Text(p.clone()));
@@ -1393,7 +1430,7 @@ impl Db {
                      ORDER BY {order_col} {order_dir_str}, co.rowid {tiebreak}
                      LIMIT ? OFFSET ?"
                 );
-                let mut stmt = conn.prepare(&select_sql)?;
+                let mut stmt = conn.prepare_cached(&select_sql)?;
                 let mut all = base_params.clone();
                 for p in &short_like_terms {
                     all.push(Value::Text(p.clone()));
@@ -1626,5 +1663,175 @@ fn facet_date_buckets(
     });
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn substr_offset_counts_chars_not_bytes() {
+        assert_eq!(substr_offset_past_prefix(""), 1);
+        assert_eq!(substr_offset_past_prefix("docs/"), 6);
+        // "文档/" is 4 characters but 7 UTF-8 bytes; byte math would produce 8.
+        assert_eq!(substr_offset_past_prefix("文档/"), 4);
+        assert_ne!(
+            substr_offset_past_prefix("文档/") - 1,
+            "文档/".len() as i64,
+            "offset must be character-based, not prefix.len()"
+        );
+    }
+
+    /// Regression for the substr byte-vs-character offset bug: with a
+    /// multibyte prefix, `prefix.len()` over-shot past the first '/', so a
+    /// PrefixDirect sweep misclassified nested keys as direct children and
+    /// deleted them.
+    #[tokio::test]
+    async fn multibyte_prefix_direct_sweep_keeps_nested_rows() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Db::open(&dir.path().join("test.sqlite")).await.expect("open db");
+
+        // cached_objects has an FK onto accounts(id); seed a parent row.
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO accounts (id, name, protocol, region, access_key_id, addressing_style, created_at, updated_at)
+                     VALUES ('acct', 't', 's3', 'us-east-1', 'k', 'path', 0, 0)",
+                    [],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+
+        let meta = |key: &str| crate::store::ObjectMeta {
+            key: key.to_string(),
+            size: 1,
+            etag: None,
+            last_modified: None,
+            storage_class: None,
+            content_type: None,
+            version_id: None,
+            user_metadata: Default::default(),
+        };
+        db.cache_upsert_objects_batch(
+            "acct",
+            "b",
+            &["文档/top.txt", "文档/sub/inner.txt", "root.txt"]
+                .iter()
+                .map(|k| meta(k))
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .unwrap();
+
+        db.cache_mark_unseen("acct", "b", SyncScope::PrefixDirect { prefix: "文档/".into() })
+            .await
+            .unwrap();
+        let removed = db
+            .cache_sweep_unseen("acct", "b", SyncScope::PrefixDirect { prefix: "文档/".into() })
+            .await
+            .unwrap();
+
+        assert_eq!(removed, 1, "only the direct child should be swept");
+        assert!(
+            db.cache_get_object("acct", "b", "文档/sub/inner.txt")
+                .await
+                .unwrap()
+                .is_some(),
+            "nested row under a multibyte prefix must survive a direct sweep"
+        );
+        assert!(
+            db.cache_get_object("acct", "b", "文档/top.txt").await.unwrap().is_none(),
+            "direct child should have been swept"
+        );
+        assert!(
+            db.cache_get_object("acct", "b", "root.txt").await.unwrap().is_some(),
+            "rows outside the prefix must be untouched"
+        );
+    }
+
+    /// Regression for H3: after migration 19 the FTS update trigger only
+    /// fires when key/basename actually change, so the periodic `seen` sweep
+    /// no longer re-tokenizes every row into the trigram index.
+    #[tokio::test]
+    async fn fts_update_trigger_guards_non_key_columns() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Db::open(&dir.path().join("test.sqlite")).await.expect("open db");
+
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO accounts (id, name, protocol, region, access_key_id, addressing_style, created_at, updated_at)
+                     VALUES ('acct', 't', 's3', 'us-east-1', 'k', 'path', 0, 0)",
+                    [],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+
+        db.cache_upsert_objects_batch(
+            "acct",
+            "b",
+            &[crate::store::ObjectMeta {
+                key: "docs/unicorn.pdf".to_string(),
+                size: 1,
+                etag: None,
+                last_modified: None,
+                storage_class: None,
+                content_type: None,
+                version_id: None,
+                user_metadata: Default::default(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        async fn fts_hits(db: &Db, term: &str) -> i64 {
+            let sql = format!(
+                "SELECT COUNT(*) FROM cached_objects_fts WHERE cached_objects_fts MATCH '\"{term}\"'"
+            );
+            db.conn
+                .call(move |conn| {
+                    let n: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
+                    Ok::<_, tokio_rusqlite::Error>(n)
+                })
+                .await
+                .unwrap()
+        }
+        assert_eq!(fts_hits(&db, "unicorn").await, 1);
+
+        // Updating non-indexed columns must not disturb the FTS rows.
+        db.conn
+            .call(|conn| {
+                conn.execute("UPDATE cached_objects SET seen = 0 WHERE account_id = 'acct'", [])?;
+                conn.execute("UPDATE cached_objects SET seen = 1 WHERE account_id = 'acct'", [])?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(fts_hits(&db, "unicorn").await, 1, "seen-only updates must not rewrite the FTS index");
+
+        // Renaming key + basename must reindex (delete + insert via the
+        // trigger); the app always rewrites both together via KeyParts.
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "UPDATE cached_objects SET key = 'docs/phoenix.pdf', basename = 'phoenix.pdf'
+                      WHERE account_id = 'acct'",
+                    [],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(fts_hits(&db, "unicorn").await, 0);
+        assert_eq!(
+            fts_hits(&db, "phoenix").await,
+            1,
+            "key/basename rename must be reflected in the FTS index"
+        );
+    }
 }
 

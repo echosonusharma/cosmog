@@ -118,8 +118,18 @@ impl Db {
             .call(move |conn| {
                 let mut dest_conn = rusqlite::Connection::open(&dest)?;
                 let backup = rusqlite::backup::Backup::new(conn, &mut dest_conn)?;
-                // -1 page count → copy everything in one shot, no callback.
-                backup.run_to_completion(64, std::time::Duration::from_millis(0), None)?;
+                // Copy in large page steps with a small sleep between steps:
+                // a tiny step count with a zero sleep busy-spins the thread and
+                // holds a long-running read snapshot against the live WAL,
+                // stalling writers for the whole backup.
+                backup.run_to_completion(4096, std::time::Duration::from_millis(5), None)?;
+                // Drop the borrow before closing the destination.
+                drop(backup);
+                // Explicit close so a failed flush surfaces instead of being
+                // silently dropped when the connection falls out of scope.
+                if let Err((_, err)) = dest_conn.close() {
+                    return Err(tokio_rusqlite::Error::from(err));
+                }
                 Ok::<_, tokio_rusqlite::Error>(())
             })
             .await?;
@@ -475,6 +485,42 @@ const MIGRATIONS: &[Migration] = &[
                 PRIMARY KEY (watch_id, rel_path),
                 FOREIGN KEY(watch_id) REFERENCES nw_watch(id) ON DELETE CASCADE
             );
+        "#,
+    },
+    Migration {
+        version: 19,
+        // Recreate the external-content FTS5 sync triggers with a WHEN guard on
+        // the UPDATE trigger. Without it every UPDATE of any column (e.g. the
+        // periodic `seen` sweep flags) delete+reinserts both FTS rows and
+        // re-tokenizes key/basename into the trigram index — pure write
+        // amplification. `IS NOT` (not !=) so NULL-safe comparison keeps the
+        // guard correct when columns are NULL.
+        sql: r#"
+            DROP TRIGGER IF EXISTS cached_objects_ai;
+            DROP TRIGGER IF EXISTS cached_objects_ad;
+            DROP TRIGGER IF EXISTS cached_objects_au;
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_ai
+            AFTER INSERT ON cached_objects BEGIN
+                INSERT INTO cached_objects_fts(rowid, key, basename)
+                VALUES (new.rowid, new.key, new.basename);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_ad
+            AFTER DELETE ON cached_objects BEGIN
+                INSERT INTO cached_objects_fts(cached_objects_fts, rowid, key, basename)
+                VALUES('delete', old.rowid, old.key, old.basename);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS cached_objects_au
+            AFTER UPDATE ON cached_objects
+            WHEN new.key IS NOT old.key OR new.basename IS NOT old.basename
+            BEGIN
+                INSERT INTO cached_objects_fts(cached_objects_fts, rowid, key, basename)
+                VALUES('delete', old.rowid, old.key, old.basename);
+                INSERT INTO cached_objects_fts(rowid, key, basename)
+                VALUES (new.rowid, new.key, new.basename);
+            END;
         "#,
     },
 ];

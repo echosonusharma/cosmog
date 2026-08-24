@@ -354,6 +354,20 @@ pub async fn put_object_acl(
         .await
 }
 
+/// Hard cap for the in-memory write commands (`put_object_text` /
+/// `put_object_bytes_cmd`), enforced BEFORE any encryption decision so the
+/// limit holds regardless of bucket encryption status.
+///
+/// We deliberately pick a tighter 64 MiB than
+/// [`crate::crypto::MAX_INMEMORY_CRYPT_BYTES`] (512 MiB): these payloads
+/// arrive fully materialized over IPC and are held in RAM as plaintext +
+/// ciphertext simultaneously; 64 MiB comfortably covers every legitimate
+/// text-editor / small-file write, while anything larger belongs on the
+/// streaming file-upload path (`enqueue_upload`) which never buffers whole
+/// objects. This bounds worst-case command memory even when encryption is
+/// disabled and no crypt-buffer check would otherwise run.
+const MAX_INMEMORY_PUT_BYTES: usize = 64 * 1024 * 1024;
+
 /// Encrypt `data` for a bucket via its age recipient, or return as-is when
 /// encryption is not configured. Small in-memory helper used by
 /// `put_object_text` / `put_object_bytes_cmd`; file-based uploads take the
@@ -367,6 +381,15 @@ async fn encrypt_for_bucket(
     bucket: &str,
     data: Vec<u8>,
 ) -> AppResult<(Vec<u8>, std::collections::HashMap<String, String>)> {
+    // Up-front cap, independent of encryption config (see MAX_INMEMORY_PUT_BYTES).
+    if data.len() > MAX_INMEMORY_PUT_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "in-memory write refused: payload is {} bytes, limit is {} bytes — \
+             use the streaming file upload instead",
+            data.len(),
+            MAX_INMEMORY_PUT_BYTES
+        )));
+    }
     let cfg = match state.db.get_encryption_config(account_id, bucket).await? {
         Some(c) => c,
         None => return Ok((data, Default::default())),
@@ -406,22 +429,37 @@ pub async fn preview_object(
     let max = max_bytes.unwrap_or(1024 * 1024);
     let store = state.store_for(&account_id).await?;
 
-    // For encrypted buckets, consult HEAD metadata (`cosmog-encrypted=1`) to
-    // decide whether the specific object is client-encrypted. Objects uploaded
-    // before encryption was enabled won't carry the metadata and are served
-    // as-is; objects marked encrypted go through the whole-object GCM decrypt
-    // path (GCM authentication covers all bytes).
+    // For encrypted buckets, decide per-object whether it is client-encrypted.
+    // Objects uploaded before encryption was enabled won't carry the metadata
+    // and are served as-is; objects marked encrypted go through the
+    // whole-object GCM decrypt path (GCM authentication covers all bytes).
     if state.db.get_encryption_config(&account_id, &bucket).await?.is_some() {
         let head = store.head_object(&bucket, &key).await?;
         let marked = head.user_metadata.get("cosmog-encrypted").map(|s| s.as_str()) == Some("1");
 
         // Size guard: refuse to buffer whole ciphertext into RAM for absurdly
         // large previews. See `MAX_PREVIEW_DECRYPT_BYTES` for rationale.
-        if head.size as u64 > MAX_PREVIEW_DECRYPT_BYTES {
+        if marked && head.size as u64 > MAX_PREVIEW_DECRYPT_BYTES {
             // Fall back to the standard bounded range read; if it's actually
             // encrypted we can't decrypt it here anyway and the FE will see
             // ciphertext bytes (marked as such by the metadata).
             return store.read_object_range(&bucket, &key, max).await;
+        }
+
+        // Unmarked object: do the cheap BOUNDED range read FIRST and only pay
+        // for a whole-object fetch when those bytes turn out to be an age
+        // payload. Most objects on an encrypted bucket predate encryption or
+        // were written by other tools, so this keeps the common case at one
+        // small ranged GET instead of buffering the full object.
+        if !marked {
+            let preview = store.read_object_range(&bucket, &key, max).await?;
+            // Range reads start at offset 0, so the first bytes are the
+            // object's header — enough for the magic probe.
+            if !crate::crypto::is_age_ciphertext(&preview.bytes) {
+                return Ok(preview);
+            }
+            // Age-format bytes detected without the marker: fall through to
+            // the full-fetch decrypt path below, which re-checks and warns.
         }
 
         // Fetch the whole ciphertext. `read_object_full` bypasses the 8 MiB
@@ -551,6 +589,9 @@ pub async fn presign_get(
         Some(s) => s,
         None => state.db.settings_load().await?.presign_default_expires_secs,
     };
+    // Clamp to S3-acceptable bounds: SigV4 presigned URLs cap at 7 days
+    // (604800s), and sub-minute links are useless (and usually a caller bug).
+    let expires = expires.clamp(60, 604_800);
     let store = state.store_for(&account_id).await?;
 
     // If the bucket has client-side encryption configured, any presigned URL
@@ -625,6 +666,12 @@ pub async fn put_object_bytes_cmd(
     put_object_inner(&store, &state, &account_id, &bucket, &key, data, &content_type, md).await
 }
 
+/// Hard stop for `list_keys_under_prefix` paging. Without it, pointing the
+/// empty-bucket / delete-folder flow at a bucket root with millions of keys
+/// would page S3 forever and balloon both backend RAM and the IPC payload
+/// delivered to the FE. Callers should narrow the prefix instead.
+const MAX_LISTED_KEYS: usize = 100_000;
+
 /// List every object key under `prefix` by paging S3 directly (no cache).
 /// Used by delete-folder and empty-bucket operations so stale cache doesn't
 /// cause silent misses.
@@ -655,6 +702,12 @@ pub async fn list_keys_under_prefix(
             .await?;
         for obj in &page.objects {
             keys.push(obj.key.clone());
+            if keys.len() >= MAX_LISTED_KEYS {
+                return Err(AppError::InvalidInput(format!(
+                    "prefix listing exceeded the hard cap of {MAX_LISTED_KEYS} keys; \
+                     narrow the prefix and retry"
+                )));
+            }
         }
         if page.is_truncated {
             continuation = page.continuation;

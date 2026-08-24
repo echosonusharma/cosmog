@@ -81,6 +81,16 @@ impl std::fmt::Debug for ProgressSink {
     }
 }
 
+/// Fingerprint of an upload source file captured when a transfer is enqueued.
+/// Multipart resume state recorded against one version of the file must never
+/// be applied to a different version — part boundaries are byte offsets.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SourceStat {
+    pub len: u64,
+    /// File modification time in seconds since the UNIX epoch.
+    pub mtime_secs: i64,
+}
+
 /// Saved per-part state used to resume a previously-failed multipart upload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletedPart {
@@ -92,6 +102,16 @@ pub struct CompletedPart {
 pub struct ResumeState {
     pub upload_id: String,
     pub completed_parts: Vec<CompletedPart>,
+    /// Size of the source file when the saved parts were uploaded. Parts were
+    /// cut from these bytes; a mismatch means the file changed and every
+    /// saved part boundary is wrong.
+    #[serde(default)]
+    pub source_len: Option<u64>,
+    /// Source-file mtime (secs since epoch) captured alongside
+    /// [`ResumeState::source_len`]. Older persisted rows without these fields
+    /// deserialize as `None` and skip staleness validation.
+    #[serde(default)]
+    pub source_mtime_secs: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +123,11 @@ pub struct TransferCtx {
     pub parallelism: usize,
     pub multipart_threshold: u64,
     pub resume: Option<ResumeState>,
+    /// Current fingerprint of an upload's source file (uploads only),
+    /// captured at enqueue time. Compared against [`ResumeState`] fingerprints
+    /// so a multipart resume after the file changed aborts instead of
+    /// assembling a corrupted object.
+    pub source_stat: Option<SourceStat>,
 }
 
 impl TransferCtx {
@@ -115,6 +140,7 @@ impl TransferCtx {
             parallelism: 4,
             multipart_threshold: 8 * 1024 * 1024,
             resume: None,
+            source_stat: None,
         }
     }
 

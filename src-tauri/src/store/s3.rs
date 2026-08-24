@@ -31,7 +31,8 @@ use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AppError, AppResult};
 use crate::transfer::{
-    CompletedPart as SavedPart, DownloadResult, TransferCtx, TransferEvent, UploadResult,
+    CompletedPart as SavedPart, DownloadResult, ResumeState, TransferCtx, TransferEvent,
+    UploadResult,
 };
 
 use super::{
@@ -221,6 +222,43 @@ fn canceled(transfer_id: &str) -> AppError {
     AppError::Canceled(format!("transfer {transfer_id} canceled"))
 }
 
+/// True when saved multipart resume state was built from a different version
+/// of the source file than the one currently on disk (size or mtime changed).
+/// Unknown fingerprints — rows persisted before the fields existed, or a stat
+/// failure at enqueue — never count as stale: resuming is then the same
+/// best-effort guess it always was.
+fn resume_state_is_stale(state: &ResumeState, ctx: &TransferCtx) -> bool {
+    match (state.source_len, state.source_mtime_secs, ctx.source_stat) {
+        (Some(len), Some(mtime), Some(cur)) => len != cur.len || mtime != cur.mtime_secs,
+        _ => false,
+    }
+}
+
+/// True when a ranged GetObject was rejected *because of the range itself* —
+/// HTTP 416 or the provider's `InvalidRange` / `RangeNotSatisfiable` error
+/// code (e.g. requesting bytes of a 0-byte object, providers without Range
+/// support). This is the only failure class where falling back to a full-
+/// object GET is meaningful.
+fn range_request_rejected<E>(
+    err: &SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
+) -> bool
+where
+    E: ProvideErrorMetadata + std::fmt::Display + std::fmt::Debug,
+{
+    if let Some(service_err) = err.as_service_error() {
+        let code = service_err.code().unwrap_or_default();
+        if matches!(code, "InvalidRange" | "RangeNotSatisfiable") {
+            return true;
+        }
+    }
+    if let SdkError::ServiceError(se) = err {
+        if se.raw().status().as_u16() == 416 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Parse the `total` portion of an HTTP `Content-Range: bytes a-b/total`
 /// response. Returns `None` for `*` (unknown total) or malformed input.
 fn parse_content_range_total(header: &str) -> Option<i64> {
@@ -285,20 +323,27 @@ impl ProgressThrottle {
 #[async_trait]
 impl ObjectStore for S3Store {
     async fn list_buckets(&self) -> AppResult<Vec<Bucket>> {
-        let resp = self
-            .client
-            .list_buckets()
-            .send()
-            .await
-            .map_err(|e| classify_aws("list_buckets", e))?;
-        Ok(resp
-            .buckets()
-            .iter()
-            .map(|b| Bucket {
-                name: b.name().unwrap_or_default().to_string(),
-                created_at: b.creation_date().map(|d| d.secs()),
-            })
-            .collect())
+        // Paginate instead of a single send(): accounts with many buckets
+        // only ever see one 1000-bucket page otherwise.
+        const MAX_BUCKETS: usize = 10_000;
+        let mut out = Vec::new();
+        let mut pages = self.client.list_buckets().into_paginator().send();
+        while let Some(page) = pages.next().await {
+            let page = page.map_err(|e| classify_aws("list_buckets", e))?;
+            for b in page.buckets() {
+                if out.len() >= MAX_BUCKETS {
+                    tracing::warn!(
+                        "list_buckets returned more than {MAX_BUCKETS} buckets; truncating"
+                    );
+                    return Ok(out);
+                }
+                out.push(Bucket {
+                    name: b.name().unwrap_or_default().to_string(),
+                    created_at: b.creation_date().map(|d| d.secs()),
+                });
+            }
+        }
+        Ok(out)
     }
 
     async fn create_bucket(&self, name: &str, region: Option<&str>) -> AppResult<()> {
@@ -979,8 +1024,12 @@ impl ObjectStore for S3Store {
         const HARD_CAP: u64 = 8 * 1024 * 1024;
         let cap = max_bytes.min(HARD_CAP);
 
-        // Try ranged GET. Fall back to full GET if the provider rejects the range
-        // (e.g. 0-byte objects, providers that don't support Range headers).
+        // Try ranged GET. Fall back to a full GET only when the provider
+        // rejects ranges outright (HTTP 416 / InvalidRange class — e.g.
+        // 0-byte objects, providers without Range support). Any other error
+        // (404, credentials, network, …) must surface as-is: masking it with
+        // a fallback GET used to turn real failures into confusing
+        // whole-object downloads.
         let range_str = format!("bytes=0-{}", cap.saturating_sub(1));
         let ranged = self
             .client
@@ -993,7 +1042,7 @@ impl ObjectStore for S3Store {
 
         let (resp, used_range) = match ranged {
             Ok(r) => (r, true),
-            Err(_) => {
+            Err(e) if range_request_rejected(&e) => {
                 let r = self
                     .client
                     .get_object()
@@ -1004,6 +1053,8 @@ impl ObjectStore for S3Store {
                     .map_err(|e| classify_aws("get_object", e))?;
                 (r, false)
             }
+            // Preserve the original ranged-GET error with its own context.
+            Err(e) => return Err(classify_aws("get_object preview range", e)),
         };
 
         // For ranged GET the SDK's content_length reflects the range payload,
@@ -1014,13 +1065,41 @@ impl ObjectStore for S3Store {
             None
         };
         let payload_len = resp.content_length();
+        // Guard RAM before collecting: refuse to buffer more than `cap` even
+        // if Content-Length lies or is absent — read at most `cap` bytes and
+        // mark the preview truncated.
+        if let Some(len) = payload_len {
+            if len < 0 {
+                return Err(AppError::S3(format!(
+                    "get_object preview: negative content length {len}"
+                )));
+            }
+        }
         let content_type = resp.content_type().map(|s| s.to_string());
-        let body = resp
-            .body
-            .collect()
-            .await
-            .map_err(|e| s3_err("get_object preview body", e))?;
-        let bytes = body.to_vec();
+        let mut body = resp.body;
+        let mut bytes: Vec<u8> = Vec::with_capacity(
+            payload_len
+                .unwrap_or(0)
+                .clamp(0, cap as i64) as usize,
+        );
+        while bytes.len() < cap as usize {
+            let next = body
+                .try_next()
+                .await
+                .map_err(|e| s3_err("get_object preview body", e))?;
+            match next {
+                Some(chunk) => {
+                    let room = cap as usize - bytes.len();
+                    if chunk.len() > room {
+                        bytes.extend_from_slice(&chunk[..room]);
+                        break;
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                None => break,
+            }
+        }
+        drop(body);
         let total = total_from_range.or(payload_len);
         let truncated = total
             .map(|t| (t as u64) > bytes.len() as u64)
@@ -1185,11 +1264,16 @@ impl ObjectStore for S3Store {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let resume_offset = opts.range_start.unwrap_or(0);
-        // Only append when resuming a previous partial file (file must already
-        // exist with content). A plain range-GET against a non-existent dest
-        // must create the file instead of failing with ENOENT.
-        let mut file = if resume_offset > 0 && dest.exists() {
+        // Only append when the caller explicitly signalled resume (the
+        // transfer manager sets this after confirming a partial file from a
+        // prior attempt exists). Inferring resume from `dest.exists()` used
+        // to append range payloads onto unrelated pre-existing files.
+        let resume_offset = if opts.resume && dest.exists() {
+            opts.range_start.unwrap_or(0)
+        } else {
+            0
+        };
+        let mut file = if opts.resume && resume_offset > 0 && dest.exists() {
             tokio::fs::OpenOptions::new()
                 .write(true)
                 .append(true)
@@ -1207,7 +1291,13 @@ impl ObjectStore for S3Store {
             tokio::select! {
                 _ = ctx.cancel.cancelled() => {
                     drop(file);
-                    let _ = tokio::fs::remove_file(&dest).await;
+                    // Delete only what we created/truncated ourselves. While
+                    // resuming onto a pre-existing partial file, leave it
+                    // intact so a later retry can continue from the same
+                    // offset instead of starting over.
+                    if !(opts.resume && resume_offset > 0) {
+                        let _ = tokio::fs::remove_file(&dest).await;
+                    }
                     ctx.progress.emit(TransferEvent::Canceled { transfer_id: ctx.transfer_id.clone() });
                     return Err(canceled(&ctx.transfer_id));
                 }
@@ -1641,6 +1731,12 @@ impl S3Store {
 
     /// Either resume an upload from saved state, or create a fresh multipart
     /// upload and return its id alongside an empty `completed_parts` list.
+    ///
+    /// Resume state is discarded when the source file changed since the saved
+    /// parts were uploaded: part boundaries are byte offsets into one exact
+    /// version of the file, so applying them to a different version would
+    /// assemble a corrupted object. The stale server-side upload is aborted
+    /// best-effort before starting fresh.
     async fn init_or_resume_upload(
         &self,
         bucket: &str,
@@ -1649,7 +1745,17 @@ impl S3Store {
         ctx: &TransferCtx,
     ) -> AppResult<(String, Vec<SavedPart>)> {
         if let Some(state) = ctx.resume.clone() {
-            return Ok((state.upload_id, state.completed_parts));
+            if !state.upload_id.is_empty() && !resume_state_is_stale(&state, ctx) {
+                return Ok((state.upload_id, state.completed_parts));
+            }
+            if !state.upload_id.is_empty() {
+                // Source mismatch (or unknown-but-suspect state): drop the old
+                // upload server-side so incomplete-multipart storage doesn't
+                // leak. Best-effort — the fresh create below must proceed.
+                let _ = self
+                    .abort_multipart_upload(bucket, key, &state.upload_id)
+                    .await;
+            }
         }
 
         let mut req = self.client.create_multipart_upload().bucket(bucket).key(key);

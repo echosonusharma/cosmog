@@ -177,8 +177,17 @@ pub struct BulkTransferResult {
 /// Walk a local directory and enqueue every file as an individual upload.
 /// Returns the list of transfer ids created. The FE listens on those.
 /// Subdirectories are joined onto `prefix` using `/`.
+///
+/// Encryption parity with the single-file path: when the bucket has client-
+/// side encryption configured, every file is stream-encrypted to an `enc_tmp`
+/// temp file before enqueueing and `PutOptions.cleanup_path` points at the
+/// ciphertext so the transfer worker deletes it after settle (success or
+/// failure). The bucket's encryption config + age recipient are resolved ONCE
+/// per bulk op, not per file — per-file work is only the encrypt step itself.
 pub async fn upload_directory(
     transfers: &crate::transfer::TransferManager,
+    db: &crate::db::Db,
+    db_path: &Path,
     store: Arc<dyn ObjectStore>,
     account_id: &str,
     bucket: &str,
@@ -198,6 +207,23 @@ pub async fn upload_directory(
         skipped: Vec::new(),
     };
     let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
+
+    // Resolve encryption once for the whole operation (mirrors
+    // `transfer::encrypt::encrypt_for_bucket_if_needed_with`, hoisted out of
+    // the loop). `None` => plaintext uploads, identical to unencrypted buckets.
+    let enc_cfg = db.get_encryption_config(account_id, bucket).await?;
+    let enc = match &enc_cfg {
+        Some(cfg) => {
+            let recipient = crate::crypto::parse_recipient(&cfg.recipient)?;
+            let tmp_dir = db_path
+                .parent()
+                .ok_or_else(|| AppError::Internal("db_path has no parent".into()))?
+                .join("enc_tmp");
+            tokio::fs::create_dir_all(&tmp_dir).await?;
+            Some((recipient, tmp_dir))
+        }
+        None => None,
+    };
 
     while let Some(dir) = stack.pop() {
         if cancel.is_cancelled() {
@@ -222,6 +248,40 @@ pub async fn upload_directory(
             if cancel.is_cancelled() {
                 return Err(AppError::Canceled("upload_directory canceled".into()));
             }
+
+            // Encrypt BEFORE enqueue so plaintext never reaches the worker for
+            // an encrypted bucket. Same helper as the single-file path
+            // (`crypto::encrypt_file`, streaming, constant-memory). On failure
+            // we abort the whole op — matching the single-file command's error
+            // semantics — rather than silently uploading plaintext. Any temp
+            // ciphertext already staged for *earlier* files is owned by their
+            // transfer rows via cleanup_path; a partial `.age` from THIS file
+            // is removed below, and leftovers from a hard cancel are reaped by
+            // the boot-time enc_tmp sweep.
+            let mut opts = crate::store::PutOptions::default();
+            let mut upload_path = path.clone();
+            if let Some((recipient, tmp_dir)) = &enc {
+                let tmp_path = tmp_dir.join(format!("{}.age", uuid::Uuid::new_v4()));
+                if let Err(e) =
+                    crate::crypto::encrypt_file(&path, &tmp_path, recipient.clone()).await
+                {
+                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                    return Err(e);
+                }
+                opts.cleanup_path = Some(tmp_path.clone());
+                // Same metadata markers as the single-file path so download +
+                // UI detection work identically for bulk-uploaded objects.
+                opts.user_metadata
+                    .insert("cosmog-encrypted".into(), "1".into());
+                opts.user_metadata
+                    .insert("cosmog-format".into(), crate::crypto::FORMAT_TAG.into());
+                if let Some(cfg) = &enc_cfg {
+                    opts.user_metadata
+                        .insert("cosmog-recipient".into(), cfg.recipient.clone());
+                }
+                upload_path = tmp_path;
+            }
+
             let sink = external_sink_factory(&path.to_string_lossy());
             let id = transfers
                 .enqueue_upload(
@@ -229,8 +289,8 @@ pub async fn upload_directory(
                     account_id.to_string(),
                     bucket.to_string(),
                     key,
-                    path.clone(),
-                    crate::store::PutOptions::default(),
+                    upload_path,
+                    opts,
                     sink,
                     crate::db::transfers::TransferOrigin::User,
                 )
@@ -244,6 +304,9 @@ pub async fn upload_directory(
 
 /// Walk a remote prefix (recursive LIST) and enqueue every object as an
 /// individual download into `local_root`, preserving subpath structure.
+/// Cancellable mid-flight via `cancel` (same contract as `upload_directory`
+/// and `delete_folder`) so a stuck LIST page or huge listing can be aborted
+/// through the bulk-op registry.
 pub async fn download_directory(
     transfers: &crate::transfer::TransferManager,
     store: Arc<dyn ObjectStore>,
@@ -252,6 +315,7 @@ pub async fn download_directory(
     prefix: &str,
     local_root: &Path,
     external_sink_factory: impl Fn(&str) -> ProgressSink,
+    cancel: CancellationToken,
 ) -> AppResult<BulkTransferResult> {
     tokio::fs::create_dir_all(local_root).await?;
     let mut out = BulkTransferResult {
@@ -274,8 +338,14 @@ pub async fn download_directory(
 
     let mut continuation: Option<String> = None;
     loop {
-        let page = store
-            .list_objects(
+        if cancel.is_cancelled() {
+            return Err(AppError::Canceled(format!("download_directory {prefix}")));
+        }
+        let page = tokio::select! {
+            _ = cancel.cancelled() => {
+                return Err(AppError::Canceled(format!("download_directory {prefix}")))
+            }
+            p = store.list_objects(
                 bucket,
                 ListOptions {
                     prefix: Some(prefix.to_string()),
@@ -283,10 +353,13 @@ pub async fn download_directory(
                     continuation: continuation.clone(),
                     max_keys: Some(1000),
                 },
-            )
-            .await?;
+            ) => p?,
+        };
 
         for obj in &page.objects {
+            if cancel.is_cancelled() {
+                return Err(AppError::Canceled(format!("download_directory {prefix}")));
+            }
             // Strip the leading prefix so the local layout starts at root.
             let suffix = obj.key.strip_prefix(prefix).unwrap_or(&obj.key);
             let suffix = suffix.trim_start_matches('/');

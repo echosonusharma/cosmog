@@ -125,7 +125,7 @@ pub async fn run_loop<S: NwCtx>(ctx: S, token: CancellationToken) {
                 return;
             }
             _ = tick.tick() => {
-                if let Err(e) = run_once(&ctx).await {
+                if let Err(e) = run_once(&ctx, &token).await {
                     warn!("night watcher tick failed: {e}");
                 }
             }
@@ -148,11 +148,16 @@ impl<S: NwCtx> Drop for ScanClaimGuard<S> {
 
 /// Trigger a full scan for every enabled watch whose interval has elapsed.
 /// Each scan runs in its own task, guarded so the same watch never scans twice
-/// concurrently.
-async fn run_once<S: NwCtx>(state: &S) -> AppResult<()> {
+/// concurrently. The loop's cancel token is threaded into every spawned scan
+/// so a stop request also halts in-flight scans (Android headless relies on
+/// this: uploads must not keep running after the wakelock is released).
+async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<()> {
     let watches = state.db().list_enabled_watches().await?;
     let now = Utc::now().timestamp();
     for w in watches {
+        if token.is_cancelled() {
+            break;
+        }
         let due = w
             .last_scan_at
             .map(|t| now - t >= w.full_scan_secs)
@@ -164,6 +169,7 @@ async fn run_once<S: NwCtx>(state: &S) -> AppResult<()> {
             continue;
         }
         let state = state.clone();
+        let task_token = token.clone();
         tokio::spawn(async move {
             // Drop-guard: releases the scan claim even if reconcile_watch panics
             // or the task is aborted, so a crashed scan never strands the watch.
@@ -171,7 +177,10 @@ async fn run_once<S: NwCtx>(state: &S) -> AppResult<()> {
                 state: state.clone(),
                 watch_id: w.id.clone(),
             };
-            let res = reconcile_watch(&state, &w).await;
+            if task_token.is_cancelled() {
+                return;
+            }
+            let res = reconcile_watch(&state, &w, &task_token).await;
             let err = res.as_ref().err().map(|e| e.to_string());
             if let Err(ref e) = res {
                 warn!(watch = %w.id, "night watcher scan failed: {e}");
@@ -196,9 +205,13 @@ async fn run_once<S: NwCtx>(state: &S) -> AppResult<()> {
 /// - `Some(uri)` (Android SAF): enumerate the tree via `crate::saf`, using the
 ///   provider-supplied mtime/size for the cheap fast-path, hashing/staging only
 ///   the entries that actually changed.
-pub(crate) async fn reconcile_watch<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
+pub(crate) async fn reconcile_watch<S: NwCtx>(
+    state: &S,
+    watch: &NightWatch,
+    token: &CancellationToken,
+) -> AppResult<()> {
     if watch.tree_uri.is_some() {
-        return reconcile_watch_saf(state, watch).await;
+        return reconcile_watch_saf(state, watch, token).await;
     }
     let root = PathBuf::from(&watch.local_dir);
     if !root.is_dir() {
@@ -216,6 +229,12 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(state: &S, watch: &NightWatch) -> 
     let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for rel in files {
+        // Stop promptly on a stop request. A partial walk must never sweep:
+        // the seen set is incomplete, so pruning would mass-delete live rows.
+        if token.is_cancelled() {
+            info!(watch = %watch.id, "night watcher: scan aborted by cancellation");
+            return Ok(());
+        }
         scanned += 1;
         if matcher.is_ignored(&rel) {
             ignored += 1;
@@ -291,7 +310,11 @@ async fn sweep_deleted<S: NwCtx>(
 /// provider-supplied mtime/size fast-path. Only genuinely-changed entries are
 /// hashed (`hash_saf_document`) and staged to a real fs path
 /// (`stage_saf_upload`) before feeding the existing encrypt/enqueue path.
-async fn reconcile_watch_saf<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
+async fn reconcile_watch_saf<S: NwCtx>(
+    state: &S,
+    watch: &NightWatch,
+    token: &CancellationToken,
+) -> AppResult<()> {
     let uri = watch.tree_uri.clone().expect("tree_uri present");
     // read_errors seeds `errors` so an unreadable subtree blocks the sweep,
     // matching the desktop path. A revoked/deleted root still hard-errors above.
@@ -306,6 +329,11 @@ async fn reconcile_watch_saf<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResu
     for entry in entries {
         if entry.is_dir {
             continue;
+        }
+        // Same partial-walk rule as the desktop path: abort without sweeping.
+        if token.is_cancelled() {
+            info!(watch = %watch.id, "night watcher: SAF scan aborted by cancellation");
+            return Ok(());
         }
         scanned += 1;
         if matcher.is_ignored(&entry.rel_path) {
@@ -365,24 +393,33 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
 ) -> AppResult<Reconciled> {
     let meta = match tokio::fs::metadata(abs).await {
         Ok(m) => m,
-        Err(e) => {
-            // A stat failure can be transient (locked file, brief EIO). Do NOT
-            // delete the state row: that would force a needless re-upload. Skip
-            // the entry and leave it unseen so a genuine deletion still prunes
-            // via mark-and-sweep once the file is truly gone.
-            warn!(watch = %watch.id, rel = %rel_path, "night watcher: stat failed, skipping (state kept): {e}");
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Genuinely gone: leave unseen so mark-and-sweep prunes the row.
             return Ok(Reconciled { enqueued: false, seen: false });
+        }
+        Err(e) => {
+            // Transient failure (AV/indexer lock, brief EIO): surface as an
+            // error so the scan is not "clean" and the sweep stays blocked.
+            // Returning seen:false here would let one locked file's state row
+            // be pruned, forcing a full redundant re-upload next scan.
+            warn!(watch = %watch.id, rel = %rel_path, "night watcher: stat failed, blocking sweep this scan: {e}");
+            return Err(AppError::Internal(format!(
+                "stat {} failed: {e}",
+                abs.display()
+            )));
         }
     };
     if !meta.is_file() {
         return Ok(Reconciled { enqueued: false, seen: false });
     }
     let size = meta.len() as i64;
+    // Millisecond precision: whole-second truncation made same-second,
+    // same-size edits invisible to the fingerprint forever.
     let mtime = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
 
     let abs = abs.to_path_buf();
@@ -422,7 +459,9 @@ async fn reconcile_saf_entry<S: NwCtx>(
     // SAF providers report -1 for unknown size; clamp to 0 so the fast-path
     // fingerprint stays a non-negative, comparable value.
     let size = entry.size.max(0);
-    let mtime = entry.mtime;
+    // Provider mtimes may arrive in seconds or milliseconds depending on the
+    // provider; normalize into the same millisecond domain the fs path uses.
+    let mtime = norm_mtime(entry.mtime);
 
     // Stage dir: a sibling of the db file, mirroring how the encrypt path uses
     // an enc_tmp scratch area under the same parent.
@@ -512,9 +551,28 @@ where
     };
     // Fast path: unchanged by cheap fingerprint.
     if let Some(p) = &prev {
-        if p.mtime == mtime && p.size == size {
+        if norm_mtime(p.mtime) == mtime && p.size == size {
             debug!(watch = %watch.id, rel = %rel_path, "night watcher: unchanged (mtime+size)");
             return Ok(false);
+        }
+    }
+
+    // Retry backoff BEFORE hashing: a file paused after MAX_UPLOAD_RETRIES
+    // failures must not cost a full disk read + blake3 pass on every scan
+    // while it waits out the pause. Once the pause elapses, clear the row for
+    // a fresh set of tries. (Side effect: TouchOnly fingerprint refreshes are
+    // deferred until the pause ends — one extra hash later, no correctness
+    // impact.)
+    if let Some((fail_count, retry_after)) =
+        state.db().file_retry_get(&watch.id, rel_path).await?
+    {
+        if fail_count >= MAX_UPLOAD_RETRIES {
+            let now = chrono::Utc::now().timestamp();
+            if retry_after > now {
+                debug!(watch = %watch.id, rel = %rel_path, retry_after, "night watcher: upload paused after repeated failures");
+                return Ok(false);
+            }
+            state.db().file_retry_clear(&watch.id, rel_path).await?;
         }
     }
 
@@ -545,22 +603,6 @@ where
             return Ok(false);
         }
         Decision::Upload => {}
-    }
-
-    // Retry backoff: a file that failed to upload MAX_UPLOAD_RETRIES times is
-    // paused for RETRY_PAUSE_SECS so a broken file/endpoint stops re-enqueuing
-    // every scan. Once the pause elapses, clear the row for a fresh set of tries.
-    if let Some((fail_count, retry_after)) =
-        state.db().file_retry_get(&watch.id, rel_path).await?
-    {
-        if fail_count >= MAX_UPLOAD_RETRIES {
-            let now = chrono::Utc::now().timestamp();
-            if retry_after > now {
-                debug!(watch = %watch.id, rel = %rel_path, retry_after, "night watcher: upload paused after repeated failures");
-                return Ok(false);
-            }
-            state.db().file_retry_clear(&watch.id, rel_path).await?;
-        }
     }
 
     // Content changed (or new). Claim the file so the watcher and the full
@@ -622,7 +664,8 @@ pub async fn reconcile_file_for_test<S: NwCtx>(
 /// Test-only full-scan entrypoint (walks the dir, applies ignore, reconciles).
 #[cfg(feature = "nw-test-hooks")]
 pub async fn reconcile_watch_for_test<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
-    reconcile_watch(state, watch).await
+    let token = CancellationToken::new();
+    reconcile_watch(state, watch, &token).await
 }
 
 /// Build the encrypted-if-needed source, resolve the store, and enqueue the
@@ -841,16 +884,36 @@ enum Decision {
     Upload,
 }
 
+/// `nw_file_state.mtime` historically stored whole seconds; rows written by
+/// newer builds store milliseconds. Values below 10^12 can only be seconds
+/// (millisecond epoch values are ~1.7e12), so legacy rows are scaled up on
+/// read. Worst case for a misclassified row is one extra hash pass.
+fn norm_mtime(v: i64) -> i64 {
+    if v > 0 && v < 1_000_000_000_000 {
+        v * 1000
+    } else {
+        v
+    }
+}
+
 fn decide(prev: Option<&FileState>, mtime: i64, size: i64, hash: &str) -> Decision {
     match prev {
-        Some(p) if p.mtime == mtime && p.size == size => Decision::Skip,
+        Some(p) if norm_mtime(p.mtime) == mtime && p.size == size => Decision::Skip,
         Some(p) if p.hash == hash => Decision::TouchOnly,
         _ => Decision::Upload,
     }
 }
 
 fn normalize_rel(rel: &Path) -> String {
-    rel.to_string_lossy().replace('\\', "/")
+    let lossy = rel.to_string_lossy();
+    // Windows separators must become '/' for S3 keys + gitignore matching.
+    // On Unix a backslash is a legal filename character — converting it would
+    // map "a\b.txt" onto the unrelated nested key "a/b.txt" (and its state
+    // row), so the conversion is Windows-only.
+    #[cfg(windows)]
+    return lossy.replace('\\', "/");
+    #[cfg(not(windows))]
+    return lossy.into_owned();
 }
 
 fn build_key(prefix: &str, rel: &str) -> String {
@@ -921,23 +984,43 @@ mod tests {
 
     #[test]
     fn decide_skips_unchanged_by_fingerprint() {
-        let prev = fs(100, 10, "aaa");
+        let prev = fs(1_700_000_000_000, 10, "aaa");
         // Same mtime+size: skip without even trusting the hash.
-        assert_eq!(decide(Some(&prev), 100, 10, "zzz"), Decision::Skip);
+        assert_eq!(
+            decide(Some(&prev), 1_700_000_000_000, 10, "zzz"),
+            Decision::Skip
+        );
+    }
+
+    #[test]
+    fn decide_normalizes_legacy_second_mtime() {
+        // Rows written by older builds store whole seconds; they must compare
+        // equal to the same instant expressed in milliseconds.
+        let prev = fs(1_700_000_000, 10, "aaa");
+        assert_eq!(
+            decide(Some(&prev), 1_700_000_000_000, 10, "zzz"),
+            Decision::Skip
+        );
     }
 
     #[test]
     fn decide_touch_only_when_bytes_match_but_fingerprint_drifts() {
-        let prev = fs(100, 10, "aaa");
+        let prev = fs(1_700_000_000_000, 10, "aaa");
         // mtime moved but content hash identical: refresh record, no upload.
-        assert_eq!(decide(Some(&prev), 200, 10, "aaa"), Decision::TouchOnly);
+        assert_eq!(
+            decide(Some(&prev), 1_700_000_100_000, 10, "aaa"),
+            Decision::TouchOnly
+        );
     }
 
     #[test]
     fn decide_uploads_new_and_changed() {
-        assert_eq!(decide(None, 100, 10, "aaa"), Decision::Upload);
-        let prev = fs(100, 10, "aaa");
-        assert_eq!(decide(Some(&prev), 200, 20, "bbb"), Decision::Upload);
+        assert_eq!(decide(None, 1_700_000_000_000, 10, "aaa"), Decision::Upload);
+        let prev = fs(1_700_000_000_000, 10, "aaa");
+        assert_eq!(
+            decide(Some(&prev), 1_700_000_100_000, 20, "bbb"),
+            Decision::Upload
+        );
     }
 
     #[test]

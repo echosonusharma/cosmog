@@ -14,7 +14,7 @@ use tauri::State;
 
 use crate::db::accounts::Account;
 use crate::db::settings::AppSettings;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 /// Serialized snapshot of a Cosmog install. Versioned so future schema
@@ -66,18 +66,27 @@ pub async fn backup_database(
 /// We cannot replace the live SQLite file while the process holds open
 /// connections to it. Instead we write the source bytes to
 /// `<db_path>.restore_pending`; on next startup the boot code atomically
-/// renames it over the live DB after one final SQLite-header sanity check.
+/// renames it over the live DB after a SQLite-header + integrity sanity check.
 ///
 /// The source is validated before staging: must be an existing regular file,
 /// non-empty, and start with the SQLite 3 magic header. This prevents the FE
 /// from accidentally bricking the database with an empty/wrong file.
+///
+/// Staging is crash- and concurrency-safe: bytes land at a unique temp name in
+/// the same directory (so the final rename is atomic on every supported FS),
+/// then rename into `.restore_pending`. A static mutex serializes concurrent
+/// stagings — two interleaved `copy` calls into the same pending path would
+/// otherwise produce a corrupt hybrid file that passes the header check but
+/// fails at boot.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn stage_restore(
     state: State<'_, AppState>,
     src_path: String,
 ) -> AppResult<String> {
-    use crate::error::AppError;
+    static STAGE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = STAGE_LOCK.lock().await;
+
     let src = std::path::PathBuf::from(&src_path);
     let meta = tokio::fs::metadata(&src)
         .await
@@ -109,10 +118,25 @@ pub async fn stage_restore(
     }
     drop(f);
 
+    let dir = state
+        .db_path
+        .parent()
+        .ok_or_else(|| AppError::Internal("db_path has no parent directory".into()))?
+        .to_path_buf();
     let pending = state.db_path.with_extension("restore_pending");
-    tokio::fs::copy(&src, &pending)
-        .await
-        .map_err(AppError::from)?;
+    // Unique temp name in the SAME directory as the target: same-FS rename is
+    // atomic, so a crash mid-copy can never leave a half-written
+    // restore_pending behind for boot to pick up.
+    let staging = dir.join(format!(".restore_stage.{}", uuid::Uuid::new_v4()));
+    let copied = tokio::fs::copy(&src, &staging).await;
+    if let Err(e) = copied {
+        let _ = tokio::fs::remove_file(&staging).await;
+        return Err(AppError::from(e));
+    }
+    if let Err(e) = tokio::fs::rename(&staging, &pending).await {
+        let _ = tokio::fs::remove_file(&staging).await;
+        return Err(AppError::from(e));
+    }
     Ok(pending.to_string_lossy().to_string())
 }
 
@@ -128,8 +152,6 @@ pub async fn stage_restore(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn clear_app_data(state: State<'_, AppState>) -> AppResult<()> {
-    use crate::error::AppError;
-
     let accounts = state.db.list_accounts().await?;
     for account in accounts {
         let id = account.id.clone();
@@ -163,6 +185,16 @@ pub async fn import_config(
     state: State<'_, AppState>,
     bundle: ConfigExport,
 ) -> AppResult<ImportSummary> {
+    // Refuse bundles from a NEWER Cosmog than this build: their extra fields
+    // would be silently dropped by serde, corrupting the imported config.
+    // Older versions are fine — missing fields default per serde.
+    if bundle.schema_version > EXPORT_SCHEMA {
+        return Err(AppError::InvalidInput(format!(
+            "unsupported export schema_version {} (this build supports up to {EXPORT_SCHEMA}); \
+             update Cosmog on this machine and retry the import",
+            bundle.schema_version
+        )));
+    }
     let mut inserted = 0usize;
     let mut updated = 0usize;
     for acct in bundle.accounts {

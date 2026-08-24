@@ -87,7 +87,7 @@ async fn upload_directory_cancel_stops_early() {
         .await
         .unwrap();
     let bucket = common::create_test_bucket(&store, "cosmog-ulcancel").await;
-    let transfers = TransferManager::new(db, 4);
+    let transfers = TransferManager::new(db.clone(), 4);
 
     let src = tempfile::tempdir().unwrap();
     for i in 0..10 {
@@ -101,6 +101,8 @@ async fn upload_directory_cancel_stops_early() {
 
     let err = upload_directory(
         &transfers,
+        &db,
+        &_td.path().join("test.sqlite"),
         store.clone(),
         &acct.id,
         &bucket,
@@ -147,6 +149,8 @@ async fn upload_and_download_directory_roundtrip() {
 
     let uploaded = upload_directory(
         &transfers,
+        &db,
+        &_td.path().join("test.sqlite"),
         store.clone(),
         &acct_id,
         &bucket,
@@ -187,6 +191,7 @@ async fn upload_and_download_directory_roundtrip() {
         "remote/",
         dst.path(),
         |_| ProgressSink::noop(),
+        CancellationToken::new(),
     )
     .await
     .unwrap();

@@ -247,10 +247,13 @@ pub fn run() {
                 // Apply any pending restore staged by the user in a previous
                 // session. Re-validate the file is still a SQLite DB right
                 // before the swap — paranoia in case the file was tampered
-                // with between staging and boot.
+                // with between staging and boot. Beyond the 16-byte magic we
+                // also run a read-only `PRAGMA quick_check`: a truncated or
+                // corrupt file can carry a valid header, and renaming it over
+                // the live DB would brick every account on this machine.
                 let pending = db_path.with_extension("restore_pending");
                 if pending.exists() {
-                    let valid = match tokio::fs::File::open(&pending).await {
+                    let magic_ok = match tokio::fs::File::open(&pending).await {
                         Ok(mut f) => {
                             use tokio::io::AsyncReadExt;
                             let mut header = [0u8; 16];
@@ -259,9 +262,30 @@ pub fn run() {
                         }
                         Err(_) => false,
                     };
+                    let valid = magic_ok && {
+                        // Read-only open + structural sanity. Blocking SQLite
+                        // work goes to spawn_blocking; any error at all (open,
+                        // query, panic) counts as invalid so we never swap in
+                        // an unverified file.
+                        let check_path = pending.clone();
+                        tokio::task::spawn_blocking(move || -> bool {
+                            (|| -> rusqlite::Result<bool> {
+                                let conn = rusqlite::Connection::open_with_flags(
+                                    &check_path,
+                                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                                )?;
+                                let status: String =
+                                    conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+                                Ok(status.eq_ignore_ascii_case("ok"))
+                            })()
+                            .unwrap_or(false)
+                        })
+                        .await
+                        .unwrap_or(false)
+                    };
                     if !valid {
                         tracing::warn!(
-                            "restore_pending at {} is not a SQLite DB; ignoring + removing",
+                            "restore_pending at {} is not a healthy SQLite DB; ignoring + removing",
                             pending.display()
                         );
                         let _ = tokio::fs::remove_file(&pending).await;

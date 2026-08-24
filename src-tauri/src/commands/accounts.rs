@@ -2,10 +2,25 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::db::accounts::{Account, NewAccount, UpdateAccount};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::providers::Protocol;
 use crate::secrets;
 use crate::state::AppState;
+use crate::validate;
+
+/// Apply `require_non_empty`'s non-empty + length-cap rules to an optional
+/// field, preserving absence (`None` stays `None`).
+fn validated_optional(field: &str, value: &Option<String>) -> AppResult<Option<String>> {
+    value.as_deref().map(|v| validate::require_non_empty(field, v)).transpose()
+}
+
+/// Run the synchronous keyring write off the async runtime. `keyring` blocks;
+/// on macOS a prompt or locked keychain can stall for seconds.
+async fn set_secret_blocking(id: String, secret: String) -> AppResult<()> {
+    tokio::task::spawn_blocking(move || secrets::set_secret(&id, &secret))
+        .await
+        .map_err(|e| AppError::Internal(format!("keyring task failed: {e}")))?
+}
 
 #[derive(Deserialize)]
 pub struct AddAccountInput {
@@ -41,20 +56,27 @@ pub async fn add_account(
     input: AddAccountInput,
 ) -> AppResult<Account> {
     Protocol::parse(&input.protocol)?;
+    let name = validate::require_non_empty("name", &input.name)?;
+    let endpoint = validated_optional("endpoint", &input.endpoint)?;
+    let region = validated_optional("region", &input.region)?;
+    let access_key_id = validate::require_non_empty("access_key_id", &input.access_key_id)?;
     let acct = state
         .db
         .insert_account(NewAccount {
-            name: input.name,
+            name,
             protocol: input.protocol,
-            endpoint: input.endpoint,
-            region: input.region.unwrap_or_else(|| "us-east-1".to_string()),
-            access_key_id: input.access_key_id,
+            endpoint,
+            region: region.unwrap_or_else(|| "us-east-1".to_string()),
+            access_key_id,
             addressing_style: input.addressing_style,
         })
         .await?;
     // Write secret AFTER DB insert (we need the generated id).
     // On keyring failure roll back the DB row so no orphan is left.
-    if let Err(e) = secrets::set_secret(&acct.id, &input.secret_access_key) {
+    // The keyring write runs on a blocking thread (see set_secret_blocking).
+    if let Err(e) =
+        set_secret_blocking(acct.id.clone(), input.secret_access_key).await
+    {
         if let Err(del_err) = state.db.delete_account(&acct.id).await {
             tracing::error!(account_id = %acct.id, "failed to roll back account after keyring write failed: {del_err}");
         }
@@ -122,23 +144,32 @@ pub async fn update_account(
     id: String,
     input: UpdateAccountInput,
 ) -> AppResult<Account> {
+    let name = validated_optional("name", &input.name)?;
+    let endpoint = match input.endpoint {
+        // Double-Option: Some(None) explicitly clears the endpoint; only the
+        // inner Some(String) is subject to the non-empty/length rules.
+        Some(inner) => Some(validated_optional("endpoint", &inner)?),
+        None => None,
+    };
+    let region = validated_optional("region", &input.region)?;
+    let access_key_id = validated_optional("access_key_id", &input.access_key_id)?;
     let acct = state
         .db
         .update_account(
             &id,
             UpdateAccount {
-                name: input.name,
-                endpoint: input.endpoint,
-                region: input.region,
-                access_key_id: input.access_key_id,
+                name,
+                endpoint,
+                region,
+                access_key_id,
                 addressing_style: input.addressing_style,
             },
         )
         .await?;
     if let Some(secret) = input.secret_access_key {
-        secrets::set_secret(&id, &secret)?;
+        set_secret_blocking(id, secret).await?;
     }
-    state.invalidate(&id);
+    state.invalidate(&acct.id);
     Ok(acct)
 }
 

@@ -171,18 +171,35 @@ impl Db {
         let id = id.to_string();
         self.conn
             .call(move |conn| {
+                // One transaction: a partial patch (e.g. new key_prefix with
+                // old full_scan_secs) on a mid-way IO failure would leave the
+                // watch config internally inconsistent.
+                let tx = conn.transaction()?;
                 if let Some(v) = patch.key_prefix {
-                    conn.execute("UPDATE nw_watch SET key_prefix=?2 WHERE id=?1", params![id, v])?;
+                    tx.execute("UPDATE nw_watch SET key_prefix=?2 WHERE id=?1", params![id, v])?;
                 }
                 if let Some(v) = patch.ignore_file {
-                    conn.execute("UPDATE nw_watch SET ignore_file=?2 WHERE id=?1", params![id, v])?;
+                    // An empty string means "clear" — storing '' would make
+                    // Matcher::build fail on every scan forever.
+                    let v = if v.trim().is_empty() { None } else { Some(v) };
+                    tx.execute(
+                        "UPDATE nw_watch SET ignore_file=?2 WHERE id=?1",
+                        params![id, v],
+                    )?;
                 }
                 if let Some(v) = patch.full_scan_secs {
-                    conn.execute("UPDATE nw_watch SET full_scan_secs=?2 WHERE id=?1", params![id, v])?;
+                    tx.execute(
+                        "UPDATE nw_watch SET full_scan_secs=?2 WHERE id=?1",
+                        params![id, v],
+                    )?;
                 }
                 if let Some(v) = patch.delete_policy {
-                    conn.execute("UPDATE nw_watch SET delete_policy=?2 WHERE id=?1", params![id, v])?;
+                    tx.execute(
+                        "UPDATE nw_watch SET delete_policy=?2 WHERE id=?1",
+                        params![id, v],
+                    )?;
                 }
+                tx.commit()?;
                 Ok::<_, tokio_rusqlite::Error>(())
             })
             .await
