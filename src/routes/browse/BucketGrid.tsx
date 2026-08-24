@@ -25,16 +25,14 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     () => ({ a: props.accountId, r: refresh() }),
     ({ a }) => { setErrDismissed(false); return listBuckets(a); },
   );
-  // Encrypted bucket names for this account, in a Set for O(1) badge lookup.
-  // Re-fetches whenever the grid is refreshed so a fresh enable/disable is
-  // reflected without a page reload.
+  // Encrypted bucket names, in a Set for O(1) badge lookup; refetches with the
+  // grid so a fresh enable/disable is reflected without a page reload.
   const [encSet] = createResource<Set<string>, { a: string; r: number }>(
     () => ({ a: props.accountId, r: refresh() }),
     async ({ a }) => new Set(await listEncryptedBuckets(a).catch(() => [] as string[])),
   );
   const [showNew, setShowNew] = createSignal(false);
   const [configBucket, setConfigBucket] = createSignal<string | null>(null);
-  // Provider drives which bucket-config APIs are known to be supported.
   const provider = createMemo(() =>
     detectProvider(accounts().find((a) => a.id === props.accountId) ?? { endpoint: null }),
   );

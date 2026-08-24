@@ -1,17 +1,5 @@
-//! Process-wide shared state managed by Tauri.
-//!
-//! [`AppState`] is registered via `app.manage(...)` at startup and accessed from
-//! command handlers through `State<'_, AppState>`. It is cheap to clone — every
-//! field wraps its contents in `Arc` or has interior `Arc` sharing.
-//!
-//! The client cache memoizes one [`ObjectStore`] per account so we don't
-//! reconstruct an AWS SDK client (and re-read the keyring secret) for every
-//! invocation. Cache entries are invalidated on account update or delete via
-//! [`AppState::invalidate`].
-//!
-//! `scan_cancels` indexes currently-running full bucket scans by
-//! `(account_id, bucket)` so [`commands::search::cancel_bucket_scan`] can stop
-//! one in flight.
+//! Tauri-managed shared state, registered via `app.manage(...)`. Cheap to
+//! clone — every field wraps its contents in `Arc` / interior `Arc` sharing.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,47 +18,38 @@ use crate::store::region_retry::RegionRetryStore;
 use crate::store::ObjectStore;
 use crate::transfer::TransferManager;
 
-/// Shared backend state managed by Tauri.
+/// Shared backend state managed by Tauri; the `clients` map memoizes one
+/// store per account so SDK clients (and keyring reads) aren't rebuilt per call.
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
     pub transfers: TransferManager,
     pub app: tauri::AppHandle,
-    /// Filesystem directory where the rolling log file lives. Used by the
-    /// `get_log_tail` command.
+    /// Dir of the rolling log file; used by `get_log_tail`.
     pub log_dir: PathBuf,
-    /// Path to the live SQLite file. Used by backup/restore commands.
+    /// Live SQLite file path; used by backup/restore commands.
     pub db_path: PathBuf,
-    /// account_id -> initialized [`ObjectStore`] client. Lazily populated.
+    /// account_id -> initialized store client, lazily populated.
     clients: Arc<DashMap<String, Arc<dyn ObjectStore>>>,
-    /// (account_id, bucket) -> cancellation token for an active full bucket
-    /// scan.
+    /// (account_id, bucket) -> token for an active full bucket scan.
     scan_cancels: Arc<DashMap<(String, String), CancellationToken>>,
-    /// Per-bulk-op cancellation tokens, keyed by a caller-chosen opaque id.
-    /// Kept separate from `scan_cancels` so a `delete_folder` cancel can't
-    /// kill a real bucket-scan and vice versa.
+    /// Bulk-op cancel tokens keyed by caller-chosen opaque id; kept separate
+    /// from `scan_cancels` so one cancel can't kill the other op type.
     bulk_cancels: Arc<DashMap<String, CancellationToken>>,
-    /// In-flight prefix syncs: (account_id, bucket, prefix). Guards against
-    /// concurrent syncs for the same prefix — FE polling can otherwise spawn
-    /// multiple overlapping mark/sweep cycles that corrupt the cache.
+    /// In-flight prefix syncs; guards against overlapping mark/sweep cycles
+    /// (FE polling would otherwise corrupt the cache).
     prefix_syncs: Arc<DashSet<(String, String, String)>>,
-    /// (account_id, bucket, prefix) -> (unix_ts, error_message). Used to
-    /// throttle re-spawning background sync after a failure so transient or
-    /// permanent S3 errors don't get hammered every 1.5s poll cycle.
+    /// Last sync error per prefix, throttling background respawn after failures.
     prefix_sync_errors: Arc<DashMap<(String, String, String), (i64, String)>>,
-    /// In-memory cache for AppSettings. Avoids a SQLite read on every
-    /// browse_prefix call (which is polled every 1.5s during refresh).
-    /// Invalidated by settings_patch and restore_backup commands.
+    /// In-memory AppSettings cache, avoiding a read on every polled browse
+    /// call. Invalidated by settings_patch / restore_backup.
     settings_cache: Arc<RwLock<Option<AppSettings>>>,
-    /// Per-(account, bucket) mutex serializing enable/rotate/disable of
-    /// bucket encryption. Prevents two concurrent enables from generating
-    /// two identities and overwriting each other in the keychain.
+    /// Per-bucket mutex serializing encryption enable/rotate/disable so two
+    /// concurrent enables can't overwrite each other's keychain identities.
     encryption_locks: Arc<DashMap<(String, String), Arc<AsyncMutex<()>>>>,
-    /// Night Watcher per-file in-flight claims: (watch_id, rel_path). Stops the
-    /// notify watcher and the periodic full-scan from double-enqueuing the same
-    /// file. Same TOCTOU-safe `DashSet::insert` claim as `prefix_syncs`.
+    /// Night Watcher per-file in-flight claims; stops notify + periodic scan
+    /// double-enqueueing the same file (atomic DashSet::insert claim).
     nw_inflight: Arc<DashSet<(String, String)>>,
-    /// Night Watcher per-watch scan-in-flight guard, keyed by watch id.
     nw_scan_inflight: Arc<DashSet<String>>,
 }
 
@@ -95,7 +74,6 @@ impl AppState {
         }
     }
 
-    /// Atomically claim a Night Watcher file slot. Returns `true` if won.
     pub fn nw_claim(&self, watch_id: &str, rel_path: &str) -> bool {
         self.nw_inflight
             .insert((watch_id.to_string(), rel_path.to_string()))
@@ -106,8 +84,6 @@ impl AppState {
             .remove(&(watch_id.to_string(), rel_path.to_string()));
     }
 
-    /// Atomically claim a Night Watcher full-scan slot for a watch. Returns
-    /// `true` if won (this caller should run the scan).
     pub fn nw_scan_claim(&self, watch_id: &str) -> bool {
         self.nw_scan_inflight.insert(watch_id.to_string())
     }
@@ -116,7 +92,6 @@ impl AppState {
         self.nw_scan_inflight.remove(watch_id);
     }
 
-    /// Serialize encryption enable/rotate/disable on a single bucket.
     pub fn encryption_lock(&self, account_id: &str, bucket: &str) -> Arc<AsyncMutex<()>> {
         self.encryption_locks
             .entry((account_id.to_string(), bucket.to_string()))
@@ -124,7 +99,6 @@ impl AppState {
             .clone()
     }
 
-    /// Load settings, using the in-memory cache when warm.
     pub async fn load_settings(&self) -> AppResult<AppSettings> {
         {
             let r = self.settings_cache.read().await;
@@ -137,7 +111,6 @@ impl AppState {
         Ok(s)
     }
 
-    /// Invalidate the settings cache. Call after any write to settings.
     pub async fn invalidate_settings(&self) {
         *self.settings_cache.write().await = None;
     }
@@ -159,16 +132,14 @@ impl AppState {
     }
 
     pub async fn store_for(&self, account_id: &str) -> AppResult<Arc<dyn ObjectStore>> {
-        // Fast path: already cached.
         if let Some(existing) = self.clients.get(account_id) {
             return Ok(existing.clone());
         }
-        // Slow path: build client, then insert only if another caller hasn't
-        // beaten us (or_insert is a no-op when the entry already exists).
+        // Build then entry().or_insert: another caller may have raced us in.
         let account = self.db.get_account(account_id).await?;
         let mut inner = build_store(&account).await?;
-        // Real AWS only: buckets can live in other regions; route + retry
-        // per bucket so PermanentRedirect never surfaces to the FE.
+        // Real AWS only: per-bucket region routing so PermanentRedirect never
+        // surfaces to the FE.
         if account.endpoint.is_none() {
             inner = Arc::new(RegionRetryStore::new(inner, account.clone()));
         }
@@ -191,10 +162,8 @@ impl AppState {
         self.clients.remove(account_id);
     }
 
-    /// On `PermanentRedirect`: detect the bucket's real region using a probe
-    /// store pointed at the global S3 endpoint (so `GetBucketLocation` works
-    /// regardless of the account's misconfigured region), persist it, evict the
-    /// cached client, rebuild with the correct region, return the new store.
+    /// On PermanentRedirect: probe the bucket's real region via a store pointed
+    /// at the global endpoint, persist it, evict the client, rebuild, return.
     pub async fn fix_region_for_bucket(
         &self,
         account_id: &str,
@@ -202,9 +171,8 @@ impl AppState {
     ) -> AppResult<Arc<dyn ObjectStore>> {
         let account = self.db.get_account(account_id).await?;
         let probe = build_probe_store(&account).await?;
-        // Never persist a guessed region: if the probe fails (e.g. IAM denies
-        // GetBucketLocation) we'd overwrite a possibly-correct stored region
-        // with a wrong one and break every bucket in the account.
+        // Never persist a guessed region: a failed probe (e.g. IAM denies
+        // GetBucketLocation) must not clobber a possibly-correct stored region.
         let real_region = probe
             .get_bucket_location(bucket)
             .await
@@ -235,8 +203,6 @@ impl AppState {
         self.store_for(account_id).await
     }
 
-    /// Register an in-flight scan's cancel token. Returns a fresh token if the
-    /// caller does not supply one, so the worker can listen on it.
     pub fn register_scan(&self, account_id: &str, bucket: &str) -> CancellationToken {
         let token = CancellationToken::new();
         self.scan_cancels.insert(
@@ -246,11 +212,9 @@ impl AppState {
         token
     }
 
-    /// Atomically claim a scan slot. Returns `Some(token)` if this caller won
-    /// (no scan was registered for the bucket) or `None` if one is already in
-    /// flight. Uses the `entry` API so the check-and-set can't race two
-    /// concurrent `enable_bucket_index` calls into two overlapping scans, which
-    /// would corrupt each other's `seen` markers.
+    /// Atomically claim the scan slot; `None` if one is already in flight.
+    /// The entry API prevents two concurrent enables from running overlapping
+    /// scans that would corrupt each other's `seen` markers.
     pub fn try_register_scan(&self, account_id: &str, bucket: &str) -> Option<CancellationToken> {
         use dashmap::mapref::entry::Entry;
         match self
@@ -266,8 +230,7 @@ impl AppState {
         }
     }
 
-    /// Idempotent. Returns `Ok(())` even if no scan is registered (i.e. already
-    /// terminal).
+    /// Idempotent; a no-op when no scan is registered.
     pub fn cancel_scan(&self, account_id: &str, bucket: &str) {
         if let Some(token) = self
             .scan_cancels
@@ -282,21 +245,17 @@ impl AppState {
             .remove(&(account_id.to_string(), bucket.to_string()));
     }
 
-    /// True when a scan is currently registered for this (account, bucket).
     pub fn scan_in_flight(&self, account_id: &str, bucket: &str) -> bool {
         self.scan_cancels
             .contains_key(&(account_id.to_string(), bucket.to_string()))
     }
 
-    /// Adjust the maximum number of concurrent transfers at runtime.
     pub fn set_transfer_concurrency(&self, n: usize) {
         self.transfers.set_concurrency(n);
     }
 
-    /// Atomically claim a prefix sync slot. Returns `true` if this caller won
-    /// the slot (should spawn the task), `false` if already in flight.
-    /// Using `DashSet::insert` as the atomic check-and-set avoids the TOCTOU
-    /// race between a separate `contains` + `insert`.
+    /// Atomically claim a sync slot; `DashSet::insert` avoids the
+    /// contains+insert TOCTOU race.
     pub fn claim_prefix_sync(&self, account_id: &str, bucket: &str, prefix: &str) -> bool {
         self.prefix_syncs.insert((
             account_id.to_string(),
@@ -305,20 +264,17 @@ impl AppState {
         ))
     }
 
-    /// Returns true if a background prefix sync is currently in flight.
     pub fn prefix_sync_in_flight(&self, account_id: &str, bucket: &str, prefix: &str) -> bool {
         self.prefix_syncs
             .contains(&(account_id.to_string(), bucket.to_string(), prefix.to_string()))
     }
 
-    /// Returns true if any prefix sync is in flight for this (account, bucket).
     pub fn prefix_sync_in_flight_for_bucket(&self, account_id: &str, bucket: &str) -> bool {
         self.prefix_syncs
             .iter()
             .any(|entry| entry.0 == account_id && entry.1 == bucket)
     }
 
-    /// Clear the in-flight marker. Call after the sync task finishes (success or error).
     pub fn unregister_prefix_sync(&self, account_id: &str, bucket: &str, prefix: &str) {
         self.prefix_syncs.remove(&(
             account_id.to_string(),
@@ -343,7 +299,6 @@ impl AppState {
         ));
     }
 
-    /// Returns the recorded error message if one occurred within `cooldown_secs`.
     pub fn recent_prefix_sync_error(
         &self,
         account_id: &str,
@@ -361,8 +316,7 @@ impl AppState {
         }
     }
 
-    /// Cancel every active bucket scan for `account_id`. Used during account
-    /// deletion to stop dangling workers.
+    /// Cancel every active scan for an account (used during account deletion).
     pub fn cancel_all_scans_for_account(&self, account_id: &str) {
         for entry in self.scan_cancels.iter() {
             if entry.key().0 == account_id {

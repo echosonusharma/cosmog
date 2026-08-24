@@ -16,9 +16,8 @@ import { VersionRow } from "./VersionRow";
 
 const MAX_PAGES = 20;
 
-// ListObjectVersions with a prefix returns every key that shares the prefix.
-// Follow continuation, accumulating only versions whose key matches exactly,
-// capped at MAX_PAGES so a huge bucket can't spin forever.
+// ListObjectVersions with a prefix returns every key sharing the prefix:
+// accumulate only exact key matches, capped at MAX_PAGES for huge buckets.
 async function fetchAllVersions(
   accountId: string,
   bucket: string,
@@ -41,7 +40,6 @@ async function fetchAllVersions(
     }
   } while (continuation);
 
-  // Newest first: latest on top, then by last_modified desc.
   out.sort((a, b) => {
     if (a.is_latest !== b.is_latest) return a.is_latest ? -1 : 1;
     return (b.last_modified ?? 0) - (a.last_modified ?? 0);
@@ -98,8 +96,8 @@ export function VersionHistoryModal(props: {
     setBusy(true);
     try {
       if (v.is_delete_marker) {
-        // Un-delete: remove the delete marker so the prior version becomes the
-        // current one. Copying from a delete marker is rejected by S3.
+        // Un-delete by removing the marker (S3 rejects copying from one); the
+        // prior version becomes current again.
         await deleteObjectVersion(props.accountId, props.bucket, props.objectKey, v.version_id);
         toast.ok("Object restored", `Delete marker removed; "${name()}" is back`);
       } else {

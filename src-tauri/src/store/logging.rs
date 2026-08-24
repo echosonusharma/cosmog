@@ -1,10 +1,5 @@
-//! Transparent [`ObjectStore`] wrapper that records every operation to the
-//! `request_logs` SQLite table. Each method delegates to the inner store then
-//! fire-and-forgets a DB insert so the caller's latency is unaffected.
-//!
-//! `list_objects` is logged but deduplicated per (bucket, prefix) with a 10s
-//! cooldown to avoid flooding from the 1.5s browse poll.
-//! `get_bucket_location` is not logged (internal probe only).
+//! Logs every operation to the `request_logs` table via fire-and-forget inserts (caller latency unaffected).
+//! `list_objects` is deduped per (bucket, prefix) with a 10s cooldown; internal probes/UI polling aren't logged.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,11 +20,8 @@ use crate::store::{
 };
 use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 
-/// Minimum interval between logged `list_objects` calls for the same
-/// (bucket, prefix) pair. Prevents the 1.5s poll from flooding the table.
 const LIST_OBJECTS_LOG_COOLDOWN: Duration = Duration::from_secs(10);
 
-/// Prune the cooldown map once it exceeds this many (bucket, prefix) entries.
 const LIST_LOG_MAP_MAX: usize = 512;
 
 pub struct LoggingStore {
@@ -38,11 +30,9 @@ pub struct LoggingStore {
     app: tauri::AppHandle,
     account_id: String,
     account_name: String,
-    /// Raw endpoint URL as configured by the user, or None for AWS S3.
+    /// Raw endpoint URL as configured, or `None` for AWS S3.
     endpoint: Option<String>,
-    /// Signing region (e.g. "us-east-1", "auto").
     region: String,
-    /// Tracks when we last logged a `list_objects` for each (bucket, prefix).
     list_objects_last_logged: Arc<DashMap<(String, String), Instant>>,
 }
 
@@ -68,7 +58,6 @@ impl LoggingStore {
         }
     }
 
-    /// Construct the HTTP request URL for an operation.
     fn build_url(&self, bucket: Option<&str>, key: Option<&str>, query: Option<&str>) -> String {
         let base = if let Some(ep) = &self.endpoint {
             ep.trim_end_matches('/').to_string()
@@ -91,7 +80,6 @@ impl LoggingStore {
         url
     }
 
-    /// Infer the HTTP response status for a successful call.
     fn success_status(op: &str) -> i64 {
         match op {
             "delete_object" | "delete_object_version" | "delete_object_tagging"
@@ -102,7 +90,6 @@ impl LoggingStore {
         }
     }
 
-    /// Map an AppError code to the most likely HTTP status code.
     fn error_http_status(code: &str) -> Option<i64> {
         match code {
             "not_found" => Some(404),
@@ -309,10 +296,8 @@ impl ObjectStore for LoggingStore {
     async fn list_objects(&self, bucket: &str, opts: ListOptions) -> AppResult<ListPage> {
         let prefix = opts.prefix.clone().unwrap_or_default();
         let cache_key = (bucket.to_string(), prefix.clone());
-        // Drop stale cooldown entries so the map can't grow unbounded across
-        // every (bucket, prefix) ever browsed. Entries past the cooldown are
-        // safe to drop; the next list re-inserts and logs anyway. Done before
-        // the entry() borrow below to avoid a self-deadlock on the shard.
+        // Prune stale cooldown entries (re-inserted and logged on next list); run
+        // before the entry() borrow below to avoid deadlocking the shard.
         if self.list_objects_last_logged.len() > LIST_LOG_MAP_MAX {
             let now = Instant::now();
             self.list_objects_last_logged
@@ -322,7 +307,6 @@ impl ObjectStore for LoggingStore {
             let now = Instant::now();
             match self.list_objects_last_logged.entry(cache_key) {
                 dashmap::mapref::entry::Entry::Vacant(v) => {
-                    // First list for this (bucket, prefix) — always log.
                     v.insert(now);
                     true
                 }
@@ -454,8 +438,7 @@ impl ObjectStore for LoggingStore {
                 "copy_source": format!("{src_bucket}/{src_key}"),
                 "src_bucket": src_bucket, "src_key": src_key,
                 "dst_bucket": dst_bucket, "dst_key": dst_key,
-            // bucket/key = destination: that's where the PUT actually goes,
-            // matching request_url; the source is in request_params.
+            // bucket/key = destination (matches request_url); source is in params.
             })), None, Some(dst_bucket), Some(dst_key),
             start, r.is_ok(), r.as_ref().err());
         r

@@ -194,7 +194,6 @@ export function Sidebar(props: {
   return (
     <aside class={`sidebar ${props.collapsed ? "collapsed" : ""}`}>
 
-      {/* account header */}
       <div class="sidebar-account-header">
         <Show when={!props.collapsed}>
           <div class="sidebar-account-pill">
@@ -236,7 +235,6 @@ export function Sidebar(props: {
       </div>
 
       <div class="sidebar-body">
-        {/* nav */}
         <For each={NAV.filter((n) => !n.desktopOnly || !IS_MOBILE_OS)}>
           {(item) => (
             <button
@@ -259,7 +257,6 @@ export function Sidebar(props: {
           )}
         </For>
 
-        {/* buckets */}
         <Show when={!props.collapsed && sidebarBuckets().length > 0}>
           <div class="sidebar-group sidebar-group-flex">
             <div class="sidebar-group-header">
@@ -307,7 +304,6 @@ export function Sidebar(props: {
         </Show>
       </div>
 
-      {/* accounts — pinned above footer */}
       <Show when={!props.collapsed && accounts().length > 0}>
         <div class="sidebar-accounts">
           <div class="sidebar-group-header">
@@ -337,7 +333,6 @@ export function Sidebar(props: {
         </div>
       </Show>
 
-      {/* bug report button */}
       <button
         class="sidebar-bug-btn"
 
@@ -349,7 +344,6 @@ export function Sidebar(props: {
         </Show>
       </button>
 
-      {/* devtools button — dev builds only */}
       <Show when={import.meta.env.DEV}>
         <button
           class="sidebar-devtools-btn"

@@ -100,8 +100,7 @@ export function ImageEditor(props: {
     cropper = undefined;
     setReady(false);
     // Build the cropper only after the bitmap loads (measuring an unloaded <img>
-    // makes cropperjs fall back to its tiny minContainer size). One-shot so the
-    // complete-fast-path and onload can't both init.
+    // falls back to tiny minContainer size); one-shot guards double-init.
     let done = false;
     const init = () => {
       if (done) return;

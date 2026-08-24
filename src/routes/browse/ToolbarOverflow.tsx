@@ -1,9 +1,8 @@
 import { Show, createSignal } from "solid-js";
 import { IconMore, IconActivity, IconLock, IconLockOpen, IconPlus } from "../../utils/icons";
 
-// Mobile overflow menu: browse-toolbar actions that don't warrant a visible
-// button live here behind a kebab. Hidden on desktop via CSS. (back, refresh,
-// index toggle, view toggle and Upload stay as visible buttons.)
+// Mobile overflow menu for browse-toolbar actions that don't warrant a visible
+// button; hidden on desktop via CSS.
 export function ToolbarOverflow(props: {
   indexed: boolean;
   encryptionEnabled: boolean;

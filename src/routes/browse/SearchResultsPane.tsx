@@ -81,8 +81,8 @@ export function SearchResultsPane(props: {
 
       const t = e.target as HTMLElement | null;
       if (!t) return;
-      // Only when focus is in the search box or the results list — don't
-      // steal arrows/Enter from the rest of the browse chrome.
+      // Only when focus is in the search box or results list — don't steal
+      // arrows/Enter from the rest of the browse chrome.
       const inSearchInput =
         t.tagName === "INPUT" && t.classList.contains("toolbar-search-input");
       const inResults = !!t.closest(".search-results-pane");
@@ -99,8 +99,7 @@ export function SearchResultsPane(props: {
       } else if (e.key === "Enter") {
         const i = focusIdx();
         if (i < 0 || i >= n) return;
-        // Don't activate when Enter is meant for a button inside the row
-        // (download / copy link).
+        // Don't activate when Enter targets a button inside the row.
         if (t.closest(".obj-actions, button, a")) return;
         e.preventDefault();
         activate(objs[i]);
@@ -112,9 +111,8 @@ export function SearchResultsPane(props: {
 
   return (
     <div class="search-results-pane">
-      {/* Latch: while a new query is fetching, keep the previous result set
-          rendered underneath a small corner spinner instead of flashing the
-          full "Searching…" placeholder on every keystroke. */}
+      {/* Latch: while a new query fetches, keep the previous results under a
+          corner spinner instead of flashing "Searching…" on every keystroke. */}
       <Show when={props.loading && props.objects.length > 0}>
         <span class="spinner corner-spinner" />
       </Show>

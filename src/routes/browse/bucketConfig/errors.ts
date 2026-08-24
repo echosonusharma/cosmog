@@ -3,18 +3,13 @@ import { parseWireError } from "../../../utils/errors";
 export type BucketErrorKind = "denied" | "unsupported" | "other";
 
 /**
- * Robustly classify a caught bucket-config error into one of three outcomes.
- *
- * The backend AppError serialization shape is being finalized in parallel, so
- * this inspects several places: the structured wire `code`, then a best-effort
- * substring match on the message. Centralized here so it is easy to tighten
- * once the exact tag/variant shape is known.
+ * Classify a bucket-config error: structured wire `code` first, then best-effort
+ * substring match on the message (AppError serialization shape still in flux).
  */
 export function classifyBucketError(err: unknown): BucketErrorKind {
   const wire = parseWireError(err);
   const code = wire.code.toLowerCase();
 
-  // Structured code / tag / variant checks (whatever the envelope carries).
   if (code === "access_denied" || code === "accessdenied" || code === "denied") {
     return "denied";
   }
@@ -66,7 +61,6 @@ export const IAM_ACTIONS = {
 
 export type BucketConfigTab = keyof typeof IAM_ACTIONS;
 
-/** Human-facing message for an access-denied error naming the IAM action. */
 export function deniedMessage(tab: BucketConfigTab, op: "get" | "put"): string {
   return `Access denied: credentials lack ${IAM_ACTIONS[tab][op]}`;
 }

@@ -1,9 +1,5 @@
-//! MCP tool definitions and dispatch.
-//!
-//! Each tool maps onto the same `AppState` methods the Tauri commands use.
-//! Reads are always available; upload/download and delete are advertised and
-//! accepted only when their setting toggle is on. Encrypted buckets and
-//! presigned URLs are out of scope for v1.
+//! MCP tools calling the same `AppState` methods as the Tauri commands. Reads
+//! are always advertised; writes/deletes gate on settings. Encrypted buckets and presigned URLs are out of scope for v1.
 
 use serde_json::{json, Value};
 
@@ -17,7 +13,6 @@ use crate::validate;
 use super::format;
 use super::McpCtx;
 
-/// Build the advertised tool list, filtered by the write/delete toggles.
 pub fn list(allow_write: bool, allow_delete: bool) -> Vec<Value> {
     let mut tools = vec![
         def(
@@ -164,8 +159,8 @@ pub fn list(allow_write: bool, allow_delete: bool) -> Vec<Value> {
     tools
 }
 
-/// Dispatch a tool call. Always returns a CallToolResult-shaped value; failures
-/// come back as isError results, not protocol errors.
+/// Tool-call dispatch: always CallToolResult-shaped; failures come back as
+/// isError results, never protocol errors.
 pub async fn call(ctx: &McpCtx, name: &str, args: &Value) -> Value {
     let account = args.get("account_id").and_then(|a| a.as_str()).unwrap_or("");
     tracing::info!(tool = name, account, "mcp tool call");
@@ -182,7 +177,6 @@ async fn dispatch(ctx: &McpCtx, name: &str, args: &Value) -> Value {
     if ctx.disabled_tools.iter().any(|d| d == name) {
         return format::error(format!("tool {name} is disabled in the MCP settings."));
     }
-    // Reject any tool aimed at an account the user turned off for MCP.
     if let Some(acct) = args.get("account_id").and_then(|a| a.as_str()) {
         if ctx.disabled_accounts.iter().any(|d| d == acct) {
             return format::error(format!(
@@ -220,8 +214,7 @@ async fn dispatch(ctx: &McpCtx, name: &str, args: &Value) -> Value {
     }
 }
 
-// Each handler returns Result<Value, Value> where Err already holds an isError
-// result. `run` collapses that to the wire value.
+// Handler Err values already hold isError results; `run` unwraps to the wire value.
 async fn run(fut: impl std::future::Future<Output = Result<Value, Value>>) -> Value {
     fut.await.unwrap_or_else(|e| e)
 }
@@ -261,8 +254,7 @@ async fn objects_list(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let account = sreq(args, "account_id")?;
     let bucket = sreq(args, "bucket_name")?;
     let prefix = sopt(args, "prefix");
-    // Absent delimiter defaults to "/"; an explicit empty string means a flat
-    // recursive listing.
+    // Absent delimiter defaults to "/"; explicit empty string = flat recursive.
     let delimiter = match args.get("delimiter") {
         Some(v) => v.as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
         None => Some("/".to_string()),
@@ -411,8 +403,8 @@ async fn object_upload(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let local_path = sreq(args, "local_path")?;
     refuse_if_encrypted(ctx, &account, &bucket).await?;
     let path = validate::validate_upload_source(&local_path).await.map_err(map_err)?;
-    // Confine the source to the configured MCP folder. Object keys are
-    // untrusted, so without this an injected key could exfiltrate any file.
+    // Confine the source to the configured MCP folder: object keys are
+    // untrusted, so an injected key could exfiltrate any file.
     contained_existing(ctx, &path).await?;
     let store = ctx.state.store_for(&account).await.map_err(map_err)?;
     let id = ctx
@@ -442,8 +434,8 @@ async fn object_download(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let local_path = sreq(args, "local_path")?;
     refuse_if_encrypted(ctx, &account, &bucket).await?;
     let dest = validate::validate_download_dest(&local_path).await.map_err(map_err)?;
-    // Confine the destination to the configured MCP folder so a download can
-    // never overwrite an arbitrary file on disk.
+    // Confine the destination to the MCP folder so downloads can't overwrite
+    // arbitrary files on disk.
     contained_dest(ctx, &dest).await?;
     let store = ctx.state.store_for(&account).await.map_err(map_err)?;
     let id = ctx
@@ -461,21 +453,19 @@ async fn object_delete(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let account = sreq(args, "account_id")?;
     let bucket = sreq(args, "bucket_name")?;
     let key = sreq(args, "object_key")?;
-    // Encrypted buckets are intentionally NOT refused here: delete removes an
-    // opaque object and never touches plaintext, so it needs no keychain
-    // identity. Only upload/download (which read/write cleartext) are gated.
+    // Encrypted buckets NOT refused here: delete touches opaque bytes only, no
+    // keychain identity; only upload/download (cleartext) are gated.
     let store = ctx.state.store_for(&account).await.map_err(map_err)?;
-    // S3 DELETE is idempotent and reports success even for a key that never
-    // existed, which would tell the model it deleted something real. Head first
-    // so a missing key comes back as an explicit not-found instead.
+    // S3 DELETE "succeeds" even for missing keys, lying to the model; head
+    // first so a missing key surfaces as explicit not-found.
     store.head_object(&bucket, &key).await.map_err(map_err)?;
     store.delete_object(&bucket, &key).await.map_err(map_err)?;
     let _ = ctx.state.db.cache_remove_object(&account, &bucket, &key).await;
     Ok(format::text(format!("deleted: {key}")))
 }
 
-/// Require a configured sandbox root and confine an existing file (upload
-/// source) to it. Canonicalizes to defeat symlink/`..` escapes.
+/// Confines an existing upload source to the sandbox root, canonicalizing to
+/// defeat symlink/`..` escapes.
 async fn contained_existing(ctx: &McpCtx, path: &std::path::Path) -> Result<(), Value> {
     let root = require_root(ctx)?;
     let canon = tokio::fs::canonicalize(path)
@@ -484,11 +474,8 @@ async fn contained_existing(ctx: &McpCtx, path: &std::path::Path) -> Result<(), 
     within(root, &canon)
 }
 
-/// Same, for a download destination. If the path already exists (e.g. a symlink
-/// planted in the folder), resolve it fully so it cannot redirect the write
-/// outside root. If it does not exist yet, confine its parent (which
-/// validate_download_dest already required to exist); the final component is a
-/// plain name created inside that parent.
+/// Confines a download destination: existing paths (planted symlinks included)
+/// resolve fully; new files confine their existing parent instead.
 async fn contained_dest(ctx: &McpCtx, dest: &std::path::Path) -> Result<(), Value> {
     let root = require_root(ctx)?;
     if tokio::fs::symlink_metadata(dest).await.is_ok() {
@@ -525,8 +512,7 @@ fn within(root: &std::path::Path, path: &std::path::Path) -> Result<(), Value> {
     }
 }
 
-/// Refuse object data ops on encrypted buckets. v1 does not carry the keychain
-/// identity into the MCP path.
+/// Refuses data ops on encrypted buckets: v1 has no keychain identity in the MCP path.
 async fn refuse_if_encrypted(ctx: &McpCtx, account: &str, bucket: &str) -> Result<(), Value> {
     match ctx.state.db.get_encryption_config(account, bucket).await {
         Ok(Some(_)) => Err(format::error(
@@ -536,8 +522,6 @@ async fn refuse_if_encrypted(ctx: &McpCtx, account: &str, bucket: &str) -> Resul
         Err(e) => Err(map_err(e)),
     }
 }
-
-// ---- argument helpers ----
 
 fn sreq(args: &Value, key: &str) -> Result<String, Value> {
     match args.get(key).and_then(|v| v.as_str()) {
@@ -565,7 +549,6 @@ fn opt_i64(v: Option<i64>) -> String {
     v.map(|n| n.to_string()).unwrap_or_default()
 }
 
-/// Map a backend error to an actionable isError result.
 fn map_err(e: AppError) -> Value {
     let msg = match &e {
         AppError::Archived(m) => format!(
@@ -577,8 +560,6 @@ fn map_err(e: AppError) -> Value {
     };
     format::error(msg)
 }
-
-// ---- schema helpers ----
 
 fn def(name: &str, description: &str, input_schema: Value, read_only: bool, destructive: bool) -> Value {
     json!({

@@ -1,21 +1,5 @@
-//! Cache-aware browse command.
-//!
-//! Two modes, selected per bucket:
-//!
-//! - **Indexed mode** — bucket has full-bucket indexing enabled and a
-//!   completed scan. Returns the direct children of the prefix from the
-//!   local cache. The scheduler refreshes the index in the background.
-//!   Cheap, sorted, supports search.
-//!
-//! - **Live mode** — bucket is not indexed. Each call hits S3 once with
-//!   `delimiter='/'` and a 1000-key page. The FE drives pagination via
-//!   the `continuation` field. We upsert the page into `cached_objects`
-//!   as a warm best-effort cache but never sweep — orphan rows here are
-//!   harmless and only fully reconciled by a full bucket scan.
-//!
-//! Live mode replaces the previous "background sync_prefix_direct" flow.
-//! That flow walked every page of the prefix on each TTL expiry, which is
-//! unworkable for prefixes with millions of children.
+//! Cache-aware browse, two modes per bucket: **indexed** buckets serve prefix
+//! children from the local cache; **live** mode hits S3 per page, warming cache.
 
 use serde::Serialize;
 use tauri::State;
@@ -32,18 +16,13 @@ const LIVE_PAGE_SIZE: i32 = 1000;
 pub struct BrowseResult {
     pub objects: Vec<CachedObjectMeta>,
     pub subprefixes: Vec<String>,
-    /// `"indexed"` when the bucket has a completed full scan; `"live"`
-    /// otherwise. FE uses this to decide whether to paginate via
-    /// `continuation` or treat the response as a complete listing.
+    /// `"indexed"` or `"live"`; the FE paginates via `continuation` only in live mode.
     pub mode: &'static str,
-    /// S3 continuation token for fetching the next page in live mode.
-    /// Always `None` in indexed mode.
+    /// S3 continuation token (live mode only; always `None` in indexed mode).
     pub continuation: Option<String>,
-    /// `true` in live mode when more pages exist; in indexed mode mirrors
-    /// the cache's truncation flag.
+    /// More pages exist (live); mirrors the cache truncation flag (indexed).
     pub truncated: bool,
-    /// When the bucket index last completed a full scan. Only meaningful
-    /// in indexed mode.
+    /// Last completed full scan; meaningful only in indexed mode.
     pub last_synced_at: Option<i64>,
 }
 
@@ -63,9 +42,8 @@ pub async fn browse_prefix(
     let indexed = index_status.enabled && index_status.last_full_sync_at.is_some();
 
     if indexed {
-        // In indexed mode the `continuation` token is the file offset into the
-        // cached children (folders come back only on the first page). Lets the
-        // FE page through prefixes with more direct files than one DB page.
+        // In indexed mode the `continuation` token is a file offset into the
+        // cached children (folders come back on the first page only).
         const INDEXED_PAGE: i64 = 5_000;
         let offset: i64 = continuation.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
         let (objects, subprefixes, has_more) = state
@@ -83,7 +61,6 @@ pub async fn browse_prefix(
         });
     }
 
-    // Live mode: single LIST page, upsert into cache, return immediately.
     let store = state.store_for(&account_id).await?;
     let list_opts = ListOptions {
         prefix: if prefix.is_empty() { None } else { Some(prefix.clone()) },
@@ -94,8 +71,8 @@ pub async fn browse_prefix(
     let page = match store.list_objects(&bucket, list_opts.clone()).await {
         Ok(p) => p,
         Err(AppError::RegionRedirect(_)) => {
-            // Auto-correct: detect real region, rebuild client, retry once.
-            // Transparent to the FE — no banner required.
+            // Auto-correct: detect real region, rebuild client, retry once;
+            // transparent to the FE.
             match state.fix_region_for_bucket(&account_id, &bucket).await {
                 Ok(fixed_store) => match fixed_store.list_objects(&bucket, list_opts).await {
                     Ok(p) => p,

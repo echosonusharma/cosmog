@@ -1,17 +1,5 @@
-//! [`ObjectStore`] wrapper that transparently recovers from S3
-//! `PermanentRedirect` (HTTP 301) errors on accounts whose buckets span
-//! multiple regions.
-//!
-//! AWS S3 requires requests to be signed for the bucket's own region. A single
-//! account-level region therefore cannot serve a multi-region account. This
-//! wrapper keeps a per-bucket region map: when any operation fails with
-//! [`AppError::RegionRedirect`], it probes the bucket's real region via
-//! `GetBucketLocation` on the global endpoint, builds (and caches) a client
-//! for that region, and retries the operation once. Subsequent calls for the
-//! same bucket go straight to the regional client.
-//!
-//! Only meaningful for real AWS (no custom endpoint) — callers should not wrap
-//! stores for endpoint-configured providers (R2, B2, MinIO, ...).
+//! [`ObjectStore`] wrapper recovering from S3 `PermanentRedirect` (301): probes the bucket's real region
+//! via `GetBucketLocation`, caches a regional client, retries once. AWS-only; not for custom endpoints.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,9 +20,7 @@ use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 pub struct RegionRetryStore {
     default: Arc<dyn ObjectStore>,
     account: Account,
-    /// bucket name -> detected region.
     bucket_region: DashMap<String, String>,
-    /// region -> client signed for that region.
     clients_by_region: DashMap<String, Arc<dyn ObjectStore>>,
 }
 
@@ -63,8 +49,6 @@ impl RegionRetryStore {
             .clone())
     }
 
-    /// Client to use for `bucket`: regional if we already know its region,
-    /// otherwise the account default.
     async fn resolve(&self, bucket: &str) -> AppResult<Arc<dyn ObjectStore>> {
         let region = self.bucket_region.get(bucket).map(|r| r.clone());
         match region {
@@ -73,14 +57,8 @@ impl RegionRetryStore {
         }
     }
 
-    /// Called after a `RegionRedirect`: detect the bucket's real region,
-    /// remember it, and return a client for it.
-    ///
-    /// A probe *failure* (e.g. IAM policy missing `s3:GetBucketLocation`)
-    /// propagates instead of falling back to a guessed region — caching a
-    /// wrong region would make every subsequent call for the bucket fail with
-    /// two extra requests. `Ok(None)` legitimately means us-east-1 (empty
-    /// `LocationConstraint`).
+    /// After a RegionRedirect: detect the bucket's real region, remember it, return its client.
+    /// Probe failures propagate (a wrongly cached region breaks every later call); `Ok(None)` = us-east-1.
     async fn recover(&self, bucket: &str) -> AppResult<Arc<dyn ObjectStore>> {
         let probe = build_probe_store(&self.account).await?;
         let region = probe
@@ -102,9 +80,8 @@ impl RegionRetryStore {
     }
 }
 
-/// Run `$call` against the bucket's resolved client; on `RegionRedirect`,
-/// detect the real region and retry once. `$call` must be re-evaluable
-/// (clone any by-value args).
+/// Run `$call` against the resolved client; on `RegionRedirect` detect the real
+/// region and retry once. `$call` must be re-evaluable (clone by-value args).
 macro_rules! with_retry {
     ($self:ident, $bucket:expr, $store:ident, $call:expr) => {{
         let $store = $self.resolve($bucket).await?;
@@ -249,10 +226,8 @@ impl ObjectStore for RegionRetryStore {
     }
 
     async fn presign_get(&self, bucket: &str, key: &str, expires_secs: u64) -> AppResult<String> {
-        // Presigning is local — no request is made, so a wrong-region URL
-        // would fail only later in the recipient's browser. If we don't know
-        // the bucket's region yet, probe it first (best-effort) so the URL
-        // points at the right endpoint.
+        // Presigning is local, so a wrong-region URL only fails in the browser;
+        // probe the region first (best-effort) to aim the URL correctly.
         if !self.bucket_region.contains_key(bucket) {
             match build_probe_store(&self.account).await {
                 Ok(probe) => match probe.get_bucket_location(bucket).await {

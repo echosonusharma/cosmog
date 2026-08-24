@@ -13,8 +13,7 @@ pub async fn list_request_logs(
     status: Option<String>,
     operation: Option<String>,
 ) -> AppResult<Vec<RequestLog>> {
-    // Server-side clamp so a hostile/buggy FE can't demand unbounded rows
-    // into memory (and the IPC payload) in one call.
+    // Server-side clamp: a hostile/buggy FE can't demand unbounded rows into memory.
     const MAX_LIMIT: u32 = 500;
     let limit = limit.unwrap_or(200).min(MAX_LIMIT);
     state

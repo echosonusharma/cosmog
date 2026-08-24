@@ -1,10 +1,7 @@
 import type { ProviderDef } from "../providers";
 
-/**
- * Derive the signing region from a custom endpoint URL.
- * Covers Backblaze B2, Wasabi, and DigitalOcean Spaces whose region is
- * embedded in the subdomain. Falls back to the provider's JSON default.
- */
+/** Derive the signing region from a custom endpoint URL (B2/Wasabi/Spaces embed it in the
+ *  subdomain); falls back to the provider's JSON default. */
 export function regionFromEndpoint(provider: ProviderDef, endpoint: string): string | undefined {
   if (!provider.custom_endpoint) return undefined;
   if (provider.id === "r2") return "auto";

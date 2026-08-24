@@ -1,15 +1,10 @@
-//! Input-validation helpers used by Tauri command handlers.
-//!
-//! The desktop app runs with the user's full filesystem privileges, so we
-//! cannot enforce hard sandboxing — but we *can* reject obviously dangerous or
-//! ambiguous inputs (empty keys, relative paths, missing parent dirs) before
-//! they reach the S3 SDK or the local filesystem.
+//! Input validation for Tauri command handlers. The app runs with full user privileges, so
+//! obviously dangerous/ambiguous inputs are rejected here before reaching the SDK or filesystem.
 
 use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 
-/// Reject empty or whitespace-only strings. Returns the trimmed value.
 const MAX_FIELD_LEN: usize = 1024;
 
 pub fn require_non_empty(field: &str, value: &str) -> AppResult<String> {
@@ -25,8 +20,6 @@ pub fn require_non_empty(field: &str, value: &str) -> AppResult<String> {
     Ok(trimmed.to_string())
 }
 
-/// Validate an upload source path: must exist, be absolute, and resolve to a
-/// regular file (not a directory or symlink to one).
 pub(crate) fn expand_home(local_path: &str) -> String {
     if local_path.starts_with("~/") {
         if let Some(home) = std::env::var_os("HOME") {
@@ -56,15 +49,9 @@ pub async fn validate_upload_source(local_path: &str) -> AppResult<PathBuf> {
 }
 
 
-/// Validate a download destination path: must be absolute and its parent
-/// directory must exist (we will create the file itself, but refuse to create
-/// arbitrary parent trees the user did not pick).
-///
-/// This is the single-file rule. The recursive
-/// [`crate::bulk::download_directory`] command is separately permitted to
-/// create subdirectories *inside the user-supplied `local_root`* and verifies
-/// each resolved path stays within it — see `is_safe_relative_suffix` in
-/// `bulk.rs`.
+/// Dest must be absolute with an existing parent dir (single-file rule; we create the file but not
+/// arbitrary parent trees). Bulk directory downloads may create subdirs only inside the
+/// user-supplied root — see `is_safe_relative_suffix` in bulk.rs.
 pub async fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
     let expanded = expand_home(local_path);
     let path_buf = Path::new(&expanded).to_path_buf();
@@ -85,4 +72,3 @@ pub async fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
     }
     Ok(path.to_path_buf())
 }
-

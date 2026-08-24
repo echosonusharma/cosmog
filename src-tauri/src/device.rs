@@ -1,12 +1,7 @@
-//! Device / OS info for the bug-report dialog.
-//!
-//! The web layer's `navigator` only describes the WebView runtime (e.g.
-//! "Linux aarch64" on Android), which is useless for triage. This resolves the
-//! real platform: OS name + version + CPU arch on desktop, and the actual
-//! Android release / API level / device model via JNI on Android.
+//! Real device/OS info for the bug-report dialog: the WebView `navigator` string is useless for
+//! triage, so OS/version/arch are resolved natively (Android model/API level via JNI).
 
-/// Serializes to the FE as `{ os, os_version, arch, model }`. `model` is only
-/// populated on Android (desktop OSes have no meaningful single model string).
+/// `model` is only populated on Android.
 #[derive(serde::Serialize)]
 pub struct DeviceInfo {
     pub os: String,
@@ -40,14 +35,13 @@ pub fn get_device_info() -> Result<DeviceInfo, String> {
         .attach_current_thread()
         .map_err(|e| format!("attach_current_thread: {e}"))?;
 
-    // android.os.Build.* static String fields.
     let manufacturer =
         build_string(&mut env, "android/os/Build", "MANUFACTURER").unwrap_or_default();
     let model = build_string(&mut env, "android/os/Build", "MODEL").unwrap_or_default();
     let release = build_string(&mut env, "android/os/Build$VERSION", "RELEASE")
         .unwrap_or_else(|| "unknown".into());
 
-    // Build.VERSION.SDK_INT is an int field (API level).
+    // SDK_INT is an int field, not a String (signature "I").
     let sdk = env
         .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
         .ok()
@@ -75,9 +69,8 @@ pub fn get_device_info() -> Result<DeviceInfo, String> {
     })
 }
 
-/// Read a static `String` field off a Java class. Reading `Build` constants
-/// does not throw, but any pending exception is cleared before returning so a
-/// stray one can never abort the process on the next JNI call.
+/// Reads a static Java String field; clears any pending exception before returning so a stray one
+/// can never abort the process on the next JNI call.
 #[cfg(target_os = "android")]
 fn build_string(env: &mut jni::JNIEnv, class: &str, field: &str) -> Option<String> {
     use jni::objects::JString;
@@ -94,8 +87,8 @@ fn build_string(env: &mut jni::JNIEnv, class: &str, field: &str) -> Option<Strin
         return None;
     }
     let jstr: JString = obj.into();
-    // Bind to a local: `env.get_string` borrows `jstr`, and returning the
-    // match directly would drop `jstr` before the borrowed temporary.
+    // SAFETY: bind to a local — `env.get_string` borrows `jstr`; returning the match directly
+    // would drop `jstr` while the borrowed temporary is still live.
     let out = match env.get_string(&jstr) {
         Ok(js) => Some(String::from(js)),
         Err(_) => {

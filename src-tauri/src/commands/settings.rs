@@ -1,9 +1,5 @@
-//! Tauri commands for application preferences.
-//!
-//! The FE typically calls [`get_settings`] once on startup, then
-//! [`update_settings`] when the user changes anything. Updates use
-//! merge-and-save semantics — fields not supplied in the patch keep their
-//! previous values.
+//! Settings commands. The FE loads once at startup and patches on change;
+//! updates merge-and-save — unsupplied fields keep their previous values.
 
 use serde::{Deserialize, Deserializer};
 use tauri::State;
@@ -13,8 +9,7 @@ use crate::error::AppResult;
 use crate::state::AppState;
 
 // serde double-option: distinguishes "field absent" (None) from
-// "field present and null" (Some(None)) — required so the FE can clear
-// nullable settings by sending JSON null.
+// "field present and null" (Some(None)) so the FE can clear nullable settings.
 fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
 where
     T: Deserialize<'de>,
@@ -29,12 +24,8 @@ pub async fn get_settings(state: State<'_, AppState>) -> AppResult<AppSettings> 
     state.db.settings_load().await
 }
 
-/// Partial patch for [`AppSettings`]. Each `Option::Some` overrides the
-/// corresponding field; `None` leaves it unchanged.
-///
-/// `default_download_dir` is `Option<Option<String>>` so the FE can
-/// distinguish three cases: not supplied (`None`), set to a path
-/// (`Some(Some(p))`), or explicitly cleared (`Some(None)`).
+/// Partial patch for [`AppSettings`]: `Some` overrides, `None` unchanged;
+/// double-Option fields also accept `Some(None)` to explicitly clear.
 #[derive(Debug, Default, Deserialize)]
 pub struct SettingsPatch {
     #[serde(default, deserialize_with = "double_option")]

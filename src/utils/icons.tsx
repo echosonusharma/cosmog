@@ -1,8 +1,7 @@
 import { JSX } from "solid-js";
 
-// Each icon below maps to /public/icons/ui/<name>.svg.
-// Color comes from CSS `background-color` (set via parent `color` + mask trick).
-// Size is set inline.
+// Icons map to /public/icons/ui/<name>.svg; color comes from CSS `background-color`
+// (parent `color` + mask trick), size inline.
 
 type IconProps = { size?: number; class?: string; style?: string };
 
@@ -78,8 +77,6 @@ export const IconFlipV        = I("flip-vertical");
 export const IconSave         = I("save");
 export const IconMaximize     = I("maximize");
 
-// ── theme toggle ──────────────────────────────────────────────────────────────
-
 import { resolvedTheme, setTheme } from "../state/theme";
 
 export function toggleTheme() {
@@ -104,8 +101,6 @@ export function MoonIcon(props: { size?: number }) {
     </svg>
   );
 }
-
-// ── file type mapping ─────────────────────────────────────────────────────────
 
 type Kind = "folder" | "image" | "video" | "audio" | "doc" | "archive" | "code" | "generic";
 
@@ -156,8 +151,6 @@ export function FileIcon(props: { name: string; folder?: boolean; size?: number 
     <span class={cls()} style={`--sz:${size}px;--mask:url(${url()});`} />
   );
 }
-
-// ── provider icon (uses providers.json as single source of truth) ────────────
 
 import { detectProvider, providerLabel } from "../providers";
 export { detectProvider, providerLabel };

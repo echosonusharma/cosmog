@@ -9,9 +9,8 @@ use super::Db;
 pub struct BucketEncryptionConfig {
     pub account_id: String,
     pub bucket: String,
-    /// bech32 age recipient (`age1...`). Public: safe to persist and echo to
-    /// the FE. The corresponding secret identity lives in the OS keychain.
-    /// Column name `salt_hex` is legacy from the pre-age implementation.
+    /// Public bech32 age recipient (`age1...`); the secret identity lives in
+    /// the OS keychain. Column `salt_hex` is legacy pre-age naming.
     pub recipient: String,
 }
 
@@ -69,9 +68,7 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Return every bucket name that has an encryption config for this account.
-    /// Used by the FE bucket grid to render a lock badge per encrypted bucket
-    /// with a single round-trip instead of one query per bucket card.
+    /// Bucket names with an encryption config, for FE lock badges in one round-trip.
     pub async fn list_encrypted_buckets_for_account(
         &self,
         account_id: &str,

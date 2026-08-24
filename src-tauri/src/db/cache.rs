@@ -1,9 +1,5 @@
-//! Cached object index for prefix + in-bucket search.
-//!
-//! Mirrors a subset of remote object listings into SQLite so search can run
-//! locally against `cached_objects` + the `cached_objects_fts` FTS5 virtual
-//! table. The cache is populated by [`crate::sync`] (full bucket index and
-//! prefix sync) and by write-through hooks on the object-mutation commands.
+//! Local mirror of remote listings in `cached_objects` (+ the `cached_objects_fts`
+//! FTS5 table), populated by sync sweeps and write-through mutation hooks.
 
 use chrono::Utc;
 use rusqlite::{params, types::Value, OptionalExtension};
@@ -15,7 +11,6 @@ use crate::store::ObjectMeta;
 
 use super::Db;
 
-/// One row in `cached_objects`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedObjectMeta {
     pub account_id: String,
@@ -38,7 +33,7 @@ pub struct BucketStats {
     pub total_bytes: i64,
     pub by_storage_class: Vec<StorageClassStat>,
     pub by_extension: Vec<FileTypeStat>,
-    // Total distinct extensions, independent of the top-N cap on by_extension.
+    // Distinct extensions, independent of the top-N cap on by_extension.
     pub extension_count: i64,
     pub by_month: Vec<MonthStat>,
     pub largest: Vec<LargeObjectStat>,
@@ -77,18 +72,15 @@ pub struct BucketIndexStatus {
     pub enabled: bool,
     pub last_full_sync_at: Option<i64>,
     pub object_count: i64,
-    /// Non-null while a scan is in progress (interrupted or active). Stores
-    /// the continuation token to resume from on next call to
-    /// [`Db::full_bucket_scan_resume`].
+    /// Continuation token while a scan is in progress (resumable).
     pub scan_continuation: Option<String>,
     pub scan_started_at: Option<i64>,
-    /// If set, the scheduler re-runs a full scan whenever
-    /// `now - last_full_sync_at > auto_reindex_secs`.
+    /// Re-run a full scan when `now - last_full_sync_at > auto_reindex_secs`.
     pub auto_reindex_secs: Option<i64>,
 }
 
-/// Parts derived from an object key. Computed once at upsert time so search +
-/// facet queries can use indexed columns instead of LIKE / instr().
+/// Key-derived columns computed once at upsert time so search/facet queries
+/// use indexed columns instead of LIKE/instr().
 #[derive(Debug, Clone)]
 pub struct KeyParts {
     pub basename: String,
@@ -103,11 +95,10 @@ impl KeyParts {
         };
         let extension = base
             .rfind('.')
-            // Skip hidden files like ".bashrc" (leading dot = no extension).
+            // Leading dot (".bashrc") = no extension.
             .filter(|&i| i > 0 && i + 1 < base.len())
             .map(|i| base[i + 1..].to_lowercase())
-            // Allow any Unicode alphanumeric; reject anything with whitespace,
-            // separators, or control chars that would never be a real ext.
+            // Alphanumerics/_/- only; reject junk that's never a real extension.
             .filter(|s| {
                 s.chars().count() <= 16
                     && s.chars()
@@ -120,9 +111,7 @@ impl KeyParts {
     }
 }
 
-/// Escape a prefix for use in a SQLite `LIKE` pattern and append `%`.
-/// Escapes `%`, `_`, and `\` so that literal characters in the prefix aren't
-/// treated as wildcards.
+/// Escape `%`/`_`/`\` and append `%` for a SQLite LIKE prefix match.
 fn like_prefix(prefix: &str) -> String {
     let mut out = String::with_capacity(prefix.len() + 1);
     for c in prefix.chars() {
@@ -138,9 +127,8 @@ fn like_prefix(prefix: &str) -> String {
     out
 }
 
-/// Build an FTS5 MATCH query for the trigram tokenizer.
-/// Terms shorter than 3 chars are skipped (trigram minimum).
-/// Returns None if no usable terms remain (caller should use LIKE fallback).
+/// Build an FTS5 MATCH query for the trigram tokenizer; terms shorter than 3
+/// chars are skipped. Returns None if no usable terms (caller uses LIKE fallback).
 pub fn build_fts_query(input: &str) -> Option<String> {
     let terms: Vec<String> = input
         .split_whitespace()
@@ -153,15 +141,13 @@ pub fn build_fts_query(input: &str) -> Option<String> {
     if terms.is_empty() { None } else { Some(terms.join(" ")) }
 }
 
-/// 1-indexed CHARACTER offset just past `prefix`, for SQLite `substr()`.
-/// SQLite string functions count characters, not bytes, so a multibyte
-/// prefix (e.g. "文档/") must not use `prefix.len()` — that would skip past
-/// the first '/' and misclassify nested keys as direct children.
+/// 1-indexed CHARACTER offset past `prefix`, for SQLite substr(); multibyte
+/// prefixes (e.g. "文档/") must not use byte length or nested keys get misclassified.
 fn substr_offset_past_prefix(prefix: &str) -> i64 {
     prefix.chars().count() as i64 + 1
 }
 
-/// Wrap a query string in `%…%` LIKE wildcards with proper escaping.
+/// Wrap a query string in `%…%` LIKE wildcards with escaping.
 fn like_contains(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('%');
@@ -195,8 +181,7 @@ fn row_to_cached(row: &rusqlite::Row) -> rusqlite::Result<CachedObjectMeta> {
 const SELECT_COLS: &str = "co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at";
 
 impl Db {
-    /// Upsert a cached object row from a freshly-listed [`ObjectMeta`]. The row
-    /// is marked `seen=1` so prefix-sync sweeps don't garbage-collect it.
+    /// Upsert one row, marking `seen=1` so sync sweeps won't garbage-collect it.
     pub async fn cache_upsert_object(
         &self,
         account_id: &str,
@@ -254,9 +239,7 @@ impl Db {
         Ok(())
     }
 
-    /// Upsert a batch of cached object rows in a single transaction. More
-    /// efficient than calling [`cache_upsert_object`] in a loop for large pages.
-    /// Returns the number of rows upserted.
+    /// Upsert a batch of rows in one transaction; returns rows upserted.
     pub async fn cache_upsert_objects_batch(
         &self,
         account_id: &str,
@@ -266,7 +249,6 @@ impl Db {
         let now = Utc::now().timestamp();
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
-        // Pre-compute all parts outside the call closure.
         struct Row {
             key: String,
             size: i64,
@@ -340,7 +322,7 @@ impl Db {
         Ok(count)
     }
 
-    /// Remove a single cached row (write-through after `delete_object`).
+    /// Write-through removal after `delete_object`.
     pub async fn cache_remove_object(
         &self,
         account_id: &str,
@@ -362,7 +344,6 @@ impl Db {
         Ok(())
     }
 
-    /// Look up a single cached row, if present.
     pub async fn cache_get_object(
         &self,
         account_id: &str,
@@ -388,9 +369,8 @@ impl Db {
         Ok(row)
     }
 
-    /// Mark every cached row in a (bucket, prefix) scope as `seen=0`. Called
-    /// before a sync sweep; rows that remain `seen=0` at the end represent
-    /// deletions.
+    /// Sweep phase 1: mark every row in scope `seen=0`; rows still unseen at
+    /// the end represent remote deletions.
     pub async fn cache_mark_unseen(
         &self,
         account_id: &str,
@@ -435,8 +415,7 @@ impl Db {
         Ok(())
     }
 
-    /// Delete rows still `seen=0` after a sweep finished. Returns count of
-    /// rows removed.
+    /// Sweep phase 2: delete rows still `seen=0`. Returns rows removed.
     pub async fn cache_sweep_unseen(
         &self,
         account_id: &str,
@@ -482,11 +461,9 @@ impl Db {
         Ok(n)
     }
 
-    /// Drop synthetic one-level directory-marker rows under `prefix` that are
-    /// not in `keep`. Only removes rows with `content_type =
-    /// application/x-directory` (inserted for CommonPrefixes) so real
-    /// trailing-slash objects are never swept here. Nested object keys are
-    /// left alone.
+    /// Drop synthetic directory-marker rows (content_type
+    /// application/x-directory) under `prefix` not in `keep`; real trailing-slash
+    /// objects are never touched.
     pub async fn cache_reconcile_dir_markers(
         &self,
         account_id: &str,
@@ -502,8 +479,6 @@ impl Db {
             .conn
             .call(move |conn| {
                 let after = substr_offset_past_prefix(&prefix);
-                // Synthetic marker = direct child key ending `/` with our
-                // directory content-type (e.g. `web/docs/`).
                 let candidates: Vec<String> = if prefix.is_empty() {
                     let mut stmt = conn.prepare_cached(
                         "SELECT key FROM cached_objects
@@ -512,8 +487,7 @@ impl Db {
                            AND instr(rtrim(key, '/'), '/') = 0
                            AND content_type = 'application/x-directory'",
                     )?;
-                    // Propagate row errors: silently skipping rows would break
-                    // callers that assume the returned set matches the DB.
+                    // Propagate row errors: callers assume the set matches the DB.
                     let mut v = Vec::new();
                     for r in stmt.query_map(params![account_id, bucket], |row| row.get(0))? {
                         v.push(r?);
@@ -681,9 +655,7 @@ impl Db {
         Ok(())
     }
 
-    /// Return all enabled bucket indexes with their account_id + bucket +
-    /// next-due timestamp (last_full_sync_at + auto_reindex_secs). Used by
-    /// the scheduler.
+    /// Enabled indexes with next-due timestamps, for the scheduler.
     pub async fn bucket_index_due_list(&self) -> AppResult<Vec<(String, String, i64)>> {
         let rows = self
             .conn
@@ -698,8 +670,7 @@ impl Db {
                     let bucket: String = row.get(1)?;
                     let last: i64 = row.get(2)?;
                     let secs: i64 = row.get(3)?;
-                    // saturating add: user-supplied `secs` could otherwise
-                    // overflow i64 and underflow next_due.
+                    // saturating_add: user-supplied `secs` could overflow i64.
                     Ok((account, bucket, last.saturating_add(secs)))
                 })?;
                 let mut out = Vec::new();
@@ -712,7 +683,6 @@ impl Db {
         Ok(rows)
     }
 
-    /// Mark the start of (or replace state for) an in-progress full scan.
     pub async fn bucket_scan_begin(
         &self,
         account_id: &str,
@@ -738,8 +708,7 @@ impl Db {
         Ok(())
     }
 
-    /// Save the most-recent continuation token between pages. Pass `None` when
-    /// the scan reaches the last page (so a subsequent resume sees no token).
+    /// Persist the latest continuation token; `None` at the final page.
     pub async fn bucket_scan_progress(
         &self,
         account_id: &str,
@@ -760,7 +729,7 @@ impl Db {
         Ok(())
     }
 
-    /// Clear scan state. Call on successful completion, cancellation, or abort.
+    /// Clear scan state on completion, cancellation, or abort.
     pub async fn bucket_scan_clear(
         &self,
         account_id: &str,
@@ -802,8 +771,7 @@ impl Db {
         Ok(())
     }
 
-    /// Recompute `bucket_index.object_count` and stamp `last_full_sync_at`.
-    /// Call this when a full bucket scan completes successfully.
+    /// Recompute `object_count` and stamp `last_full_sync_at` after a full scan.
     pub async fn bucket_index_finalize(&self, account_id: &str, bucket: &str) -> AppResult<()> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
@@ -830,8 +798,7 @@ impl Db {
         Ok(())
     }
 
-    /// Compute aggregated stats from cached rows. Counts only what's indexed —
-    /// for an accurate total the user must have run a full bucket scan first.
+    /// Stats over cached rows only — accurate after a full bucket scan.
     pub async fn bucket_stats(
         &self,
         account_id: &str,
@@ -867,7 +834,7 @@ impl Db {
                 for r in iter {
                     stats.by_storage_class.push(r?);
                 }
-                // Top file types by size. Empty extension folds into "(none)".
+                // Top types by size; empty extension folds into "(none)".
                 let mut stmt = conn.prepare(
                     "SELECT COALESCE(NULLIF(extension, ''), '(none)'), COUNT(*), COALESCE(SUM(size), 0)
                        FROM cached_objects
@@ -886,8 +853,8 @@ impl Db {
                 for r in iter {
                     stats.by_extension.push(r?);
                 }
-                // True distinct-extension count (by_extension is capped, so its
-                // length would under-report for buckets with many types).
+                // True distinct count: by_extension is capped, so its length
+                // under-reports for buckets with many types.
                 stats.extension_count = conn.query_row(
                     "SELECT COUNT(DISTINCT COALESCE(NULLIF(extension, ''), '(none)'))
                        FROM cached_objects
@@ -896,7 +863,6 @@ impl Db {
                     |row| row.get(0),
                 )?;
                 // Objects grouped by last-modified month for the timeline chart.
-                // Rows without a timestamp are skipped.
                 let mut stmt = conn.prepare(
                     "SELECT strftime('%Y-%m', last_modified, 'unixepoch'), COUNT(*), COALESCE(SUM(size), 0)
                        FROM cached_objects
@@ -914,7 +880,7 @@ impl Db {
                 for r in iter {
                     stats.by_month.push(r?);
                 }
-                // Biggest objects by size, for the "largest" list.
+                // Biggest objects by size.
                 let mut stmt = conn.prepare(
                     "SELECT key, basename, size
                        FROM cached_objects
@@ -938,18 +904,14 @@ impl Db {
         Ok(stats)
     }
 
-    /// Purge every persisted row tied to a bucket. Used when the bucket itself
-    /// is deleted from the remote — leaves no orphan index/capability/cache
-    /// rows behind. Distinct from `cache_clear_bucket`, which keeps the
-    /// bucket_index row (just disabled) because the bucket still exists.
+    /// Purge every persisted row tied to a bucket deleted from the remote.
+    /// Unlike `cache_clear_bucket`, the bucket_index row goes too.
     pub async fn bucket_purge_all(&self, account_id: &str, bucket: &str) -> AppResult<()> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
         self.conn
             .call(move |conn| {
-                // One transaction: the four deletes are one logical purge, and
-                // a partial purge (e.g. cache rows gone but index rows left)
-                // would leave inconsistent state.
+                // One transaction: a partial purge would leave inconsistent state.
                 let tx = conn.transaction()?;
                 tx.execute(
                     "DELETE FROM cached_objects WHERE account_id = ?1 AND bucket = ?2",
@@ -974,8 +936,7 @@ impl Db {
         Ok(())
     }
 
-    /// Drop all cached rows for a bucket. Used when the user disables the
-    /// bucket index.
+    /// Drop all cached rows for a bucket when its index is disabled.
     pub async fn cache_clear_bucket(&self, account_id: &str, bucket: &str) -> AppResult<()> {
         let account_id = account_id.to_string();
         let bucket = bucket.to_string();
@@ -983,8 +944,7 @@ impl Db {
             .call(move |conn| {
                 let tx = conn.transaction()?;
                 {
-                    // Chunked delete bounds per-statement work on buckets with
-                    // millions of cached rows instead of one huge DELETE.
+                    // Chunked delete bounds per-statement work on huge buckets.
                     const CHUNK: usize = 5000;
                     loop {
                         let deleted = tx.execute(
@@ -1017,13 +977,8 @@ impl Db {
     }
 
     /// Returns (files, subprefixes, has_more) for the direct children of
-    /// `prefix`, starting at file `offset`. Derives the tree from keys at query
-    /// time using LIKE + instr — no parent_prefix column needed.
-    ///
-    /// Files are paginated in pages of `FILE_LIMIT`; `has_more` is true when a
-    /// further page exists (caller resumes with `offset + FILE_LIMIT`).
-    /// Subprefixes (folders) are returned only on the first page (`offset == 0`)
-    /// since they're computed over the whole prefix and don't paginate.
+    /// `prefix`, derived from keys via LIKE + instr (no parent_prefix column).
+    /// Subprefixes are returned only on the first page (`offset == 0`).
     pub async fn browse_children(
         &self,
         account_id: &str,
@@ -1040,8 +995,7 @@ impl Db {
 
         self.conn
             .call(move |conn| {
-                // substr() is character-based (1-indexed); see
-                // [`substr_offset_past_prefix`].
+                // Character-based offset; see [`substr_offset_past_prefix`].
                 let after = substr_offset_past_prefix(&prefix);
                 // Fetch one extra row to detect a further page without a COUNT.
                 let fetch_limit = (FILE_LIMIT + 1) as i64;
@@ -1127,8 +1081,8 @@ impl Db {
     }
 }
 
-/// Scope for sync sweeps. Used by both the mark-unseen and sweep-unseen helpers
-/// so they delimit the same set of rows.
+/// Scope shared by the mark-unseen / sweep-unseen helpers so both delimit
+/// the same set of rows.
 #[derive(Debug, Clone)]
 pub enum SyncScope {
     Bucket,
@@ -1136,7 +1090,6 @@ pub enum SyncScope {
     PrefixRecursive { prefix: String },
 }
 
-/// User-supplied search parameters. See [`Db::search_objects`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchQuery {
     pub account_id: String,
@@ -1156,11 +1109,9 @@ pub struct SearchQuery {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SearchScope {
-    /// Restrict to a single prefix. `recursive=false` matches only direct
-    /// children (one level), `true` matches everything under the prefix.
+    /// `recursive=false` matches direct children only, `true` everything below.
     Prefix { prefix: String, recursive: bool },
-    /// Whole bucket. Requires bucket index to be enabled, but query will
-    /// still run against whatever is cached.
+    /// Whole bucket; runs against whatever is cached.
     Bucket,
 }
 
@@ -1219,10 +1170,7 @@ pub struct FacetBucket {
     pub count: i64,
 }
 
-/// Build the WHERE clause shared by search + facet queries.
-///
-/// Returns `(sql_fragment, params)` where the fragment starts with `WHERE` and
-/// `params` is in argument-position order.
+/// Shared WHERE-clause builder for search + facet queries.
 fn build_filter(
     account_id: &str,
     bucket: &str,
@@ -1244,8 +1192,7 @@ fn build_filter(
             clauses.push("co.key LIKE ? ESCAPE '\\'".into());
             p.push(Value::Text(like_prefix(prefix)));
             if !recursive {
-                // Exclude keys that have a slash after the prefix — those are
-                // descendants, not direct children.
+                // Exclude keys with a slash after the prefix (descendants).
                 let mut pat = String::with_capacity(prefix.len() + 4);
                 for c in prefix.chars() {
                     match c {
@@ -1317,9 +1264,8 @@ enum FacetDim {
 }
 
 impl Db {
-    /// Execute a search query. Combines filter clauses, optional FTS5 MATCH on
-    /// `key` + `basename`, sorted pagination, total count, and a `Facets`
-    /// aggregate computed alongside.
+    /// Execute a search: filter clauses, optional FTS5 MATCH, sorted
+    /// pagination, total count, and facet aggregates.
     pub async fn search_objects(&self, q: SearchQuery) -> AppResult<SearchResult> {
         let q_clone = q.clone();
         let result = self
@@ -1344,10 +1290,8 @@ impl Db {
 
                 let raw_query = query.as_deref().map(str::trim).filter(|s| !s.is_empty());
                 let fts = raw_query.and_then(build_fts_query);
-                // Terms shorter than the trigram minimum (3) can't go through
-                // FTS. Match them with LIKE on basename so a mixed query like
-                // "go run" doesn't silently drop the short term — the ≥3 terms
-                // still drive FTS, the <3 terms are AND'd on top.
+                // Terms <3 chars can't use trigram FTS; match them with LIKE on
+                // basename, AND'd on top of the ≥3-char FTS terms.
                 let short_like_terms: Vec<String> = raw_query
                     .iter()
                     .flat_map(|q| q.split_whitespace())
@@ -1355,9 +1299,8 @@ impl Db {
                     .map(like_contains)
                     .collect();
 
-                // When FTS active: FTS table is primary in FROM so that `cached_objects_fts MATCH`
-                // and `fts.rank` (BM25) work correctly. filter_sql inner clauses appended after
-                // the MATCH condition. fts_param must be first in the param list.
+                // FTS table must be primary in FROM for MATCH/BM25 rank to work;
+                // fts_param must be first in the param list.
                 let like_placeholders: String = short_like_terms
                     .iter()
                     .map(|_| "co.basename LIKE ? ESCAPE '\\'")
@@ -1402,16 +1345,12 @@ impl Db {
                     stmt.query_row(refs.as_slice(), |row| row.get(0))?
                 };
 
-                // Offset pagination. `cursor` is the row offset of the next
-                // page (None = first page). Keyset paging isn't usable here:
-                // the sort column (size / modified / extension / BM25 rank) has
-                // no correlation with rowid, so a rowid cursor silently dropped
-                // or duplicated rows past page 1. OFFSET is O(offset) but the
-                // index is local and pages are small, so it's the right trade.
+                // Offset pagination: keyset cursors break here because the sort
+                // columns (size/modified/BM25 rank) aren't correlated with rowid,
+                // so a rowid cursor drops or duplicates rows past page 1.
                 let offset = cursor.unwrap_or(0).max(0);
 
-                // FTS + default Name sort ranks by BM25 relevance (fts.rank,
-                // lower = better, always ASC). Every other sort honours sort_dir.
+                // FTS + default Name sort ranks by BM25 relevance, always ASC.
                 let fts_name_sort = fts.is_some() && matches!(sort, SortBy::Name);
                 let dir = match sort_dir { SortDir::Asc => "ASC", SortDir::Desc => "DESC" };
                 let (order_col, order_dir_str) = match (sort, fts.is_some()) {
@@ -1421,8 +1360,7 @@ impl Db {
                     (SortBy::Modified, _) => ("co.last_modified", dir),
                     (SortBy::Extension, _)=> ("co.extension", dir),
                 };
-                // rowid tiebreak keeps ordering deterministic across pages so
-                // OFFSET lands on stable boundaries.
+                // rowid tiebreak keeps OFFSET page boundaries stable.
                 let tiebreak = if fts_name_sort || matches!(sort_dir, SortDir::Asc) { "ASC" } else { "DESC" };
 
                 let select_sql = format!(
@@ -1447,7 +1385,8 @@ impl Db {
                 // Full page => there may be more; hand back the next offset.
                 let next_cursor = if objects.len() as i64 == limit { Some(offset + limit) } else { None };
 
-                // Pass built FTS query (not raw input) so facets use same trigram matching.
+                // Pass the built FTS query (not raw input) so facets use the
+                // same trigram matching.
                 let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, fts.as_deref())?;
 
                 Ok::<SearchResult, tokio_rusqlite::Error>(SearchResult {
@@ -1682,10 +1621,8 @@ mod tests {
         );
     }
 
-    /// Regression for the substr byte-vs-character offset bug: with a
-    /// multibyte prefix, `prefix.len()` over-shot past the first '/', so a
-    /// PrefixDirect sweep misclassified nested keys as direct children and
-    /// deleted them.
+    /// Regression: with a multibyte prefix, byte-length math misclassified
+    /// nested keys as direct children and deleted them from the cache.
     #[tokio::test]
     async fn multibyte_prefix_direct_sweep_keeps_nested_rows() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1751,9 +1688,8 @@ mod tests {
         );
     }
 
-    /// Regression for H3: after migration 19 the FTS update trigger only
-    /// fires when key/basename actually change, so the periodic `seen` sweep
-    /// no longer re-tokenizes every row into the trigram index.
+    /// Regression (migration 19): the FTS UPDATE trigger only fires when
+    /// key/basename change, so `seen` sweeps no longer re-tokenize the index.
     #[tokio::test]
     async fn fts_update_trigger_guards_non_key_columns() {
         let dir = tempfile::tempdir().expect("tempdir");

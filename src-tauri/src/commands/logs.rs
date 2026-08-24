@@ -1,6 +1,5 @@
-//! Diagnostic log access. The backend writes a daily-rolling log file to
-//! `<app_data_dir>/logs/cosmog.log.YYYY-MM-DD`. These commands let the FE
-//! show recent entries to the user and locate the directory for bug reports.
+//! Diagnostic log access: the backend writes a daily-rolling log to
+//! `<app_data_dir>/logs/cosmog.log.YYYY-MM-DD`; the FE surfaces recent entries.
 
 use std::path::PathBuf;
 
@@ -16,20 +15,14 @@ pub struct LogTail {
     pub content: String,
 }
 
-/// Return the path to the log directory.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub fn get_log_dir(state: State<'_, AppState>) -> AppResult<String> {
     Ok(state.log_dir.to_string_lossy().to_string())
 }
 
-/// Read the last `max_bytes` of today's log file. Returns empty string if no
-/// log file exists yet (e.g. brand-new install where nothing has been logged).
-/// `max_bytes` is clamped to a sensible upper bound to avoid loading huge
-/// files into memory.
-///
-/// Fully async: the directory scan (stat + sort per entry) runs on a blocking
-/// thread, and the tail read uses `tokio::fs` so neither stalls the runtime.
+/// Reads the last `max_bytes` (clamped) of today's log file; empty string if
+/// none exists yet. Dir scan + tail read run off the async runtime.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn get_log_tail(
@@ -39,8 +32,7 @@ pub async fn get_log_tail(
     let cap = max_bytes.unwrap_or(256 * 1024).min(4 * 1024 * 1024);
     let dir = state.log_dir.clone();
 
-    // Find the most recent rolling-suffix file. tracing-appender writes
-    // `cosmog.log.YYYY-MM-DD`; we pick whichever has the latest mtime.
+    // Pick the latest-mtime cosmog.log* file (tracing-appender daily rolls).
     let scan_dir = dir.clone();
     let target: Option<PathBuf> =
         tokio::task::spawn_blocking(move || -> std::io::Result<Option<PathBuf>> {
@@ -77,7 +69,6 @@ pub async fn get_log_tail(
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
     let mut file = tokio::fs::File::open(&target).await.map_err(AppError::from)?;
     let size = file.metadata().await.map_err(AppError::from)?.len();
-    // Tail-slice computation: seek to size-cap and read through EOF.
     let offset = size.saturating_sub(cap);
     file.seek(std::io::SeekFrom::Start(offset))
         .await

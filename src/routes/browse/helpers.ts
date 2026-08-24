@@ -15,17 +15,14 @@ export function pathFromDialog(sel: unknown): string {
   return s;
 }
 
-/** Human-readable local timestamp for filename suffixes: `2026-07-18_14-32-05`.
- *  ISO-ish but with `_` between date and time and `-` in the time component so
- *  the whole thing is filename-safe on every filesystem. */
+/** Filename-safe timestamp for suffixes: `2026-07-18_14-32-05` (no colons/slashes). */
 export function humanTimestamp(d: Date = new Date()): string {
   const p = (n: number) => n.toString().padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
-/** Insert a human timestamp between a filename's stem and extension so the
- *  extension stays intact: `notes.txt` → `notes-2026-07-18_14-32-05.txt`.
- *  Handles multi-dot names by keeping only the final segment as the ext. */
+/** Insert a timestamp before the extension: `notes.txt` → `notes-<ts>.txt`.
+ *  Only the final dot counts as the ext, so multi-dot names stay intact. */
 export function withTimestamp(name: string, when: Date = new Date()): string {
   const ts = humanTimestamp(when);
   const dot = name.lastIndexOf(".");
@@ -33,12 +30,9 @@ export function withTimestamp(name: string, when: Date = new Date()): string {
   return `${name.slice(0, dot)}-${ts}${name.slice(dot)}`;
 }
 
-/** Extract display filename from a path or Android content:// / file:// URI.
- *  SAF URIs look like:
- *    content://com.android.externalstorage.documents/document/primary%3ADownload%2Fnotes.txt
- *    content://com.android.providers.downloads.documents/document/msf%3A1234
- *  Decode, strip everything up to the last colon (SAF <treeId>:<path> form),
- *  then take last "/" segment. Falls back to a synthetic name for opaque doc ids. */
+/** Extract display filename from a path or Android content:// / file:// URI:
+ *  decode, strip up to the last colon (SAF <treeId>:<path>), take last "/" segment.
+ *  Falls back to `fallback` for opaque doc ids. */
 export function displayNameFromUri(pathOrUri: string, fallback = "file"): string {
   if (!pathOrUri) return fallback;
   const noQuery = pathOrUri.split("?")[0];
@@ -47,20 +41,15 @@ export function displayNameFromUri(pathOrUri: string, fallback = "file"): string
   const afterColon = decoded.includes(":") ? decoded.slice(decoded.lastIndexOf(":") + 1) : decoded;
   const trimmed = afterColon.replace(/[/\\]+$/, "");
   const tail = trimmed.slice(Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) + 1);
-  // opaque doc id like "1234" or "msf" — no clean name available; hand back
-  // the fallback verbatim so S3 keys and UI labels stay stable across retries.
   if (!tail || /^\d+$/.test(tail) || (!/[.]/.test(tail) && tail.length < 3)) {
     return fallback;
   }
   return tail;
 }
 
-/** Android SAF returns content:// URIs. Rust upload path requires absolute
- *  filesystem path. For URI inputs, ask the Rust `stage_saf_upload` command
- *  to stream the URI into app cache (constant memory, chunked JNI copy) and
- *  return { path, name } where `name` comes from ContentResolver's
- *  OpenableColumns.DISPLAY_NAME. Non-URI paths pass through with derived
- *  basename. */
+/** Android SAF returns content:// URIs but Rust uploads need a real filesystem
+ *  path: URI inputs are streamed into app cache by `stage_saf_upload` (chunked,
+ *  constant memory); plain paths pass through with a derived basename. */
 export async function resolveUploadPath(pathOrUri: string): Promise<{ path: string; name: string; stageDir: string | null }> {
   if (!pathOrUri) return { path: "", name: "", stageDir: null };
   const isUri = pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://");
@@ -81,17 +70,15 @@ export async function resolveUploadPath(pathOrUri: string): Promise<{ path: stri
     "stage_saf_upload",
     { uri: pathOrUri, destDir },
   );
-  // Rust stages into <destDir>/<uuid>/<name>; the per-upload <uuid> dir is the
-  // unit the transfer worker reaps once the upload settles.
+  // Rust stages into <destDir>/<uuid>/<name>; the <uuid> dir is what the
+  // transfer worker reaps once the upload settles.
   const sep = Math.max(res.path.lastIndexOf("/"), res.path.lastIndexOf("\\"));
   const stageDir = sep > 0 ? res.path.slice(0, sep) : null;
   return { path: res.path, name: res.display_name || displayNameFromUri(pathOrUri, "upload"), stageDir };
 }
 
-/** Android SAF returns content:// URIs. Rust download requires absolute
- *  filesystem path. Redirect any URI target to $APPCACHE/downloads/<name>
- *  and return the picked SAF URI (if any) so the caller can copy bytes
- *  back to the user-facing location after download completes. */
+/** Redirect URI targets to $APPCACHE/downloads/<name> and return the picked
+ *  SAF URI (if any) so the caller can copy bytes back to the user's location. */
 export async function resolveDownloadPath(
   pathOrUri: string,
   fallbackName?: string,
@@ -100,9 +87,7 @@ export async function resolveDownloadPath(
   const isUri = pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://");
   const isMobileLike = typeof window !== "undefined" && window.matchMedia?.("(max-width: 768px)").matches;
   const isAbsolute = pathOrUri.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(pathOrUri);
-  // desktop: absolute filesystem path — pass through unchanged.
   if (!isUri && !isMobileLike && isAbsolute) return { path: pathOrUri, safUri: null };
-  // desktop with non-absolute path — return as-is; Rust will surface the error.
   if (!isUri && !isMobileLike) return { path: pathOrUri, safUri: null };
 
   const name = isUri
@@ -120,19 +105,15 @@ export async function resolveDownloadPath(
   return { path, safUri: isUri ? pathOrUri : null };
 }
 
-/** After a download finishes on Android, the file is at the cache path we
- *  passed to Rust. saveDialog created a placeholder file at the user-picked
- *  SAF URI (0 bytes). The Rust `finalize_saf_download` command streams the
- *  cache bytes into the URI via ContentResolver.openOutputStream in 1 MB
- *  chunks so multi-GB downloads stay constant-memory, then removes the
- *  cache copy on success. */
+/** Streams cache bytes into the user-picked SAF URI (saveDialog left a 0-byte
+ *  placeholder there) in 1 MB chunks via ContentResolver, then removes the
+ *  cache copy. */
 export async function finalizeSafDownload(cachePath: string, safUri: string): Promise<void> {
   await invoke("finalize_saf_download", { cachePath, uri: safUri });
 }
 
-/** Downloads on Android are staged to $APPCACHE then copied to the SAF URI
- *  the user picked (see finalizeSafDownload). This map holds the pending
- *  copy for each transfer id; the poll loop in MainApp drains it on Done. */
+/** Pending SAF finalize copies per transfer id, drained by MainApp's poll loop
+ *  on Done (downloads stage to $APPCACHE then copy to the picked SAF URI). */
 const pendingSafFinalize = new Map<string, { cachePath: string; safUri: string }>();
 export function registerSafFinalize(transferId: string, cachePath: string, safUri: string) {
   pendingSafFinalize.set(transferId, { cachePath, safUri });
@@ -151,10 +132,8 @@ export function moveSafFinalize(oldId: string, newId: string): void {
   pendingSafFinalize.set(newId, v);
 }
 
-/** Abandon a pending SAF download: drop the finalize entry and delete the
- *  0-byte placeholder document the save dialog pre-created at the user's
- *  chosen location. Called when a transfer is canceled or fails, otherwise
- *  the user finds an empty file where the download would have landed. */
+/** Abandon a pending SAF download: delete the 0-byte placeholder the save
+ *  dialog pre-created, else the user finds an empty file at that location. */
 export function discardSafDownload(transferId: string): void {
   const pending = takeSafFinalize(transferId);
   if (pending) invoke("delete_saf_document", { uri: pending.safUri });

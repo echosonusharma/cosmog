@@ -1,13 +1,5 @@
-//! [`ObjectStore`] implementation backed by the AWS S3 Rust SDK.
-//!
-//! Works against any S3-compatible service (AWS, Backblaze B2, Cloudflare R2,
-//! Wasabi, MinIO, …) — the differentiator is the endpoint URL and addressing
-//! style configured on [`S3Config`].
-//!
-//! Uploads above [`TransferCtx::multipart_threshold`] use S3 multipart with
-//! [`TransferCtx::parallelism`] concurrent part uploads and per-part progress
-//! emission. Cancellation aborts the in-flight multipart server-side so leaked
-//! parts do not accrue cost.
+//! [`ObjectStore`] over the AWS S3 SDK; targets any S3-compatible service via the endpoint and
+//! addressing style on [`S3Config`]; multipart uploads run parts concurrently and cancel server-side.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,13 +33,8 @@ use super::{
     PendingMultipartUpload, PutOptions, Sse,
 };
 
-/// Per-account configuration needed to construct an [`S3Store`].
-///
-/// `endpoint` is `None` for plain AWS; supply a URL like
-/// `https://s3.us-west-004.backblazeb2.com` for non-AWS providers.
-///
-/// `addressing_style` is one of `"path"`, `"virtual"`, or `"auto"`. Auto enables
-/// path-style whenever a custom endpoint is set (matches B2 / R2 / MinIO).
+/// Per-account config for [`S3Store`]; `endpoint` is `None` for plain AWS.
+/// `addressing_style`: `"path"`, `"virtual"`, or `"auto"` (= path-style whenever a custom endpoint is set).
 #[derive(Debug, Clone)]
 pub struct S3Config {
     pub region: String,
@@ -57,8 +44,7 @@ pub struct S3Config {
     pub addressing_style: String,
 }
 
-/// S3 client wrapper. Internally cheap to clone — wraps the SDK's `Client`,
-/// which itself is `Arc`-shared.
+/// S3 client wrapper; cheap to clone (Arc-shared SDK client).
 #[derive(Clone)]
 pub struct S3Store {
     client: Client,
@@ -100,16 +86,13 @@ impl S3Store {
     }
 }
 
-/// Map an arbitrary error into [`AppError::S3`] with a context tag. Used for
-/// non-SDK failures (e.g. building a `ByteStream`) where no S3 error code is
-/// available.
+/// Wrap a non-SDK failure (no S3 error code available) into [`AppError::S3`].
 fn s3_err<E: std::fmt::Display>(ctx: &str, e: E) -> AppError {
     AppError::S3(format!("{ctx}: {e}"))
 }
 
-/// Flatten an error and its `source()` chain into one readable string. The AWS
-/// SDK hides the real network cause (DNS, refused, TLS) under a generic outer
-/// Display, so surfacing the chain makes dispatch failures actionable.
+/// Flatten an error's `source()` chain into one string; the SDK hides the real
+/// cause (DNS, refused, TLS) behind a generic outer Display.
 fn error_chain<E: std::error::Error>(e: &E) -> String {
     let mut parts = vec![e.to_string()];
     let mut src = e.source();
@@ -123,9 +106,8 @@ fn error_chain<E: std::error::Error>(e: &E) -> String {
     parts.join(": ")
 }
 
-/// Classify an AWS SDK error into the most specific [`AppError`] variant
-/// available. Falls back to [`AppError::S3`] for unknown codes or non-service
-/// failures (timeouts, DNS, etc.).
+/// Map an AWS SDK error to the most specific [`AppError`] variant; unknown codes
+/// or transport failures fall back to [`AppError::S3`].
 fn classify_aws<E>(
     ctx: &str,
     err: SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
@@ -135,10 +117,8 @@ where
 {
     let mut display = format!("{ctx}: {err}");
 
-    // Network-level failures: connection refused, DNS failure, TLS, TCP
-    // timeout. These fire before any HTTP response exists, so no service error
-    // code. The SDK's outer Display collapses to a bare "dispatch failure", so
-    // walk the source chain to surface the real cause (DNS, refused, TLS, ...).
+    // Transport-level failure before any HTTP response; the outer Display collapses
+    // to "dispatch failure", so surface the source chain's real cause.
     if let SdkError::DispatchFailure(ref df) = err {
         let msg = if df.is_timeout() {
             format!("{ctx}: connection timed out")
@@ -156,8 +136,6 @@ where
     if let Some(service_err) = err.as_service_error() {
         let code = service_err.code().unwrap_or_default();
         let msg = service_err.message().unwrap_or_default();
-        // The SDK's outer Display often collapses to "service error" — surface
-        // the code + message so logs and UI errors are actionable.
         if !code.is_empty() || !msg.is_empty() {
             display = format!("{ctx}: {code} {msg}").trim().to_string();
         }
@@ -166,8 +144,7 @@ where
             | "NotFound" | "404" => {
                 return AppError::NotFound(display);
             }
-            // Bad-credential codes get a dedicated variant so UI can prompt
-            // for re-entry rather than just toasting "access denied".
+            // Dedicated variant so the UI can prompt credential re-entry.
             "SignatureDoesNotMatch" | "InvalidAccessKeyId" => {
                 return AppError::CredentialsInvalid(display);
             }
@@ -187,29 +164,24 @@ where
             "PermanentRedirect" => {
                 return AppError::RegionRedirect(display);
             }
-            // Provider doesn't implement this operation (common on B2/R2 for
-            // bucket policy or CORS). Give the FE a distinct code to switch on.
+            // Op unimplemented on this provider (common on B2/R2); distinct FE code.
             "NotImplemented" | "501" => {
                 return AppError::Unsupported(display);
             }
-            // Object's storage class blocks direct reads (archive/cold tier);
-            // GetObject fails until restored. Distinct code so FE can explain.
+            // Cold/archive storage class blocks reads until restored; distinct FE code.
             "InvalidObjectState" => {
                 return AppError::Archived(display);
             }
             _ => {}
         }
-        // Some providers signal "not implemented" only via HTTP 501 with an
-        // empty/unknown error code. Classify from the raw status.
+        // Some providers emit only HTTP 501 with an empty/unknown error code.
         if let SdkError::ServiceError(ref se) = err {
             if se.raw().status().as_u16() == 501 {
                 return AppError::Unsupported(display);
             }
         }
     }
-    // HEAD responses (HeadBucket/HeadObject) carry no XML error body, so a
-    // cross-region 301 yields an empty error code above. Classify it from the
-    // raw HTTP status so region auto-recovery still kicks in.
+    // HEAD carries no XML error body; classify a cross-region 301 from the raw status.
     if let SdkError::ServiceError(ref se) = err {
         if se.raw().status().as_u16() == 301 {
             return AppError::RegionRedirect(display);
@@ -222,11 +194,8 @@ fn canceled(transfer_id: &str) -> AppError {
     AppError::Canceled(format!("transfer {transfer_id} canceled"))
 }
 
-/// True when saved multipart resume state was built from a different version
-/// of the source file than the one currently on disk (size or mtime changed).
-/// Unknown fingerprints — rows persisted before the fields existed, or a stat
-/// failure at enqueue — never count as stale: resuming is then the same
-/// best-effort guess it always was.
+/// True when resume state was built from a different source-file version (size/mtime changed).
+/// Unknown fingerprints never count as stale: resuming stays the best-effort guess it always was.
 fn resume_state_is_stale(state: &ResumeState, ctx: &TransferCtx) -> bool {
     match (state.source_len, state.source_mtime_secs, ctx.source_stat) {
         (Some(len), Some(mtime), Some(cur)) => len != cur.len || mtime != cur.mtime_secs,
@@ -234,11 +203,8 @@ fn resume_state_is_stale(state: &ResumeState, ctx: &TransferCtx) -> bool {
     }
 }
 
-/// True when a ranged GetObject was rejected *because of the range itself* —
-/// HTTP 416 or the provider's `InvalidRange` / `RangeNotSatisfiable` error
-/// code (e.g. requesting bytes of a 0-byte object, providers without Range
-/// support). This is the only failure class where falling back to a full-
-/// object GET is meaningful.
+/// True when a ranged GET was rejected because of the range itself (HTTP 416 /
+/// InvalidRange codes). The only failure class where a full-object fallback is meaningful.
 fn range_request_rejected<E>(
     err: &SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
 ) -> bool
@@ -259,8 +225,7 @@ where
     false
 }
 
-/// Parse the `total` portion of an HTTP `Content-Range: bytes a-b/total`
-/// response. Returns `None` for `*` (unknown total) or malformed input.
+/// Parse the total from `Content-Range: bytes a-b/total`; `None` for `*` or malformed input.
 fn parse_content_range_total(header: &str) -> Option<i64> {
     let after_slash = header.rsplit_once('/')?.1.trim();
     if after_slash == "*" {
@@ -269,8 +234,7 @@ fn parse_content_range_total(header: &str) -> Option<i64> {
     after_slash.parse::<i64>().ok()
 }
 
-/// Format an HTTP `Range: bytes=` value from optional start/end. Returns
-/// `None` when both are `None` (meaning "no range header — full object").
+/// Format a `Range:` header value; `None` when both bounds are absent (full object).
 fn build_range_header(start: Option<u64>, end: Option<u64>) -> Option<String> {
     match (start, end) {
         (None, None) => None,
@@ -280,16 +244,11 @@ fn build_range_header(start: Option<u64>, end: Option<u64>) -> Option<String> {
     }
 }
 
-/// Emit progress, but throttle so we don't flood the channel.
-///
-/// Uses an AtomicU64 storing nanoseconds from an arbitrary epoch so that
-/// `allow()` is lock-free and can be called from every chunk callback without
-/// contention.
+/// Throttles progress emission; the atomic-nanoseconds design keeps `allow()`
+/// lock-free from every chunk callback.
 struct ProgressThrottle {
-    /// Nanoseconds since the process started at which we last emitted.
     last_ns: std::sync::atomic::AtomicU64,
     interval_ns: u64,
-    /// Anchor point so we can compute nanoseconds cheaply.
     epoch: Instant,
 }
 
@@ -297,8 +256,7 @@ impl ProgressThrottle {
     fn new(interval_ms: u64) -> Self {
         let interval_ns = interval_ms * 1_000_000;
         Self {
-            // Pretend the last emit happened in the past so the first allow() fires.
-            // Use 0 as a sentinel meaning "never fired"; allow() treats it specially.
+            // 0 = "never fired" sentinel; allow() fires immediately on first call.
             last_ns: std::sync::atomic::AtomicU64::new(0),
             interval_ns,
             epoch: Instant::now(),
@@ -307,12 +265,11 @@ impl ProgressThrottle {
 
     fn allow(&self) -> bool {
         use std::sync::atomic::Ordering;
-        // Ensure now_ns is never 0 — we use 0 as "never fired" sentinel.
+        // now_ns must never be 0 (the "never fired" sentinel).
         let now_ns = (self.epoch.elapsed().as_nanos() as u64).max(1);
         let last = self.last_ns.load(Ordering::Relaxed);
-        // First call (last==0) always fires; subsequent calls obey the interval.
         if last == 0 || now_ns.saturating_sub(last) >= self.interval_ns {
-            // CAS: only one concurrent caller wins; others skip this tick.
+            // CAS: one concurrent caller wins this tick.
             self.last_ns.compare_exchange(last, now_ns, Ordering::Relaxed, Ordering::Relaxed).is_ok()
         } else {
             false
@@ -323,8 +280,7 @@ impl ProgressThrottle {
 #[async_trait]
 impl ObjectStore for S3Store {
     async fn list_buckets(&self) -> AppResult<Vec<Bucket>> {
-        // Paginate instead of a single send(): accounts with many buckets
-        // only ever see one 1000-bucket page otherwise.
+        // Paginate: large accounts otherwise see only the first 1000-bucket page.
         const MAX_BUCKETS: usize = 10_000;
         let mut out = Vec::new();
         let mut pages = self.client.list_buckets().into_paginator().send();
@@ -350,8 +306,7 @@ impl ObjectStore for S3Store {
         use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
         let mut req = self.client.create_bucket().bucket(name);
         if let Some(r) = region {
-            // us-east-1 is implicit in the S3 protocol — sending a
-            // LocationConstraint of "us-east-1" is in fact illegal. Skip it.
+            // us-east-1 is implicit in S3; sending its LocationConstraint is illegal.
             if r != "us-east-1" {
                 let cfg = CreateBucketConfiguration::builder()
                     .location_constraint(BucketLocationConstraint::from(r))
@@ -393,8 +348,7 @@ impl ObjectStore for S3Store {
             .send()
             .await
             .map_err(|e| classify_aws("get_bucket_location", e))?;
-        // AWS returns an empty LocationConstraint for us-east-1 (SDK quirk).
-        // Normalise to None so callers can use unwrap_or("us-east-1").
+        // Empty LocationConstraint = us-east-1; normalise to None for callers.
         Ok(resp
             .location_constraint()
             .map(|c| c.as_str().to_string())
@@ -455,7 +409,7 @@ impl ObjectStore for S3Store {
         match resp {
             Ok(r) => Ok(r.policy().map(|s| s.to_string())),
             Err(e) => {
-                // No policy on the bucket is a normal "absent" state, not an error.
+                // NoSuchBucketPolicy = absent policy, not an error.
                 if e.as_service_error()
                     .and_then(|se| se.code())
                     .map(|c| c.contains("NoSuchBucketPolicy"))
@@ -651,8 +605,7 @@ impl ObjectStore for S3Store {
             .send()
             .await
             .map_err(|e| classify_aws("head_object", e))?;
-        // Copy user metadata off HEAD. Keys are already stripped of the
-        // `x-amz-meta-` prefix by the AWS SDK.
+        // SDK already strips the `x-amz-meta-` prefix from metadata keys.
         let user_metadata = resp
             .metadata()
             .map(|m| m.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
@@ -796,16 +749,8 @@ impl ObjectStore for S3Store {
         key: &str,
         version_id: &str,
     ) -> AppResult<()> {
-        // Restore = server-side CopyObject where the source is the chosen old
-        // version (`bucket/key?versionId=...`) and the destination is the same
-        // `bucket/key`. On a versioned bucket this creates a new latest version
-        // whose bytes equal the old version. Callers must not point this at a
-        // delete marker (S3 rejects copying from one); un-deleting is done by
-        // deleting the marker instead.
-        //
-        // CopySource requires each key path segment to be percent-encoded
-        // (keys can contain #, ?, spaces, non-ASCII). Slashes are path
-        // separators and must not be encoded. This mirrors `copy_object`.
+        // Restore = server-side CopyObject from `bucket/key?versionId=..` to the same key (new
+        // latest version; invalid against delete markers). CopySource segments percent-encoded, slashes kept.
         let encoded_key: String = key
             .split('/')
             .map(|seg| urlencoding::encode(seg).into_owned())
@@ -829,11 +774,8 @@ impl ObjectStore for S3Store {
         prefix: Option<&str>,
         continuation: Option<String>,
     ) -> AppResult<(Vec<ObjectVersion>, Option<String>)> {
-        // ListObjectVersions pages within a single key using BOTH a key-marker
-        // and a version-id-marker: an object with more versions than fit in one
-        // response is only fully listed if we echo both on the follow-up. We
-        // carry the pair as a JSON continuation token so the frontend can round
-        // -trip it opaquely.
+        // Paging within one key requires echoing BOTH key-marker and version-id-marker,
+        // else multi-page version lists truncate; carried as an opaque JSON continuation token.
         #[derive(serde::Serialize, serde::Deserialize)]
         struct VersionsMarker {
             key: String,
@@ -881,7 +823,6 @@ impl ObjectStore for S3Store {
             last_modified: d.last_modified().map(|x| x.secs()),
         }));
 
-        // Only continue while S3 reports truncation, echoing both markers.
         let next = if resp.is_truncated().unwrap_or(false) {
             resp.next_key_marker().map(|k| {
                 let m = VersionsMarker {
@@ -903,9 +844,7 @@ impl ObjectStore for S3Store {
         dst_bucket: &str,
         dst_key: &str,
     ) -> AppResult<()> {
-        // CopySource requires each key path segment to be percent-encoded
-        // (keys can contain #, ?, spaces, non-ASCII).  Slashes are path
-        // separators and must not be encoded.
+        // CopySource segments must be percent-encoded; slashes stay separators.
         let encoded_key: String = src_key
             .split('/')
             .map(|seg| urlencoding::encode(seg).into_owned())
@@ -1024,12 +963,8 @@ impl ObjectStore for S3Store {
         const HARD_CAP: u64 = 8 * 1024 * 1024;
         let cap = max_bytes.min(HARD_CAP);
 
-        // Try ranged GET. Fall back to a full GET only when the provider
-        // rejects ranges outright (HTTP 416 / InvalidRange class — e.g.
-        // 0-byte objects, providers without Range support). Any other error
-        // (404, credentials, network, …) must surface as-is: masking it with
-        // a fallback GET used to turn real failures into confusing
-        // whole-object downloads.
+        // Full-object fallback ONLY on outright range rejection (416/InvalidRange); all other
+        // errors surface as-is — masking used to turn real failures into confusing full downloads.
         let range_str = format!("bytes=0-{}", cap.saturating_sub(1));
         let ranged = self
             .client
@@ -1057,17 +992,14 @@ impl ObjectStore for S3Store {
             Err(e) => return Err(classify_aws("get_object preview range", e)),
         };
 
-        // For ranged GET the SDK's content_length reflects the range payload,
-        // not the object. Parse Content-Range "bytes a-b/total" for the real size.
+        // Ranged GET: content_length is the range size; Content-Range has the real total.
         let total_from_range = if used_range {
             resp.content_range().and_then(parse_content_range_total)
         } else {
             None
         };
         let payload_len = resp.content_length();
-        // Guard RAM before collecting: refuse to buffer more than `cap` even
-        // if Content-Length lies or is absent — read at most `cap` bytes and
-        // mark the preview truncated.
+        // Hard RAM cap: buffer at most `cap` bytes even if Content-Length lies.
         if let Some(len) = payload_len {
             if len < 0 {
                 return Err(AppError::S3(format!(
@@ -1224,8 +1156,6 @@ impl ObjectStore for S3Store {
             });
             return Err(canceled(&ctx.transfer_id));
         }
-        // For full-object downloads, attempt a HEAD to get size and decide
-        // whether to use parallel chunked GETs.
         if opts.range_start.is_none() && opts.range_end.is_none() {
             if let Ok(head) = self.client.head_object().bucket(bucket).key(key).send().await {
                 if let Some(total) = head.content_length().map(|n| n as u64) {
@@ -1236,7 +1166,6 @@ impl ObjectStore for S3Store {
                     }
                 }
             }
-            // HEAD failed or size <= threshold — fall through to single-stream GET.
         }
 
         let mut req = self.client.get_object().bucket(bucket).key(key);
@@ -1248,9 +1177,7 @@ impl ObjectStore for S3Store {
         }
         let resp = req.send().await.map_err(|e| classify_aws("get_object", e))?;
 
-        // For a ranged GET, `content_length` is the *range* size, not the
-        // whole object; the `Content-Range` header carries the real total.
-        // Fall back to content_length for full-object GETs.
+        // Ranged GET: content_length is range-size; Content-Range carries the real total.
         let total = resp
             .content_range()
             .and_then(parse_content_range_total)
@@ -1264,10 +1191,8 @@ impl ObjectStore for S3Store {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        // Only append when the caller explicitly signalled resume (the
-        // transfer manager sets this after confirming a partial file from a
-        // prior attempt exists). Inferring resume from `dest.exists()` used
-        // to append range payloads onto unrelated pre-existing files.
+        // Append only when the transfer manager explicitly confirmed a prior partial;
+        // inferring from dest.exists() once appended onto unrelated files.
         let resume_offset = if opts.resume && dest.exists() {
             opts.range_start.unwrap_or(0)
         } else {
@@ -1291,10 +1216,8 @@ impl ObjectStore for S3Store {
             tokio::select! {
                 _ = ctx.cancel.cancelled() => {
                     drop(file);
-                    // Delete only what we created/truncated ourselves. While
-                    // resuming onto a pre-existing partial file, leave it
-                    // intact so a later retry can continue from the same
-                    // offset instead of starting over.
+                    // Delete only what we created; a pre-existing partial stays intact
+                    // so a retry resumes from the same offset.
                     if !(opts.resume && resume_offset > 0) {
                         let _ = tokio::fs::remove_file(&dest).await;
                     }
@@ -1336,8 +1259,7 @@ impl ObjectStore for S3Store {
 }
 
 impl S3Store {
-    /// Download a large object by issuing parallel range GETs and writing each
-    /// chunk into the correct offset of a pre-allocated file.
+    /// Parallel range GETs, each chunk written at its offset of a pre-allocated file.
     async fn get_object_parallel(
         &self,
         bucket: &str,
@@ -1404,9 +1326,8 @@ impl S3Store {
                     r = req.send() => r.map_err(|e| classify_aws("get_object_parallel", e))?,
                 };
 
-                // Stream the part body straight to the file. Open once, seek to
-                // this part's offset once, then write chunk-by-chunk so resident
-                // memory is one chunk (~256 KiB) not the whole part (part_size).
+                // Seek to the part offset once, then write chunk-by-chunk: resident
+                // memory stays one chunk (~256 KiB), not the whole part.
                 let mut f = tokio::fs::OpenOptions::new()
                     .write(true)
                     .open(&dest)
@@ -1566,9 +1487,8 @@ impl S3Store {
         })
     }
 
-    /// Upload a file as a multipart S3 upload. Concurrency, part size, and
-    /// resume state come from `ctx`. Aborts the upload server-side on error or
-    /// cancellation.
+    /// Multipart upload; concurrency, part size, and resume state come from `ctx`.
+    /// Aborts server-side on error or cancellation.
     async fn put_multipart(
         &self,
         bucket: &str,
@@ -1579,9 +1499,8 @@ impl S3Store {
         ctx: TransferCtx,
     ) -> AppResult<UploadResult> {
         let (upload_id, already_done) = self.init_or_resume_upload(bucket, key, &opts, &ctx).await?;
-        // Publish the upload_id immediately so the worker can resume this same
-        // upload on a retry, or abort it on final give-up, even if zero parts
-        // complete before an error.
+        // Publish upload_id immediately: retries resume this same upload even if
+        // zero parts complete before an error; the worker aborts on give-up.
         ctx.progress.emit(TransferEvent::MultipartInitiated {
             transfer_id: ctx.transfer_id.clone(),
             upload_id: upload_id.clone(),
@@ -1596,9 +1515,7 @@ impl S3Store {
         }
         let num_parts = num_parts_u64 as i32;
         let bytes_done = Arc::new(AtomicU64::new(
-            // Compute the precise number of bytes already uploaded by walking
-            // the part numbers in `already_done` and summing each part's
-            // actual length (final part is shorter than `part_size`).
+            // Sum completed parts' actual lengths (final part is shorter).
             already_done
                 .iter()
                 .map(|p| {
@@ -1703,11 +1620,8 @@ impl S3Store {
             match res {
                 Ok(p) => collected.push(p),
                 Err(e) => {
-                    // Do NOT abort or emit a terminal event here: a retriable
-                    // error is resumed by the worker against this same
-                    // upload_id, and the worker aborts + emits the terminal
-                    // exactly once on final give-up / cancel. Aborting here
-                    // would destroy the upload the next attempt wants to resume.
+                    // Do NOT abort or emit terminal here: the worker resumes retriable errors
+                    // on this upload_id and aborts exactly once on final give-up/cancel.
                     return Err(e);
                 }
             }
@@ -1729,14 +1643,8 @@ impl S3Store {
         })
     }
 
-    /// Either resume an upload from saved state, or create a fresh multipart
-    /// upload and return its id alongside an empty `completed_parts` list.
-    ///
-    /// Resume state is discarded when the source file changed since the saved
-    /// parts were uploaded: part boundaries are byte offsets into one exact
-    /// version of the file, so applying them to a different version would
-    /// assemble a corrupted object. The stale server-side upload is aborted
-    /// best-effort before starting fresh.
+    /// Resume from saved state or create a fresh multipart upload; discard state when the
+    /// source changed (wrong-version offsets corrupt the object), aborting the old upload.
     async fn init_or_resume_upload(
         &self,
         bucket: &str,
@@ -1749,9 +1657,7 @@ impl S3Store {
                 return Ok((state.upload_id, state.completed_parts));
             }
             if !state.upload_id.is_empty() {
-                // Source mismatch (or unknown-but-suspect state): drop the old
-                // upload server-side so incomplete-multipart storage doesn't
-                // leak. Best-effort — the fresh create below must proceed.
+                // Best-effort abort so incomplete-multipart storage doesn't leak.
                 let _ = self
                     .abort_multipart_upload(bucket, key, &state.upload_id)
                     .await;
@@ -1808,8 +1714,6 @@ impl S3Store {
         Ok((id, Vec::new()))
     }
 
-    /// Finalize a multipart upload by sending the complete list of ETags in
-    /// ascending part-number order.
     async fn complete_multipart(
         &self,
         bucket: &str,

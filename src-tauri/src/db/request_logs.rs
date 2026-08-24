@@ -9,8 +9,8 @@ use crate::error::AppResult;
 
 use super::Db;
 
-/// Hard cap on retained request-log rows, enforced on every prune regardless of
-/// TTL. Keeps the table (and its full-table search scans) bounded.
+/// Hard row cap enforced on every prune regardless of TTL; keeps the table
+/// (and its full-table search scans) bounded.
 pub const REQUEST_LOG_MAX_ROWS: i64 = 50_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,9 +107,7 @@ pub struct RequestLogStats {
 #[derive(Debug, Clone, Default)]
 pub struct RequestLogFilter {
     pub search: Option<String>,
-    /// Exact match on the `status` column ("ok" / "error").
     pub status: Option<String>,
-    /// Exact match on the `operation` column.
     pub operation: Option<String>,
 }
 
@@ -230,10 +228,8 @@ impl Db {
         Ok(n)
     }
 
-    /// Prune request logs by age (TTL) AND a hard row cap. The row cap bounds
-    /// the fastest-growing table between TTL passes: a bulk operation can emit
-    /// thousands of rows in minutes, and leading-wildcard log searches scan the
-    /// whole table. Both deletes run in one transaction.
+    /// Prune by TTL plus hard row cap: bulk ops emit thousands of rows/min and
+    /// leading-wildcard searches scan the whole table. Both deletes in one tx.
     pub async fn delete_old_request_logs(&self, before_ts: i64) -> AppResult<u64> {
         let n = self
             .conn
@@ -265,8 +261,8 @@ impl Db {
         Ok(())
     }
 
-    /// Aggregate request-log metrics since `since_ts` for dashboard charts.
-    /// Single table scan — aggregates in memory to avoid six separate GROUP BY passes.
+    /// Dashboard aggregates since `since_ts`: single table scan, aggregated
+    /// in memory to avoid six separate GROUP BY passes.
     pub async fn request_log_stats(&self, since_ts: i64) -> AppResult<RequestLogStats> {
         let stats = self
             .conn

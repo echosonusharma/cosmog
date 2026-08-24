@@ -1,8 +1,5 @@
-//! Account-to-[`ObjectStore`] factory.
-//!
-//! When a new provider protocol is added (e.g. Azure Blob), extend [`Protocol`]
-//! with a new variant and add a branch in [`build_store`]. The rest of the
-//! backend is protocol-agnostic and never touches concrete provider types.
+//! Account-to-[`ObjectStore`] factory. Adding a protocol = new [`Protocol`] variant + [`build_store`]
+//! branch; the rest of the backend stays protocol-agnostic.
 
 use std::sync::Arc;
 
@@ -51,16 +48,13 @@ async fn build_store_inner(account: &Account, region: &str, endpoint: Option<Str
     Ok(Arc::new(store))
 }
 
-/// Build a minimal S3 store pointed at the global endpoint (us-east-1, no
-/// custom endpoint override) for probing operations like `GetBucketLocation`
-/// that work cross-region. Used by region auto-correction logic to avoid
-/// calling `GetBucketLocation` on a misconfigured-region client.
+/// Minimal us-east-1/global-endpoint store for cross-region probes (GetBucketLocation), so region
+/// auto-correction never probes through a misconfigured-region client.
 pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
     build_store_inner(account, "us-east-1", None).await
 }
 
-/// Like [`build_store`] but signs for an explicit region instead of the
-/// account's stored one. Used for per-bucket region routing.
+/// Like [`build_store`] but signs for an explicit region (per-bucket region routing).
 pub async fn build_store_with_region(
     account: &Account,
     region: &str,
@@ -68,7 +62,6 @@ pub async fn build_store_with_region(
     build_store_inner(account, region, account.endpoint.clone()).await
 }
 
-/// Build an ObjectStore for the given account, pulling its secret from the keyring.
 pub async fn build_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
     Protocol::parse(&account.protocol)?;
     build_store_inner(account, &account.region, account.endpoint.clone()).await

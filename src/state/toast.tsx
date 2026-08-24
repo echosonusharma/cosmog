@@ -1,7 +1,5 @@
-// Every user-visible event (ok/err/warn/info) is routed through the OS
-// notification tray via utils/notify. The `toast` object keeps the same
-// method surface so existing call sites compile unchanged, but no in-app
-// popup renders anywhere: the user always gets a real system notification.
+// Every user-visible event routes through the OS notification tray via utils/notify; the `toast`
+// API surface is kept so call sites compile unchanged — no in-app popup renders anywhere.
 
 import { notify, CHANNEL_EVENTS, CHANNEL_ALERTS } from "../utils/notify";
 import { errMsg } from "../utils/errors";
@@ -29,10 +27,8 @@ function short(msg: string): string {
   return msg.length <= TITLE_MAX ? msg : `${msg.slice(0, TITLE_MAX - 1)}…`;
 }
 
-/** Success and info messages read best as the headline itself ("Link
- *  copied", "Settings saved") instead of a generic app-name title. The
- *  optional detail line gives the notification a body so it doesn't render
- *  as a bare one-liner in the tray; long details land in the expanded view. */
+/** Success/info messages read best as the headline itself ("Link copied"); the optional detail
+ *  becomes the notification body so it doesn't render as a bare one-liner in the tray. */
 function event(title: string, detail?: string) {
   if (suppressed(`${title}|${detail ?? ""}`)) return;
   notify(short(title), detail ? short(detail) : undefined, {

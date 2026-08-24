@@ -1,5 +1,3 @@
-/** Parsed AWS credentials INI (`~/.aws/credentials`). */
-
 export interface ParsedAwsProfile {
   name: string;
   access_key_id: string;
@@ -90,7 +88,6 @@ function finalizeSection(draft: SectionDraft): { profile?: ParsedAwsProfile; ski
   };
 }
 
-/** Validate INI line shape for AWS credentials files. */
 export function validateAwsCredentialsIni(text: string): IniSyntaxError[] {
   const errors: IniSyntaxError[] = [];
   const lines = text.split(/\r?\n/);
@@ -112,7 +109,6 @@ export function validateAwsCredentialsIni(text: string): IniSyntaxError[] {
   return errors;
 }
 
-/** Parse `~/.aws/credentials` content into importable profiles. */
 export function parseAwsCredentialsIni(text: string): ParseAwsCredentialsResult {
   const syntaxErrors = validateAwsCredentialsIni(text);
   if (syntaxErrors.length > 0) {

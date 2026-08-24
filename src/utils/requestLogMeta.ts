@@ -1,4 +1,3 @@
-/** Human labels and chart colors for S3 API operation keys in request logs. */
 export const OP_LABELS: Record<string, string> = {
   list_buckets: "List Buckets",
   create_bucket: "Create Bucket",
@@ -162,7 +161,6 @@ export function accountLabelFromMap(
   return labels.get(accountKey(accountId, accountName)) ?? accountLabel(accountId, accountName);
 }
 
-/** Compact axis / tooltip count (e.g. 32.6k). */
 export function formatChartCount(v: number): string {
   const n = Math.abs(v);
   if (n >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;

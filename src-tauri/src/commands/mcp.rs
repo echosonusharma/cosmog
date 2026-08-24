@@ -1,7 +1,5 @@
-//! MCP server config commands (desktop only).
-//!
-//! The FE reads and patches the config; each patch persists to settings and
-//! restarts the listener so the running server reflects the new state.
+//! MCP server config commands (desktop only): the FE reads/patches config;
+//! each patch persists to settings and restarts the listener.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -30,7 +28,6 @@ pub struct McpConfig {
 pub struct McpAccount {
     pub id: String,
     pub name: String,
-    /// False when the user turned this account off for MCP.
     pub enabled: bool,
 }
 
@@ -80,8 +77,7 @@ pub struct McpConfigPatch {
     pub acknowledged: Option<bool>,
     pub disabled_tools: Option<Vec<String>>,
     pub disabled_accounts: Option<Vec<String>>,
-    /// Absent = leave unchanged. A string sets the folder; an empty string
-    /// clears it (normalize() collapses empty to None).
+    /// Absent = unchanged; empty string clears the folder.
     pub fs_root: Option<String>,
 }
 
@@ -127,8 +123,7 @@ pub async fn mcp_set_config(
     }
     state.db.settings_save(s).await?;
     state.invalidate_settings().await;
-    // Restart (or stop) the listener so the change takes effect now. A bind
-    // failure (e.g. port in use) surfaces to the FE.
+    // Restart (or stop) so the change applies now; bind failures surface to the FE.
     crate::mcp::apply(&state).await?;
     build_config(&state).await
 }

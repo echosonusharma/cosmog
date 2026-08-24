@@ -1,16 +1,6 @@
-//! SQLite-backed application state.
-//!
-//! [`Db`] is a thin wrapper over a [`tokio_rusqlite::Connection`] that exposes
-//! domain methods via extension impls in submodules (`accounts`, `transfers`).
-//!
-//! Schema evolves through ordered, idempotent migrations in [`MIGRATIONS`]. The
-//! applied version is tracked in `schema_migrations`. To add a new migration:
-//!
-//! 1. Append an entry to [`MIGRATIONS`] with the next version number.
-//! 2. Keep the SQL idempotent where possible (`CREATE … IF NOT EXISTS`,
-//!    `ALTER TABLE`, etc.) so partial application is recoverable.
-//! 3. Never edit or reorder existing entries — that would break existing
-//!    installations.
+//! SQLite-backed application state: [`Db`] wraps a [`tokio_rusqlite::Connection`]
+//! with domain methods in submodules. Schema evolves via ordered migrations in
+//! [`MIGRATIONS`], tracked in `schema_migrations`. MIGRATIONS is append-only.
 
 pub mod accounts;
 pub mod cache;
@@ -27,16 +17,14 @@ use tokio_rusqlite::Connection;
 
 use crate::error::AppResult;
 
-/// Owned handle to the application database. Cheap to clone (the underlying
-/// connection is `Arc`-shared by `tokio-rusqlite`).
+/// Handle to the application database; cheap to clone (the connection is
+/// `Arc`-shared by `tokio-rusqlite`).
 #[derive(Clone)]
 pub struct Db {
     pub conn: Connection,
 }
 
 impl Db {
-    /// Open (or create) the SQLite file at `path`, apply all pending
-    /// migrations, and return a ready-to-use handle.
     pub async fn open(path: &Path) -> AppResult<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -107,9 +95,8 @@ impl Db {
 }
 
 impl Db {
-    /// Atomically copy the live database to `dest` using SQLite's Backup API.
-    /// Unlike a raw `fs::copy`, this is safe to run while other writers may
-    /// be active — the backup driver coordinates with the WAL.
+    /// Atomic copy via SQLite's Backup API — safe against concurrent writers
+    /// (coordinates with the WAL), unlike a raw `fs::copy`.
     pub async fn backup_to(&self, dest: std::path::PathBuf) -> AppResult<()> {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -118,15 +105,11 @@ impl Db {
             .call(move |conn| {
                 let mut dest_conn = rusqlite::Connection::open(&dest)?;
                 let backup = rusqlite::backup::Backup::new(conn, &mut dest_conn)?;
-                // Copy in large page steps with a small sleep between steps:
-                // a tiny step count with a zero sleep busy-spins the thread and
-                // holds a long-running read snapshot against the live WAL,
-                // stalling writers for the whole backup.
+                // Large steps + small sleep: a tiny step count with zero sleep
+                // busy-spins and holds a long read snapshot against the WAL.
                 backup.run_to_completion(4096, std::time::Duration::from_millis(5), None)?;
-                // Drop the borrow before closing the destination.
                 drop(backup);
-                // Explicit close so a failed flush surfaces instead of being
-                // silently dropped when the connection falls out of scope.
+                // Explicit close so a failed flush surfaces instead of being dropped.
                 if let Err((_, err)) = dest_conn.close() {
                     return Err(tokio_rusqlite::Error::from(err));
                 }
@@ -137,8 +120,7 @@ impl Db {
     }
 }
 
-/// A single forward-only schema change. Identified by a monotonically
-/// increasing `version`.
+/// One forward-only schema change, identified by a monotonically increasing version.
 struct Migration {
     version: u32,
     sql: &'static str,
@@ -456,25 +438,22 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 16,
-        // Android: a watched location is a SAF tree content:// URI, not an fs
-        // path. NULL on desktop (fs watches never set it).
+        // Android: a watched location is a SAF tree content:// URI; NULL on desktop.
         sql: r#"
             ALTER TABLE nw_watch ADD COLUMN tree_uri TEXT;
         "#,
     },
     Migration {
         version: 17,
-        // Marks who started a transfer. 'nightwatch' rows are silent background
-        // syncs; the UI suppresses their notifications (only failures show).
+        // Who started the transfer; 'nightwatch' rows are silent background syncs.
         sql: r#"
             ALTER TABLE transfers ADD COLUMN origin TEXT NOT NULL DEFAULT 'user';
         "#,
     },
     Migration {
         version: 18,
-        // Per-file upload-retry backoff for Night Watcher. After MAX consecutive
-        // upload failures the file is paused until `retry_after`, so a broken
-        // file/endpoint stops re-enqueuing every scan. Cleared on success.
+        // Per-file upload-retry backoff: after MAX consecutive failures the
+        // file pauses until retry_after so a broken file stops re-enqueuing.
         sql: r#"
             CREATE TABLE IF NOT EXISTS nw_file_retry (
                 watch_id    TEXT NOT NULL,
@@ -489,12 +468,8 @@ const MIGRATIONS: &[Migration] = &[
     },
     Migration {
         version: 19,
-        // Recreate the external-content FTS5 sync triggers with a WHEN guard on
-        // the UPDATE trigger. Without it every UPDATE of any column (e.g. the
-        // periodic `seen` sweep flags) delete+reinserts both FTS rows and
-        // re-tokenizes key/basename into the trigram index — pure write
-        // amplification. `IS NOT` (not !=) so NULL-safe comparison keeps the
-        // guard correct when columns are NULL.
+        // Recreate FTS triggers with a WHEN guard (`IS NOT`, NULL-safe):
+        // otherwise every-column updates re-tokenize the trigram index.
         sql: r#"
             DROP TRIGGER IF EXISTS cached_objects_ai;
             DROP TRIGGER IF EXISTS cached_objects_ad;

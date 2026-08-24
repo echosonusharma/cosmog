@@ -27,9 +27,8 @@ import { AudioPreview } from "./preview/AudioPlayer";
 import { MetaList } from "./preview/MetaList";
 import { useBackHandler } from "../../utils/androidBack";
 
-// Map a Tauri IPC rejection to a short, human-facing (title, hint) pair for
-// the preview error card. Falls back to the raw wire message when the code
-// isn't specifically recognised.
+// Maps a Tauri IPC rejection to a short human-facing (title, hint) pair,
+// falling back to the raw wire message when the code isn't recognized.
 function previewErrorParts(err: unknown, storageClass?: string | null): { title: string; hint: string } {
   const code = errCode(err);
   const msg = errMsg(err);
@@ -102,9 +101,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     return false;
   });
   const tooBig = () => props.obj.size > 10 * 1024 * 1024;
-  // Encrypted images are decrypted whole into a Blob URL. Cap auto-load so a
-  // 100 MB ciphertext doesn't balloon the webview. User can still click
-  // "Load preview" to force it (via loadRequested()).
+  // Encrypted images decrypt whole into a Blob URL; cap auto-load so a large
+  // ciphertext can't balloon the webview (user can still force via Load preview).
   const ENCRYPTED_IMAGE_AUTOLOAD_MAX = 8 * 1024 * 1024;
   const imageAutoLoad = () =>
     isImage() &&
@@ -113,10 +111,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
   createEffect(() => { void props.obj.key; setLoadRequested(false); setExpanded(false); setEditOpen(false); });
 
-  // Images: presigned URL for raster images; blob/data URL for SVG and encrypted buckets.
-  // Wait until encStatus resolves (encrypted !== undefined) — otherwise the resource
-  // fires once with encrypted=undefined (wrong path, ciphertext blob) then refetches
-  // once status arrives, causing a visible reload/jitter.
+  // Presigned URL normally; blob URL for SVG + encrypted buckets. Wait until
+  // encStatus resolves or it fires with encrypted=undefined (wrong path) + refetch.
   const [imgUrl] = createResource(
     () => {
       if (props.encrypted === undefined) return null;
@@ -135,10 +131,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       return { url: await presignGet(a, b, k), key: k };
     },
   );
-  // Latch: keep displaying the previous URL while the next one is fetching in
-  // the background. createResource returns undefined during a source-keyed
-  // refetch, which would unmount <img> and flash a blank frame. displayUrl
-  // only ever advances to a defined value, so the img element stays mounted.
+  // Latch: hold the previous URL while the next fetches — createResource returns
+  // undefined mid-refetch, which would unmount <img> and flash a blank frame.
   const [displayUrl, setDisplayUrl] = createSignal<string | null>(null);
   const [displayKey, setDisplayKey] = createSignal<string | null>(null);
   let priorBlob: string | null = null;
@@ -174,9 +168,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     async ({ a, b, k }) => { try { const r = await previewObject(a, b, k, 256 * 1024); return r; } finally { setLoadedKey(k); } },
   );
 
-  // Latch text preview the same way as images: hold the previously-loaded
-  // bytes on-screen while the next target is fetched in the background, so
-  // switching between text files doesn't unmount CodeEditor and flash blank.
+  // Latch text like images: hold previously-loaded bytes while the next target
+  // fetches, so switching doesn't unmount CodeEditor and flash blank.
   type TextSnap = { key: string; bytes: number[]; content_type?: string | null };
   const [displayText, setDisplayText] = createSignal<TextSnap | null>(null);
   createEffect(() => {
@@ -187,7 +180,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     setDisplayText({ key: k, bytes: p.bytes, content_type: p.content_type });
   });
 
-  // Fresh preview available for the current target?
   const cur = () => {
     const d = displayText();
     return d && d.key === props.obj.key ? d : null;
@@ -199,8 +191,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   }
 
   // Cross-format latch: keep showing the previous kind until the new target is
-  // ready, so binary↔text / image↔text switches don't blank the stage and
-  // remount CodeMirror mid-frame (that was the whole-UI hitch).
+  // ready, so binary↔text / image↔text switches don't blank the stage mid-frame.
   const isKindReady = (kind: PreviewKind): boolean => {
     if (kind === "image") return displayKey() === props.obj.key && !!displayUrl();
     if (kind === "text") return displayText()?.key === props.obj.key;
@@ -213,7 +204,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     const t = targetKind();
     if (isKindReady(t)) return t;
     const pinned = pinnedKind();
-    // Hold prior text/image while the next async preview loads.
     if (pinned === "text" || pinned === "image") return pinned;
     return t;
   };
@@ -226,7 +216,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       if (t !== "image") clearImageLatch();
       return;
     }
-    // Sync kinds (binary/sheet/pdf/audio): switch immediately, drop latches.
     if (t === "binary" || t === "sheet" || t === "pdf" || t === "audio") {
       setPinnedKind(t);
       setDisplayText(null);
@@ -237,14 +226,13 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const crossLoading = () => {
     const t = targetKind();
     if (!((t === "text" || t === "image") && !isKindReady(t))) return false;
-    // Overlay only while holding prior content. Cold first load uses the
-    // inline loader alone — otherwise you get two stacked spinners.
+    // Overlay only while holding prior content — cold load would stack two spinners.
     const pinned = pinnedKind();
     return pinned === "text" || pinned === "image";
   };
 
-  // Once CodeEditor has mounted once, keep it in the tree (hidden) so format
-  // switches don't pay the CodeMirror init cost again.
+  // Once warmed, keep CodeEditor mounted (hidden) so format switches don't
+  // re-init CodeMirror — a major source of the whole-UI hitch.
   const [cmWarm, setCmWarm] = createSignal(false);
   createEffect(() => { if (displayText()) setCmWarm(true); });
 
@@ -346,8 +334,6 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             </Show>
           </Show>
 
-          {/* Keep one CodeEditor mounted once warmed so format switches don't
-              re-init CodeMirror (major source of the whole-UI hitch). */}
           <Show when={(cmWarm() || !!displayText()) && !preview.error}>
             <div
               class="preview-editor rel"

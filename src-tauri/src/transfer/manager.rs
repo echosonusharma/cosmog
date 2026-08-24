@@ -1,17 +1,5 @@
-//! Persistent transfer queue + worker scheduler.
-//!
-//! [`TransferManager`] owns the lifecycle of every upload and download. It:
-//!
-//! - Persists each transfer to the `transfers` SQLite table so progress survives
-//!   restarts.
-//! - Caps concurrent workers via a [`tokio::sync::Semaphore`].
-//! - Tracks per-transfer [`CancellationToken`]s so [`TransferManager::cancel`] can
-//!   abort an in-flight worker (and any S3 multipart it owns).
-//! - Composes a [`ProgressSink`] that fans out to the FE [`tauri::ipc::Channel`]
-//!   *and* persists milestone events back to the database.
-//!
-//! The manager is intentionally stateless beyond the cancel map; the source of
-//! truth is the DB.
+//! Persistent transfer queue + worker scheduler. Owns every upload/download
+//! lifecycle; beyond the cancel map, the DB is the source of truth.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,20 +25,8 @@ fn is_retriable(err: &AppError) -> bool {
     matches!(err, AppError::RateLimited(_) | AppError::S3(_) | AppError::NetworkUnreachable(_))
 }
 
-/// A semaphore whose permit count can be adjusted at runtime.
-///
-/// Increasing the limit is immediate (new permits are added). Decreasing
-/// reclaims immediately-available permits via `try_acquire`+`forget`; any
-/// permits currently held by in-flight transfers are returned to a now-
-/// reduced pool (they converge to the new limit over time as transfers
-/// complete).
-///
-/// Invariant: `current` always equals the *true* permit capacity of the
-/// semaphore (what the count will be once every in-flight permit is
-/// released). A resize-down therefore only lowers `current` by the number of
-/// permits it actually reclaimed — never to the target while permits are
-/// still in flight. Without this, a later resize-up computed its increment
-/// from the stale lower count and permanently grew capacity past the limit.
+/// Semaphore with runtime-adjustable limit; `current` tracks true capacity once in-flight permits release.
+/// Resize-down records only what it reclaimed, otherwise a later resize-up grows capacity past the limit.
 struct ResizableSemaphore {
     sem: Arc<Semaphore>,
     current: Arc<Mutex<usize>>,
@@ -69,7 +45,6 @@ impl ResizableSemaphore {
         self.sem.acquire().await
     }
 
-    /// Permits currently available without waiting.
     #[cfg(test)]
     fn available(&self) -> usize {
         self.sem.available_permits()
@@ -83,7 +58,6 @@ impl ResizableSemaphore {
             self.sem.add_permits(new_size - old);
             *current = new_size;
         } else if new_size < old {
-            // Attempt to reclaim immediately-available permits.
             let to_remove = old - new_size;
             let mut removed = 0;
             while removed < to_remove {
@@ -92,15 +66,9 @@ impl ResizableSemaphore {
                         permit.forget();
                         removed += 1;
                     }
-                    // Remaining permits are in-flight; they will complete at the
-                    // old limit and the semaphore will hold at old - removed.
                     Err(_) => break,
                 }
             }
-            // Only account for what was actually reclaimed. In-flight permits
-            // keep the true capacity at `old - removed` until they complete;
-            // recording the target here would make a later resize-up add too
-            // many permits and push capacity past the configured limit.
             *current = old - removed;
         }
     }
@@ -115,7 +83,6 @@ pub struct TransferManager {
     sem: Arc<ResizableSemaphore>,
 }
 
-/// What direction-specific work a worker should perform.
 enum WorkerJob {
     Upload {
         bucket: String,
@@ -155,8 +122,7 @@ impl TransferManager {
         self.sem.resize(n);
     }
 
-    /// Enqueue a new upload. Inserts the transfer row, returns its id, and
-    /// spawns a worker that will respect the global concurrency limit.
+    /// Enqueue an upload: inserts the transfer row, spawns a concurrency-limited worker.
     pub async fn enqueue_upload(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -220,10 +186,8 @@ impl TransferManager {
         Ok(())
     }
 
-    /// Cancel a transfer, and if it has no live worker (its process died and
-    /// left a ghost `active`/`pending` row), flip the DB row to `canceled` so
-    /// the UI can dismiss it. Signalling a live token lets the worker emit the
-    /// terminal itself; only orphans need the direct DB flip.
+    /// Cancel a transfer; if its process died leaving a ghost active/pending row,
+    /// flip the DB row to `canceled`. Live tokens let the worker emit the terminal itself.
     pub async fn cancel_or_reap(&self, transfer_id: &str) -> AppResult<()> {
         if let Some(token) = self.cancels.get(transfer_id) {
             token.cancel();
@@ -233,9 +197,8 @@ impl TransferManager {
         Ok(())
     }
 
-    /// Cancel every active transfer belonging to an account. Used when an
-    /// account is deleted so dangling workers don't keep writing to soon-
-    /// cascade-deleted DB rows. Returns the number of transfers signalled.
+    /// Cancel every active transfer for a deleted account so dangling workers stop
+    /// writing to soon-cascade-deleted rows. Returns the count signalled.
     pub async fn cancel_for_account(&self, account_id: &str) -> AppResult<usize> {
         let ids = self.db.list_cancellable_ids_for_account(account_id).await?;
         let mut signaled = 0usize;
@@ -248,9 +211,8 @@ impl TransferManager {
         Ok(signaled)
     }
 
-    /// Cancel every active transfer for a specific bucket. Used when the
-    /// bucket is being deleted so workers stop before its cache rows are
-    /// purged and S3 starts returning 404.
+    /// Cancel every active transfer for a bucket being deleted, stopping workers
+    /// before its cache rows are purged and S3 starts returning 404.
     pub async fn cancel_for_bucket(&self, account_id: &str, bucket: &str) -> AppResult<usize> {
         let ids = self
             .db
@@ -282,9 +244,8 @@ impl TransferManager {
         self.db.delete_transfer(id).await
     }
 
-    /// Re-enqueue a failed/canceled/paused transfer as a *new* row. Carries
-    /// over the upload_id + completed parts so multipart uploads resume where
-    /// they left off.
+    /// Re-enqueue a failed/canceled/paused transfer as a *new* row, carrying over
+    /// upload_id + completed parts so multipart uploads resume where they left off.
     pub async fn retry(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -308,9 +269,8 @@ impl TransferManager {
                         tracing::warn!(transfer_id = %row.id, "corrupt parts_json, starting fresh: {e}");
                         vec![]
                     });
-                // Fingerprints are unknown for state recovered from a row that
-                // predates them; enqueue() re-stats the file so later in-worker
-                // attempts still get validated.
+                // Fingerprints unknown for rows predating them; enqueue() re-stats the
+                // file so later attempts still get validated.
                 Some(ResumeState {
                     upload_id: upload_id.clone(),
                     completed_parts: parts,
@@ -321,10 +281,8 @@ impl TransferManager {
             _ => None,
         };
 
-        // Recover the original PutOptions / GetOptions from the row so the
-        // retry uses the same content-type, ACL, SSE, range, etc. as the
-        // original enqueue. Falls back to defaults if the row predates the
-        // options_json column or has bad JSON.
+        // Recover original PutOptions/GetOptions from the row so retries reuse the same
+        // content-type/ACL/SSE/range; defaults if column missing or JSON bad.
         let job = match row.direction {
             Direction::Upload => {
                 let opts = row
@@ -349,9 +307,8 @@ impl TransferManager {
                 // tampered DB rows between the original enqueue and this call.
                 let local_path = crate::validate::validate_download_dest(&row.local_path).await
                     .map_err(|e| AppError::InvalidInput(format!("retry: invalid local_path: {e}")))?;
-                // Encrypted buckets cannot be range-resumed: age needs the full
-                // ciphertext to authenticate the stream. Overwrite any partial
-                // file from a previous attempt and always restart from byte 0.
+                // Encrypted buckets can't range-resume (age needs the full ciphertext
+                // to authenticate); restart from byte 0 over any partial file.
                 let bucket_encrypted = self
                     .db
                     .get_encryption_config(&row.account_id, &row.bucket)
@@ -364,10 +321,8 @@ impl TransferManager {
                     opts.range_start = None;
                     opts.resume = false;
                 } else if opts.range_start.is_none() && opts.range_end.is_none() {
-                    // Auto-resume only applies to full-object downloads onto a
-                    // genuinely partial file from a prior attempt. Explicit
-                    // range requests pass through untouched — rewriting
-                    // range_start here would clobber the caller's request.
+                    // Auto-resume applies only to full-object downloads onto a genuinely
+                    // partial file; explicit ranges pass through untouched.
                     if let Ok(meta) = tokio::fs::metadata(&local_path).await {
                         let existing = meta.len();
                         if existing > 0 {
@@ -421,17 +376,15 @@ impl TransferManager {
             } => (bucket.clone(), key.clone(), local_path.to_string_lossy().to_string()),
         };
         let path_for_cleanup = path_for_row.clone();
-        // SAF staging dir to reap on a terminal Done/Canceled. Captured before
-        // the job is consumed; independent of the encryption swap that repoints
-        // the upload source to a temp file elsewhere.
+        // SAF staging dir reaped on terminal Done/Canceled; captured before the job is
+        // consumed, independent of the encryption temp-file swap elsewhere.
         let stage_cleanup_dir = match &job {
             WorkerJob::Upload { opts, .. } => opts.stage_cleanup_dir.clone(),
             WorkerJob::Download { .. } => None,
         };
 
         let account_id_for_cache = account_id.clone();
-        // Capture the options blob so a future `retry_transfer` can reapply
-        // the same headers / ACL / SSE / range.
+        // Persist options so a future retry reapplies the same headers/ACL/SSE/range.
         let options_json = match &job {
             WorkerJob::Upload { opts, .. } => serde_json::to_string(opts).ok(),
             WorkerJob::Download { opts, .. } => serde_json::to_string(opts).ok(),
@@ -452,14 +405,11 @@ impl TransferManager {
         let cancel = CancellationToken::new();
         self.cancels.insert(id.clone(), cancel.clone());
 
-        // Tracks whether a terminal event (Done/Failed/Canceled) reached the
-        // external sink via the store. The worker's terminal block emits a
-        // fallback terminal only if none did, guaranteeing exactly-once.
+        // Whether a terminal event reached the external sink via the store; the worker
+        // emits a fallback terminal only if none did (exactly-once).
         let term_emitted = Arc::new(AtomicBool::new(false));
-        // Capture the upload source fingerprint at enqueue time so multipart
-        // resume state can be discarded when the file changed between
-        // attempts (a saved part list is byte offsets into one exact version
-        // of the file).
+        // Enqueue-time source fingerprint so multipart resume state is discarded when the
+        // file changed between attempts (saved parts are byte offsets into one version).
         let source_stat = match &job {
             WorkerJob::Upload { local_path, .. } => {
                 tokio::fs::metadata(local_path).await.ok().map(|m| super::SourceStat {
@@ -476,8 +426,7 @@ impl TransferManager {
         };
         let (sink, resume_handle, journal) =
             self.composite_sink(id.clone(), external_sink.clone(), term_emitted.clone(), source_stat);
-        // Pull per-transfer tunables from user settings so the FE can
-        // influence them without touching backend code.
+        // Per-transfer tunables come from user settings (FE-configurable).
         let settings = self.db.settings_load().await?;
         let mut ctx = TransferCtx {
             transfer_id: id.clone(),
@@ -513,12 +462,8 @@ impl TransferManager {
                 .await;
 
             const MAX_ATTEMPTS: u32 = 3;
-            // Panic guard: a panic inside put_object/get_object must not strand
-            // the DB row in `active` or leak this transfer's cancels entry. The
-            // job future runs under catch_unwind and a panic is mapped to
-            // AppError::Internal, so every step after this point (multipart
-            // abort, terminal event, terminal status update, cancels.remove)
-            // still executes exactly once.
+            // Panic guard: job runs under catch_unwind and panics map to Internal, so
+            // multipart abort, terminal event/status, and cancels.remove still run once.
             let result = {
                 let store_job = store_for_task.clone();
                 let db_job = db.clone();
@@ -527,9 +472,8 @@ impl TransferManager {
                 let account_id_job = account_id_for_cache.clone();
                 let journal_job = journal.clone();
                 std::panic::AssertUnwindSafe(async move {
-                    // Shadow the outer handles: this block consumes its own
-                    // clones so the terminal handling below keeps working even
-                    // when the body panicked.
+                    // Shadow outer handles: this block consumes its own clones so terminal
+                    // handling still works after a body panic.
                     let mut ctx = ctx_job;
                     let resume_handle = resume_handle_job;
                     let store_for_task = store_job;
@@ -556,9 +500,8 @@ impl TransferManager {
                             // persisted before this attempt starts (it may fail
                             // or crash the process).
                             journal.flush(&ctx.transfer_id).await;
-                            // Resume the same multipart upload: reuse the upload_id
-                            // + parts the composite sink captured on the prior
-                            // attempt so already-uploaded parts are not re-sent.
+                            // Resume the same multipart upload: reuse upload_id + captured parts
+                            // so already-uploaded parts are not re-sent.
                             let snapshot = resume_handle.lock().unwrap().clone();
                             if !snapshot.upload_id.is_empty() {
                                 ctx.resume = Some(snapshot);
@@ -597,19 +540,16 @@ impl TransferManager {
                     let mut last_err: Option<AppError> = None;
                     let mut outcome: Option<()> = None;
                     let mut retry_opts = opts.clone();
-                    // Encrypted buckets cannot be range-resumed: whole-object GCM
-                    // authentication requires the full ciphertext to be present.
-                    // Suppress range-resume on retries for any download from a
-                    // bucket with encryption configured.
+                    // Encrypted buckets can't range-resume: GCM auth needs the full
+                    // ciphertext, so suppress range-resume on retries here.
                     let bucket_encrypted = db
                         .get_encryption_config(&account_id_for_cache, &bucket)
                         .await
                         .ok()
                         .flatten()
                         .is_some();
-                    // Auto-resume onto the partial file only makes sense for a
-                    // full-object download; explicit range requests are retried
-                    // verbatim (rewriting range_start would clobber them).
+                    // Auto-resume onto a partial file only for full-object downloads;
+                    // explicit ranges retried verbatim (rewriting would clobber).
                     let auto_resumable =
                         !bucket_encrypted && opts.range_start.is_none() && opts.range_end.is_none();
                     for attempt in 0..MAX_ATTEMPTS {
@@ -620,18 +560,16 @@ impl TransferManager {
                         if attempt > 0 {
                             tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
                             if auto_resumable {
-                                // Re-derive from the file every attempt: an
-                                // earlier attempt may already have set a stale
-                                // offset, and the file has likely grown since.
+                                // Re-derive each attempt: an earlier attempt may have set a
+                                // stale offset and the file has likely grown since.
                                 retry_opts.range_start = None;
                                 retry_opts.resume = false;
                                 if let Ok(meta) = tokio::fs::metadata(&local_path).await {
                                     let existing = meta.len();
                                     if existing > 0 {
                                         retry_opts.range_start = Some(existing);
-                                        // s3 appends only under this flag, so
-                                        // unrelated pre-existing files are never
-                                        // appended to.
+                                        // s3 appends only under this flag, so unrelated
+                                        // pre-existing files are never appended to.
                                         retry_opts.resume = true;
                                     }
                                 }
@@ -642,19 +580,14 @@ impl TransferManager {
                             .await
                         {
                             Ok(_) => {
-                                // Post-download decryption: only decrypt when the server
-                                // metadata explicitly marks the object as Cosmog-encrypted.
-                                // Streaming path: age reads ciphertext chunk-by-chunk and
-                                // writes plaintext to a sibling temp file, then swaps it
-                                // into `local_path` on success. Constant RAM.
+                                // Post-download decryption for Cosmog-marked objects; age streams
+                                // chunk-by-chunk to a sibling temp swapped in on success.
                                 let dec_result: AppResult<()> = async {
                                     if db.get_encryption_config(&account_id_for_cache, &bucket).await?.is_none() {
                                         return Ok(());
                                     }
-                                    // Trust the file bytes, not S3 metadata.
-                                    // Read the header magic; if the downloaded
-                                    // file is not an age payload, skip decrypt
-                                    // regardless of what user_metadata claims.
+                                    // Trust file bytes over user_metadata: skip decrypt unless
+                                    // the header magic marks an age payload.
                                     let magic_len = crate::crypto::AGE_MAGIC.len();
                                     let mut header = vec![0u8; magic_len];
                                     let is_age = match tokio::fs::File::open(&local_path).await {
@@ -687,20 +620,13 @@ impl TransferManager {
                                     fname.push(".dec");
                                     plaintext_path.set_file_name(&fname);
                                     crate::crypto::decrypt_file(&local_path, &plaintext_path, identity).await?;
-                                    // Atomic swap: rename decrypted temp over the ciphertext file.
                                     tokio::fs::rename(&plaintext_path, &local_path).await?;
                                     Ok(())
                                 }
                                 .await;
                                 if let Err(e) = dec_result {
-                                    // Decrypt failed: the file at local_path
-                                    // still holds raw ciphertext under the
-                                    // user-facing plaintext filename. Delete
-                                    // it so shell handlers (auto-open,
-                                    // thumbnailer, Spotlight) don't index or
-                                    // launch a ciphertext blob as if it were
-                                    // the real file. Also nuke the .dec temp
-                                    // if a partial write happened.
+                                    // Failed decrypt leaves ciphertext under the plaintext filename;
+                                    // delete it (plus any partial .dec) so shell handlers can't launch it.
                                     let _ = tokio::fs::remove_file(&local_path).await;
                                     let mut dec_tmp = local_path.clone();
                                     let mut fname = dec_tmp.file_name().unwrap_or_default().to_os_string();
@@ -785,9 +711,8 @@ impl TransferManager {
                 Err(AppError::Canceled(_)) => TransferStatus::Canceled,
                 Err(_) => TransferStatus::Failed,
             };
-            // Multipart uploads keep their server-side upload alive across
-            // retries so a resume can reuse it. On final give-up / cancel, abort
-            // it best-effort so incomplete-multipart storage is not leaked.
+            // Multipart uploads stay alive across retries for resume; on final give-up/
+            // cancel abort best-effort so incomplete-multipart storage isn't leaked.
             if matches!(direction, Direction::Upload)
                 && !matches!(terminal, TransferStatus::Done)
             {
@@ -824,19 +749,15 @@ impl TransferManager {
                 };
                 external_for_task.emit(event);
             }
-            // Canceled downloads leave a partial (often 0-byte) file at the
-            // destination; the user explicitly aborted, so remove it. Failed
-            // downloads keep the partial so a retry can range-resume.
+            // Canceled downloads delete the partial file; failed ones keep it for
+            // range-resume on retry.
             if matches!(terminal, TransferStatus::Canceled)
                 && matches!(direction, Direction::Download)
             {
                 let _ = tokio::fs::remove_file(&path_for_cleanup).await;
             }
-            // Android SAF uploads are staged into a per-upload dir under the app
-            // cache; once done or canceled the staged copy is dead weight (multi-GB
-            // files pile up fast). Failed uploads keep it so a retry does not need
-            // re-staging. Only set for SAF sources, so desktop uploads (whose path
-            // is the real user file) are never touched.
+            // SAF staging dir is dead weight after Done/Canceled (multi-GB pileup);
+            // failed uploads keep it for retry. Desktop uploads never set it.
             if matches!(direction, Direction::Upload)
                 && matches!(terminal, TransferStatus::Done | TransferStatus::Canceled)
             {
@@ -844,9 +765,8 @@ impl TransferManager {
                     let _ = tokio::fs::remove_dir_all(dir).await;
                 }
             }
-            // Persist any part completions still batched in memory so the
-            // stored parts_json matches the terminal row exactly — a crash-
-            // restart resume then never re-uploads a finished part.
+            // Flush batched part completions so parts_json matches the terminal row and
+            // a crash-restart resume never re-uploads a finished part.
             if matches!(direction, Direction::Upload) {
                 journal.flush(&id_for_task).await;
             }
@@ -860,13 +780,8 @@ impl TransferManager {
         Ok(id)
     }
 
-    /// Compose a sink that fans out to the FE channel AND persists milestone
-    /// progress to the database. The DB-persistence half intentionally batches
-    /// the parts list in an in-memory buffer to avoid touching SQLite on every
-    /// chunk. Returns the sink plus a shared `ResumeState` (upload_id +
-    /// completed parts) the worker reads between retry attempts so a mid-upload
-    /// failure resumes the same multipart upload instead of restarting it, and
-    /// the journal handle used to flush batched snapshots to the DB.
+    /// Fan-out sink (FE channel + DB milestone persistence, parts batched in memory).
+    /// Returns the shared ResumeState for multipart resume plus the flush journal handle.
     fn composite_sink(
         &self,
         transfer_id: String,
@@ -880,27 +795,23 @@ impl TransferManager {
     ) {
         let db = self.db.clone();
         let resume: Arc<Mutex<ResumeState>> = Arc::new(Mutex::new(ResumeState::default()));
-        // Seed the fingerprint captured at enqueue so every snapshot handed to
-        // a later attempt carries it; s3 discards resume state that doesn't
-        // match the file's current stat.
+        // Seed the enqueue-time fingerprint so every snapshot carries it; s3 discards
+        // resume state that doesn't match the file's current stat.
         if let Some(st) = source_stat {
             let mut guard = resume.lock().unwrap();
             guard.source_len = Some(st.len);
             guard.source_mtime_secs = Some(st.mtime_secs);
         }
         let resume_ret = resume.clone();
-        // Serialize DB writes for this transfer's PartCompleted snapshots.
-        // Concurrent multipart workers fire emits in any order; without this
-        // lock the spawned `update_transfer_multipart` tasks could write
-        // out-of-date snapshots over newer ones.
+        // Serialize DB writes for PartCompleted snapshots: concurrent multipart workers
+        // could otherwise write stale snapshots over newer ones.
         let parts_db_lock: Arc<AsyncMutex<()>> = Arc::new(AsyncMutex::new(()));
         let journal = Arc::new(PartsJournal {
             db: db.clone(),
             resume: resume.clone(),
             db_lock: parts_db_lock.clone(),
         });
-        // Separate handle for the sink closure; the original is returned to
-        // the worker for its flush points.
+        // Clone for the sink closure; the original goes back to the worker for flushes.
         let journal_for_sink = journal.clone();
 
         let sink = ProgressSink::from_fn(move |event: TransferEvent| {
@@ -943,10 +854,8 @@ impl TransferManager {
                     });
                 }
                 TransferEvent::MultipartInitiated { upload_id, .. } => {
-                    // Capture the upload_id up front (in memory only) so the
-                    // worker can resume or abort even if no part completes. DB
-                    // persistence happens on the first PartCompleted, which also
-                    // carries the parts — writing here would clobber parts_json.
+                    // Capture upload_id in memory even with zero completed parts; DB
+                    // persistence waits for first PartCompleted (would clobber parts_json).
                     resume.lock().unwrap().upload_id = upload_id;
                 }
                 TransferEvent::PartCompleted {
@@ -992,9 +901,8 @@ struct PartsJournal {
 }
 
 impl PartsJournal {
-    /// Persist the current snapshot. Every writer re-snapshots *under*
-    /// `db_lock`, so whichever write runs last always stores the newest state
-    /// and an older queued write can never clobber it.
+    /// Persist the current snapshot; writers re-snapshot under `db_lock` so the last
+    /// write always wins and an older queued write can never clobber it.
     async fn flush(&self, transfer_id: &str) {
         let _guard = self.db_lock.lock().await;
         let snapshot = self.resume.lock().unwrap().clone();
@@ -1013,10 +921,8 @@ impl PartsJournal {
 mod tests {
     use super::*;
 
-    /// Regression: resize-down used to record the *target* size even when
-    /// in-flight permits could not be reclaimed, so a later resize-up added
-    /// permits on top of the stale count and capacity permanently exceeded
-    /// the configured limit. Capacity must converge to exactly `new_size`.
+    /// Regression: resize-down recording the *target* while in-flight permits were
+    /// unreclaimable let later resize-ups exceed the configured limit.
     #[tokio::test]
     async fn resize_down_then_up_never_exceeds_limit() {
         let sem = ResizableSemaphore::new(4);
@@ -1026,8 +932,7 @@ mod tests {
         let p4 = sem.acquire().await.unwrap();
         assert_eq!(sem.available(), 0);
 
-        // All four permits are in flight: nothing can be reclaimed, but the
-        // recorded capacity must not shrink either.
+        // All permits in flight: nothing reclaimable, but capacity must not shrink.
         sem.resize(2);
         assert_eq!(sem.current.lock().unwrap().clone(), 4);
 
@@ -1040,13 +945,11 @@ mod tests {
         for _ in 0..4 {
             held.push(sem.acquire().await.unwrap());
         }
-        // A 5th concurrent acquire is impossible.
         assert!(
             sem.sem.try_acquire().is_err(),
             "capacity exceeded the limit after resize down+up"
         );
 
-        // And shrinking now that everything is idle converges immediately.
         drop(held);
         sem.resize(2);
         assert_eq!(sem.available(), 2);

@@ -22,9 +22,8 @@ export const CHANNEL_PROGRESS = "transfers-progress";
 export const CHANNEL_EVENTS = "transfers-events";
 export const CHANNEL_ALERTS = "alerts";
 
-// Channels, action types, and removeActive are mobile-only plugin commands;
-// the desktop plugin build does not register them and calls reject with
-// "command not found". Gate on OS, not viewport width.
+// Channels/actionTypes/removeActive are mobile-only plugin commands; the desktop plugin build
+// rejects them with "command not found". Gate on OS, not viewport width.
 export const IS_MOBILE_OS = /android|iphone|ipad/i.test(navigator.userAgent);
 
 let _granted = false;
@@ -73,8 +72,7 @@ async function ensureChannels() {
     vibration: true,
     lights: false,
   });
-  // Drop the pre-split channel from earlier builds so it does not linger in
-  // the app's notification settings.
+  // Drop the pre-split channel from earlier builds so it doesn't linger in settings.
   await removeChannel("cosmog-transfers");
   _channelsReady = true;
 }
@@ -102,8 +100,8 @@ export interface NotifyOpts {
   actionTypeId?: string;
   /** Android: short line shown next to the app name in the tray header. */
   summary?: string;
-  /** Android: expanded (BigTextStyle) body shown when the user pulls the
-   *  notification open. Falls back to `body` when omitted. */
+  /** Android: expanded (BigTextStyle) body shown when the user pulls the notification open;
+   *  falls back to `body` when omitted. */
   largeBody?: string;
   extra?: Record<string, unknown>;
 }
@@ -150,9 +148,8 @@ async function notifyInner(title: string, body: string | undefined, opts: Notify
   });
 }
 
-/** Subscribe to notification action clicks (including body taps, reported as
- *  NOTIFICATION_TAP_ACTION_ID). `cb` receives the action id and the `extra`
- *  payload attached to the notification. Returns the unlisten handle. */
+/** Subscribe to notification action clicks (body taps report NOTIFICATION_TAP_ACTION_ID).
+ *  `cb` receives the action id and the attached `extra` payload. */
 export async function onNotificationAction(
   cb: (actionId: string, extra: Record<string, unknown>) => void,
 ) {
@@ -164,10 +161,8 @@ export async function onNotificationAction(
   });
 }
 
-/** Dismiss an active notification by its stable id. Used when the user
- *  cancels a transfer so the ongoing "Uploading…" entry disappears
- *  immediately instead of lingering until the next poll. Mobile only:
- *  desktop notifications are transient and cannot be recalled. */
+/** Dismiss an active notification by its stable id (e.g. on transfer cancel, so the ongoing
+ *  entry disappears). Mobile only: desktop notifications are transient and cannot be recalled. */
 export async function dismissNotification(id: number) {
   if (!IS_MOBILE_OS) return;
   try {
@@ -178,8 +173,7 @@ export async function dismissNotification(id: number) {
 }
 
 /** Stable positive 31-bit int from a string, for reusing notification ids.
- *  Mask, not Math.abs: abs(-2^31) is 2^31, which overflows the i32 id on the
- *  Rust side. */
+ *  Mask, not Math.abs: abs(-2^31) overflows the i32 id on the Rust side. */
 export function notifId(key: string): number {
   let h = 5381;
   for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0;

@@ -31,8 +31,8 @@ impl Direction {
     }
 }
 
-/// Who started a transfer. `NightWatch` rows are silent background syncs; the
-/// UI suppresses their notifications (only failures surface).
+/// Who started a transfer. `NightWatch` = silent background sync; the UI
+/// suppresses its notifications (only failures surface).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TransferOrigin {
@@ -107,10 +107,8 @@ pub struct Transfer {
     pub status: TransferStatus,
     pub upload_id: Option<String>,
     pub parts_json: Option<String>,
-    /// JSON-serialized `PutOptions` or `GetOptions` (depending on direction)
-    /// captured at enqueue time so a `retry_transfer` can reapply the same
-    /// content_type / SSE / ACL / range as the original. Empty when no
-    /// options were supplied.
+    /// PutOptions/GetOptions captured at enqueue time so `retry_transfer`
+    /// reapplies the original content_type / SSE / ACL / range. Empty if none.
     pub options_json: Option<String>,
     pub error: Option<String>,
     pub created_at: i64,
@@ -166,8 +164,6 @@ pub struct NewTransfer {
     pub key: String,
     pub direction: Direction,
     pub local_path: String,
-    /// JSON-serialized options blob (PutOptions or GetOptions). `None` to use
-    /// defaults.
     pub options_json: Option<String>,
     pub origin: TransferOrigin,
 }
@@ -379,10 +375,8 @@ impl Db {
         Ok(())
     }
 
-    /// On startup, mark any rows still in `active` or `pending` as `failed`.
-    /// They were owned by a worker that died with the previous process and
-    /// have no live cancellation token associated with them. Returns the
-    /// number of rows touched.
+    /// Startup recovery: rows still active/pending were owned by a worker that
+    /// died with the previous process; mark them failed. Returns rows touched.
     pub async fn reap_orphan_transfers(&self) -> AppResult<usize> {
         let now = chrono::Utc::now().timestamp();
         let n = self
@@ -399,10 +393,8 @@ impl Db {
         Ok(n)
     }
 
-    /// Reap orphans owned by one origin only. On Android the main process owns
-    /// `user` transfers while the `:nightwatch` service owns `nightwatch` ones,
-    /// so the main process reaps only `user` orphans at startup without touching
-    /// the sibling's genuinely-live rows.
+    /// Origin-scoped orphan reap: on Android the main process owns `user`
+    /// transfers and must not touch live `nightwatch` rows owned by the service.
     pub async fn reap_orphan_transfers_by_origin(&self, origin: &str) -> AppResult<usize> {
         let now = chrono::Utc::now().timestamp();
         let origin = origin.to_string();
@@ -420,9 +412,8 @@ impl Db {
         Ok(n)
     }
 
-    /// Flip a still-active/pending row to `canceled`. Used to cancel a transfer
-    /// that has no live worker (its process died), so the UI can dismiss the
-    /// ghost row. Returns true if a row was updated.
+    /// Cancel an active/pending row whose worker died so the UI can dismiss
+    /// the ghost. Returns true if a row was updated.
     pub async fn mark_canceled_if_active(&self, id: &str) -> AppResult<bool> {
         let now = chrono::Utc::now().timestamp();
         let id = id.to_string();

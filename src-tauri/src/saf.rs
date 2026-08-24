@@ -1,21 +1,8 @@
-//! Android SAF (Storage Access Framework) helpers.
-//!
-//! `saveDialog` on Android returns a `content://` URI where the OS has already
-//! pre-created a 0-byte placeholder file. The S3 downloader writes to an
-//! absolute filesystem path in the app cache; this module copies those bytes
-//! into the SAF URI via ContentResolver.openOutputStream, streaming in chunks
-//! so multi-GB downloads never load the whole file into memory.
-//!
-//! JNI safety: when a Java method throws, jni-rs returns `Err(JavaException)`
-//! but the exception STAYS PENDING on the thread. Calling almost any other
-//! JNI function (including detaching the thread on drop of the AttachGuard)
-//! with a pending exception aborts the process with a JNI error. Every
-//! fallible JNI call below therefore routes its error through `jni_err`,
-//! which clears the pending exception before the error propagates.
+//! Android SAF helpers: stream between app-cache files and `content://` URIs via ContentResolver.
+//! JNI: a Java exception stays PENDING after Err and further JNI calls abort, so every fallible call clears it via `jni_err`.
 
-/// Clear any pending Java exception and format the JNI error. Must be applied
-/// to every fallible JNI call before the error can propagate or another JNI
-/// call is made.
+/// Clear any pending Java exception and format the error; every fallible JNI
+/// call must apply this before propagating or calling JNI again.
 #[cfg(target_os = "android")]
 fn jni_err(env: &mut jni::JNIEnv, what: &str, e: jni::errors::Error) -> String {
     if env.exception_check().unwrap_or(false) {
@@ -25,9 +12,8 @@ fn jni_err(env: &mut jni::JNIEnv, what: &str, e: jni::errors::Error) -> String {
     format!("{what}: {e}")
 }
 
-/// Convert a Java `String` to an owned Rust `String`. Taking `s` by value keeps
-/// it alive for the whole body so the borrowed `JavaStr` never outlives it (the
-/// inline `get_string(&s)?.into()` form trips NLL as a block-tail expression).
+/// Convert a Java `String` to owned Rust. Taking `s` by value keeps it alive so
+/// the borrowed `JavaStr` never outlives it (the inline form trips NLL).
 #[cfg(target_os = "android")]
 fn jstring_owned(env: &mut jni::JNIEnv, s: jni::objects::JString) -> Result<String, String> {
     match env.get_string(&s) {
@@ -36,9 +22,8 @@ fn jstring_owned(env: &mut jni::JNIEnv, s: jni::objects::JString) -> Result<Stri
     }
 }
 
-/// SAF display names come from arbitrary DocumentsProviders; a malicious one
-/// can return `../../databases/x.db` and walk out of the staging directory.
-/// Strip path separators and reject dot-only names.
+/// Provider-controlled names can path-traverse (`../../db/x.db`): strip path
+/// separators and reject dot-only names.
 #[cfg(target_os = "android")]
 fn sanitize_file_name(name: &str) -> String {
     let cleaned: String = name
@@ -101,10 +86,8 @@ pub async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u6
             .l()
             .map_err(|e| format!("getContentResolver.l: {e}"))?;
 
-        // "wt" (write + truncate) is the reliable way to replace content;
-        // plain "w" truncation is provider-dependent (Google Drive keeps tail
-        // bytes when the new content is shorter). Some providers reject "wt"
-        // with IllegalArgumentException, so fall back to "w".
+        // "wt" reliably replaces content; plain "w" truncation is provider-dependent
+        // (Drive keeps tail bytes). Some providers reject "wt", hence the fallback.
         let mut out_stream = JObject::null();
         for mode in ["wt", "w"] {
             let mode_jstr: JString = env
@@ -136,8 +119,6 @@ pub async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u6
             return Err("openOutputStream returned null".into());
         }
 
-        // Pre-allocate one reusable byte[] on the Java side to avoid a per-chunk
-        // allocation across the JNI boundary.
         let jbuf = env
             .new_byte_array(CHUNK as i32)
             .map_err(|e| jni_err(&mut env, "new_byte_array", e))?;
@@ -180,9 +161,7 @@ pub async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u6
             total += n as u64;
         }
 
-        // Always attempt to flush + close before returning. These may throw
-        // too (e.g. deferred disk-full errors surface on close); clear so the
-        // thread detaches cleanly.
+        // flush/close can throw too (deferred disk-full); clear so the thread detaches cleanly.
         if let Err(e) = env.call_method(&out_stream, "flush", "()V", &[]) {
             let msg = jni_err(&mut env, "OutputStream.flush", e);
             if copy_result.is_ok() {
@@ -209,10 +188,8 @@ pub async fn finalize_saf_download(_cache_path: String, _uri: String) -> Result<
     Err("SAF finalize is Android-only".into())
 }
 
-/// Delete the SAF document at `uri`. The save dialog pre-creates a 0-byte
-/// placeholder file the moment the user picks a location; when the download
-/// is canceled or fails before finalize, that placeholder must be removed or
-/// the user finds an empty file at their chosen destination.
+/// Delete the SAF document at `uri`: the save dialog pre-creates a 0-byte
+/// placeholder that must be removed when a download is canceled/fails.
 #[cfg(target_os = "android")]
 pub async fn delete_saf_document(uri: String) -> Result<bool, String> {
     tokio::task::spawn_blocking(move || -> Result<bool, String> {
@@ -268,8 +245,7 @@ pub async fn delete_saf_document(uri: String) -> Result<bool, String> {
             &[JValue::Object(&resolver), JValue::Object(&uri_obj)],
         );
 
-        // deleteDocument throws FileNotFoundException when the document is
-        // already gone; treat that as "nothing to delete", not an error.
+        // Already-gone documents throw FileNotFoundException: treat as success.
         let deleted = match res {
             Ok(v) => v.z().unwrap_or(false),
             Err(e) => {
@@ -289,9 +265,6 @@ pub async fn delete_saf_document(_uri: String) -> Result<bool, String> {
     Err("SAF delete is Android-only".into())
 }
 
-/// Result of staging a SAF upload: `path` is the absolute filesystem path the
-/// caller can hand to Rust's upload path, `display_name` is the human filename
-/// resolved from ContentResolver's OpenableColumns.DISPLAY_NAME.
 #[derive(serde::Serialize)]
 pub struct SafStagedUpload {
     pub path: String,
@@ -347,12 +320,10 @@ pub async fn stage_saf_upload(uri: String, dest_dir: String) -> Result<SafStaged
             .l()
             .map_err(|e| format!("getContentResolver.l: {e}"))?;
 
-        // Query OpenableColumns.DISPLAY_NAME for the human filename.
         let display_name = sanitize_file_name(
             &query_display_name(&mut env, &resolver, &uri_obj).unwrap_or_else(|| "upload".into()),
         );
 
-        // openInputStream(uri)
         let in_stream = env
             .call_method(
                 &resolver,
@@ -367,8 +338,7 @@ pub async fn stage_saf_upload(uri: String, dest_dir: String) -> Result<SafStaged
             return Err("openInputStream returned null".into());
         }
 
-        // Stage each upload under a per-call subdir so files never collide on
-        // display_name alone and no timestamp leaks into the cached filename.
+        // Per-call subdir: no collisions on display_name, no timestamp in cached filenames.
         let subdir = uuid::Uuid::new_v4().simple().to_string();
         let dest_subdir = std::path::Path::new(&dest_dir).join(subdir);
         std::fs::create_dir_all(&dest_subdir).map_err(|e| format!("mkdir dest_subdir: {e}"))?;
@@ -437,9 +407,8 @@ pub async fn stage_saf_upload(_uri: String, _dest_dir: String) -> Result<SafStag
     Err("SAF stage is Android-only".into())
 }
 
-/// Start (or stop) the Android foreground TransferService so the OS keeps our
-/// process alive while uploads/downloads are in flight. Without this, Doze
-/// mode / cached-process reap kills long transfers and they restart from 0.
+/// Start/stop the foreground TransferService so Doze/cached-process reaps don't
+/// kill in-flight transfers (which would restart from 0).
 #[cfg(target_os = "android")]
 pub fn set_transfer_service(active: bool) -> Result<(), String> {
     use jni::objects::{JObject, JValue};
@@ -475,9 +444,8 @@ pub fn set_transfer_service(_active: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Query `OpenableColumns.DISPLAY_NAME`. `ContentResolver.query` can throw
-/// (SecurityException on a revoked grant), so every JNI error path clears the
-/// pending exception via `jni_err` before returning None.
+/// Query `OpenableColumns.DISPLAY_NAME`; query can throw (revoked grant), so
+/// every error path clears the pending exception via `jni_err` and returns None.
 #[cfg(target_os = "android")]
 fn query_display_name(
     env: &mut jni::JNIEnv,
@@ -581,21 +549,11 @@ fn query_display_name(
     result
 }
 
-// ---------------------------------------------------------------------------
-// Night Watcher SAF/JNI helpers.
-//
-// These back the "Night Watcher" background folder-sync feature. They talk to
-// the Kotlin `com/sonus/cosmog/NightWatchService` foreground service and the
-// `com/sonus/cosmog/NwTreePicker` (a Kotlin `object` whose `launch`/`poll`/`reset`
-// are `@JvmStatic`, invoked as static methods). Same jni-exception-clearing discipline as above:
-// every fallible JNI call routes through `jni_err`.
-// ---------------------------------------------------------------------------
+// Night Watcher SAF/JNI helpers: Kotlin NightWatchService + NwTreePicker
+// (`launch`/`poll`/`reset` are @JvmStatic). Same jni_err discipline as above.
 
-// Cached app-class GlobalRefs. find_class for app classes FAILS from a native
-// (spawn_blocking) thread because it uses the system ClassLoader, not the app
-// one. Same pattern as secrets.rs SECRET_STORE_CLASS: cache on the JVM thread
-// during nw init, then reuse everywhere. Framework classes (android/net/Uri,
-// DocumentsContract) still resolve fine via find_class from any thread.
+// App classes must be cached as GlobalRefs: find_class for them FAILS on native
+// (spawn_blocking) threads (system vs app ClassLoader). Framework classes resolve anywhere.
 #[cfg(target_os = "android")]
 pub(crate) static NIGHTWATCH_SERVICE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
@@ -603,11 +561,8 @@ pub(crate) static NIGHTWATCH_SERVICE_CLASS: std::sync::OnceLock<jni::objects::Gl
 pub(crate) static NW_TREE_PICKER_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
 
-/// Cache the Night Watcher app-class GlobalRefs. Called from
-/// `Java_com_sonus_cosmog_CosmogApp_initNwClasses` on the main/JVM thread (see
-/// CosmogApp.onCreate + MainActivity.onCreate), where find_class uses the app
-/// ClassLoader. Idempotent: OnceLock.set is a no-op once populated, so a second
-/// call from MainActivity after the Application init does not re-cache or leak.
+/// Cache NW app-class GlobalRefs from the JVM thread (find_class works there);
+/// idempotent via OnceLock.
 #[cfg(target_os = "android")]
 fn cache_nw_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<jni::objects::GlobalRef>) {
     if slot.get().is_some() {
@@ -628,9 +583,8 @@ fn cache_nw_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<
     }
 }
 
-/// JNI entrypoint invoked from CosmogApp/MainActivity on the JVM thread to cache
-/// the NW app classes as GlobalRefs (bug #3). Idempotent (bug: init not
-/// idempotent) via the OnceLock guards in `cache_nw_class`.
+/// JNI entrypoint (CosmogApp/MainActivity, JVM thread) caching NW classes as
+/// GlobalRefs; idempotent via OnceLock.
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_com_sonus_cosmog_CosmogApp_initNwClasses(
@@ -641,18 +595,14 @@ pub extern "system" fn Java_com_sonus_cosmog_CosmogApp_initNwClasses(
     cache_nw_class(&mut env, "com/sonus/cosmog/NwTreePicker", &NW_TREE_PICKER_CLASS);
 }
 
-/// A picked SAF tree: `uri` is the persisted tree `content://` URI,
-/// `display_name` is the human folder name for UI.
 #[derive(serde::Serialize)]
 pub struct SafTree {
     pub uri: String,
     pub display_name: String,
 }
 
-/// One entry found while walking a SAF tree. `rel_path` is the path relative to
-/// the tree root (forward-slash separated, no leading slash). `doc_uri` is a
-/// document `content://` URI usable with ContentResolver.openInputStream.
-/// `mtime` is in SECONDS (DocumentsContract reports COLUMN_LAST_MODIFIED in ms).
+/// One SAF tree-walk entry: `rel_path` is tree-relative (forward slashes, no
+/// leading slash); `mtime` is SECONDS (DocumentsContract reports milliseconds).
 #[derive(serde::Serialize)]
 pub struct SafEntry {
     pub rel_path: String,
@@ -662,8 +612,6 @@ pub struct SafEntry {
     pub is_dir: bool,
 }
 
-/// Start (or stop) the NightWatchService foreground service. Verbatim shape of
-/// `set_transfer_service` for a different class.
 #[cfg(target_os = "android")]
 pub fn set_nightwatch_service(active: bool) -> Result<(), String> {
     use jni::objects::{JObject, JValue};
@@ -680,8 +628,6 @@ pub fn set_nightwatch_service(active: bool) -> Result<(), String> {
         .map_err(|e| format!("attach_current_thread: {e}"))?;
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-    // Use the cached class ref: find_class for app classes fails from this
-    // native thread (bug #3).
     let cls_ref = NIGHTWATCH_SERVICE_CLASS
         .get()
         .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
@@ -702,11 +648,8 @@ pub fn set_nightwatch_service(_active: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Push the NightWatchService CPU wakelock cap forward from the headless sync
-/// loop (same `:nightwatch` process). Called periodically so a sync spanning
-/// many cycles, or a single long transfer, never loses the CPU when the bounded
-/// acquire from the previous heartbeat lapses. Calls the static
-/// `NightWatchService.heartbeatWakelock()`.
+/// Extend the NightWatchService CPU wakelock from the sync loop so long syncs/
+/// transfers never lose CPU between bounded acquires.
 #[cfg(target_os = "android")]
 pub fn nw_wakelock_heartbeat() -> Result<(), String> {
     use jni::JavaVM;
@@ -721,7 +664,6 @@ pub fn nw_wakelock_heartbeat() -> Result<(), String> {
         .attach_current_thread()
         .map_err(|e| format!("attach_current_thread: {e}"))?;
 
-    // Cached class ref (bug #3): find_class for app classes fails on this thread.
     let cls_ref = NIGHTWATCH_SERVICE_CLASS
         .get()
         .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
@@ -736,8 +678,6 @@ pub fn nw_wakelock_heartbeat() -> Result<(), String> {
     Ok(())
 }
 
-/// Persist the "start Night Watcher on boot" flag on the Kotlin side. Calls
-/// NightWatchService.setBootFlag(context, enabled).
 #[cfg(target_os = "android")]
 pub fn set_nightwatch_boot_flag(enabled: bool) -> Result<(), String> {
     use jni::objects::{JObject, JValue};
@@ -754,7 +694,6 @@ pub fn set_nightwatch_boot_flag(enabled: bool) -> Result<(), String> {
         .map_err(|e| format!("attach_current_thread: {e}"))?;
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-    // Cached class ref (bug #3): find_class for app classes fails on this thread.
     let cls_ref = NIGHTWATCH_SERVICE_CLASS
         .get()
         .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
@@ -774,10 +713,7 @@ pub fn set_nightwatch_boot_flag(_enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// The cached `NwTreePicker` class ref. `launch`/`poll`/`reset` are `@JvmStatic`,
-/// so they are invoked as static methods on this class (not instance methods on
-/// INSTANCE). find_class for app classes fails on the native spawn_blocking
-/// thread these calls run on, hence the cached GlobalRef (bug #3).
+/// Cached NwTreePicker ref; `launch`/`poll`/`reset` are `@JvmStatic` (static calls).
 #[cfg(target_os = "android")]
 fn nw_picker_class() -> Result<&'static jni::objects::GlobalRef, String> {
     NW_TREE_PICKER_CLASS
@@ -785,18 +721,8 @@ fn nw_picker_class() -> Result<&'static jni::objects::GlobalRef, String> {
         .ok_or_else(|| "NwTreePicker class not cached (initNwClasses not called)".to_string())
 }
 
-/// Launch the system tree picker (ACTION_OPEN_DOCUMENT_TREE) and poll for the
-/// result.
-///
-/// Sentinel scheme (KOTLIN MUST ALIGN):
-/// - `NwTreePicker.poll()` returns `null` while the pick is still pending.
-/// - On success it returns `"<treeUri>\n<displayName>"` (result and name joined
-///   by a single '\n'; only the FIRST '\n' is treated as the separator, so a
-///   name may itself contain newlines).
-/// - On user cancel it returns the literal string `"__NW_CANCELED__"`, which
-///   cannot collide with a real tree URI (those start with a scheme like
-///   `content://`). This maps to `Err("canceled")`.
-/// - If nothing arrives within ~120s we give up with `Err("tree pick timed out")`.
+/// Launch the tree picker and poll. KOTLIN MUST ALIGN: poll() gives null while pending,
+/// `"<treeUri>\n<name>"` on success (split on FIRST '\n'), `"__NW_CANCELED__"` on cancel, ~120s timeout.
 #[cfg(target_os = "android")]
 pub async fn nw_pick_tree() -> Result<SafTree, String> {
     tokio::task::spawn_blocking(move || -> Result<SafTree, String> {
@@ -816,14 +742,12 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e}"))?;
 
-        // reset() clears any stale result from a previous pick.
         {
             let cls_ref = nw_picker_class()?;
             let cls: &jni::objects::JClass = cls_ref.as_obj().into();
             env.call_static_method(cls, "reset", "()V", &[])
                 .map_err(|e| jni_err(&mut env, "NwTreePicker.reset", e))?;
         }
-        // launch() fires the ACTION_OPEN_DOCUMENT_TREE intent.
         {
             let cls_ref = nw_picker_class()?;
             let cls: &jni::objects::JClass = cls_ref.as_obj().into();
@@ -831,8 +755,7 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
                 .map_err(|e| jni_err(&mut env, "NwTreePicker.launch", e))?;
         }
 
-        // Poll on this single attached thread. std::thread::sleep is fine here
-        // because we are inside spawn_blocking.
+        // Blocking sleep is OK inside spawn_blocking.
         let mut polls = 0u32;
         loop {
             let result: Option<String> = {
@@ -877,10 +800,8 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
     Err("tree pick is Android-only".into())
 }
 
-/// Recursively walk a SAF tree via DocumentsContract, returning every file
-/// (is_dir = false). The walk runs inside a single spawn_blocking on one
-/// attached thread, using an explicit stack (not async recursion) so the whole
-/// traversal shares one JNIEnv attach.
+/// Walk a SAF tree via DocumentsContract, returning all files. Single
+/// spawn_blocking + explicit stack (no async recursion) = one JNIEnv attach.
 #[cfg(target_os = "android")]
 pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64), String> {
     tokio::task::spawn_blocking(move || -> Result<(Vec<SafEntry>, u64), String> {
@@ -911,7 +832,6 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
             .l()
             .map_err(|e| format!("getContentResolver.l: {e}"))?;
 
-        // Parse the tree URI string into an android.net.Uri.
         let tree_uri_obj = {
             let uri_jstr: JString = env
                 .new_string(&tree_uri)
@@ -930,13 +850,11 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
             .map_err(|e| format!("Uri.parse.l: {e}"))?
         };
 
-        // Hoist DocumentsContract find_class out of the walk loop (bug #2): one
-        // lookup reused for every row instead of leaking a local ref per row.
+        // Hoisted out of the walk loop: reusing one lookup avoids a leaked local ref per row.
         let dc_class = env
             .find_class("android/provider/DocumentsContract")
             .map_err(|e| jni_err(&mut env, "find_class(DocumentsContract)", e))?;
 
-        // getTreeDocumentId(treeUri) -> root document id.
         let root_doc_id: String = {
             let s_obj = env
                 .call_static_method(
@@ -954,17 +872,16 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
             jstring_owned(&mut env, s_obj.into())?
         };
 
-        // Projection reused for every children query.
         let projection: JObjectArray = {
             let arr = env
                 .new_object_array(5, "java/lang/String", JObject::null())
                 .map_err(|e| jni_err(&mut env, "new_object_array(projection)", e))?;
             let cols = [
-                "document_id",   // COLUMN_DOCUMENT_ID
-                "_display_name", // COLUMN_DISPLAY_NAME
-                "mime_type",     // COLUMN_MIME_TYPE
-                "_size",         // COLUMN_SIZE
-                "last_modified", // COLUMN_LAST_MODIFIED
+                "document_id",
+                "_display_name",
+                "mime_type",
+                "_size",
+                "last_modified",
             ];
             for (i, c) in cols.iter().enumerate() {
                 let s: JString = env
@@ -977,30 +894,21 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
         };
 
         let mut out: Vec<SafEntry> = Vec::new();
-        // Explicit DFS stack: (parent doc id, rel_path prefix for this dir).
+        // DFS stack: (parent doc id, rel_path prefix).
         let mut stack: Vec<(String, String)> = vec![(root_doc_id, String::new())];
 
-        // Fatal error surfaced from inside a local frame. The frame closure
-        // returns `Result<_, jni::errors::Error>` (its E: From<Error> bound
-        // rules out String), so fatal String errors are stashed here and the
-        // outer loop breaks after the frame pops cleanly.
+        // Fatal String errors stash here: the frame closure must return
+        // Result<_, jni::errors::Error>, whose bounds rule out String.
         let mut fatal: Option<String> = None;
 
-        // Count of subdirs we could not fully read (unreadable/null cursor,
-        // truncated iteration). A non-zero count means enumeration is partial,
-        // so the caller must skip its mark-and-sweep to avoid pruning state for
-        // files that still exist under an unreadable subtree.
+        // Subdirs we couldn't fully read; non-zero means enumeration is PARTIAL
+        // and the caller must skip mark-and-sweep to avoid pruning live files.
         let mut read_errors = 0u64;
 
         while let Some((parent_doc_id, prefix)) = stack.pop() {
-            // Bug #2: every row would leak JNI local refs (strings, cursors,
-            // uris) into a table capped at ~512, aborting the process on any
-            // real folder. Process each directory inside its own local frame so
-            // all those refs are freed when the frame pops. Owned Rust data
-            // (SafEntry, stack entries) escapes the frame just fine. Capacity is
-            // generous: refs churn within the frame, they do not accumulate.
+            // Bug #2: per-row local refs leak into a ~512-entry table and abort on
+            // real folders; each dir gets its own frame so refs free on pop.
             let frame_res: Result<(), jni::errors::Error> = env.with_local_frame(64, |env| {
-                // buildChildDocumentsUriUsingTree(treeUri, parentDocId).
                 let parent_jstr: JString = match env.new_string(&parent_doc_id) {
                     Ok(s) => s,
                     Err(e) => {
@@ -1030,7 +938,6 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                     }
                 };
 
-                // resolver.query(childrenUri, projection, null, null, null).
                 let cursor = {
                     let r = env.call_method(
                         &resolver,
@@ -1053,9 +960,6 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                             }
                         },
                         Err(e) => {
-                            // A single unreadable dir should not abort the walk,
-                            // but it makes enumeration partial: count it so the
-                            // caller skips the sweep.
                             let _ = jni_err(env, "ContentResolver.query(children)", e);
                             read_errors += 1;
                             return Ok(());
@@ -1067,18 +971,12 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                     return Ok(());
                 }
 
-                // Iterate rows. Column order matches `projection` (0..=4). Each
-                // row runs in its own nested frame so a directory with thousands
-                // of files never fills the outer frame (bug #2): all per-row
-                // refs (id/name/mime strings, the built doc uri) are freed per
-                // iteration. `break_out` propagates a fatal error out of the
-                // frame closure (which returns Ok to pop the frame cleanly).
+                // Per-row nested frames keep huge dirs from filling the outer frame (bug #2);
+                // `break_out` propagates fatals after the frame pops cleanly.
                 loop {
                     let has_next = match env.call_method(&cursor, "moveToNext", "()Z", &[]) {
                         Ok(v) => v.z().unwrap_or(false),
                         Err(e) => {
-                            // Iteration broke early: this dir's listing is
-                            // truncated, so treat it as a partial read.
                             let _ = jni_err(env, "Cursor.moveToNext", e);
                             read_errors += 1;
                             false
@@ -1093,7 +991,6 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                         let doc_id = cursor_get_string(env, &cursor, 0).unwrap_or_default();
                         let name = cursor_get_string(env, &cursor, 1).unwrap_or_default();
                         let mime = cursor_get_string(env, &cursor, 2).unwrap_or_default();
-                        // Null size/mtime fall back to -1 / 0.
                         let size = cursor_get_long(env, &cursor, 3).unwrap_or(-1);
                         let mtime_ms = cursor_get_long(env, &cursor, 4).unwrap_or(0);
                         let mtime = mtime_ms / 1000; // ms -> seconds.
@@ -1108,12 +1005,10 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                         };
 
                         if mime == MIME_DIR {
-                            // Recurse via the explicit stack (owned data escapes).
                             stack.push((doc_id, rel_path));
                             return Ok(());
                         }
 
-                        // buildDocumentUriUsingTree(treeUri, childDocId).
                         let id_jstr: JString = match env.new_string(&doc_id) {
                             Ok(s) => s,
                             Err(e) => {
@@ -1215,8 +1110,7 @@ pub async fn collect_tree_files(_tree_uri: String) -> Result<(Vec<SafEntry>, u64
     Err("SAF tree walk is Android-only".into())
 }
 
-/// Read a Cursor string column by index, clearing any pending exception.
-/// Returns None on null column or error.
+/// Read a Cursor string column; None on null column or error (exception cleared).
 #[cfg(target_os = "android")]
 fn cursor_get_string(
     env: &mut jni::JNIEnv,
@@ -1225,7 +1119,6 @@ fn cursor_get_string(
 ) -> Option<String> {
     use jni::objects::JValue;
 
-    // Guard against null columns; getString on some providers returns null.
     let is_null = match env.call_method(cursor, "isNull", "(I)Z", &[JValue::Int(col)]) {
         Ok(v) => v.z().unwrap_or(true),
         Err(e) => {
@@ -1255,8 +1148,7 @@ fn cursor_get_string(
     jstring_owned(env, s_obj.into()).ok()
 }
 
-/// Read a Cursor long column by index, clearing any pending exception.
-/// Returns None on null column or error.
+/// Read a Cursor long column; None on null column or error (exception cleared).
 #[cfg(target_os = "android")]
 fn cursor_get_long(
     env: &mut jni::JNIEnv,
@@ -1284,8 +1176,6 @@ fn cursor_get_long(
     }
 }
 
-/// Stream a SAF document through blake3 and return the lowercase hex digest.
-/// Reuses the openInputStream + read-loop shape from `stage_saf_upload`.
 #[cfg(target_os = "android")]
 pub async fn hash_saf_document(doc_uri: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || -> Result<String, String> {

@@ -20,9 +20,8 @@ export function StatsModal(props: {
     Math.max(1, ...(stats()?.by_extension ?? []).map((e) => e.total_bytes)),
   );
 
-  // Top 6 file types by size + a folded "Other" slice for the donut. "Other"
-  // is derived from the true total so it covers every type past the top 6,
-  // including any beyond the by_extension cap.
+  // Top 6 file types by size plus a folded "Other" slice derived from the true
+  // total, covering every type past the top 6 (incl. beyond the backend cap).
   const donutSegments = createMemo(() => {
     const s = stats();
     const top = (s?.by_extension ?? []).slice(0, 6);

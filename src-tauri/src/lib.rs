@@ -1,31 +1,8 @@
-//! Cosmog backend — desktop client for S3-compatible object stores.
-//!
-//! High-level layering:
-//!
-//! ```text
-//! Tauri commands (commands/*)
-//!         │
-//!         ▼
-//! AppState ── TransferManager ── persistent queue (db/transfers)
-//!         │            │
-//!         ▼            ▼
-//!  ObjectStore trait (store/mod) ── S3Store (store/s3) ── aws-sdk-s3
-//!         │
-//!         ▼
-//!  Account configs (db/accounts) + OS keyring (secrets)
-//! ```
-//!
-//! Adding a new provider:
-//! 1. Create `store/<name>.rs` implementing [`store::ObjectStore`].
-//! 2. Add a variant to [`providers::Protocol`] and a branch in
-//!    [`providers::build_store`].
-//!
-//! Adding new persistent schema: append a `Migration` to the migrations list
-//! in `db/mod.rs`. Never edit or reorder existing entries.
+//! Cosmog backend — desktop client for S3-compatible object stores. Layering: `commands/*` ->
+//! AppState/TransferManager (persistent transfer queue) -> [`store::ObjectStore`] (S3) -> SQLite + OS keyring.
+//! New provider: `store/<name>.rs` impl + [`providers::Protocol`] variant. Schema: append-only migrations in `db/mod.rs`.
 
-// Modules are exposed pub so the integration-tests crate (under tests/) can
-// reach into the backend internals. None of these are FE-callable; only the
-// `commands::*` functions actually serve as the Tauri API surface.
+// Modules pub for the integration-tests crate; only `commands::*` serves as the Tauri API surface.
 #[cfg(not(target_os = "android"))]
 pub mod app_lifecycle;
 pub mod bulk;
@@ -60,9 +37,7 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
-/// Native notification command. Uses tauri-plugin-notification's builder so we
-/// can pass an Android drawable name for the icon and a stable id so subsequent
-/// calls with the same id REPLACE the existing notification instead of stacking.
+/// Native notification: a stable `id` REPLACES the prior one; builder allows an Android drawable icon.
 #[tauri::command]
 fn notify_ex(
     app: tauri::AppHandle,
@@ -96,25 +71,19 @@ fn notify_ex(
     b.show().map_err(|e| e.to_string())
 }
 
-/// Stream a completed download from an absolute cache path into a SAF
-/// content:// URI. Chunked so multi-GB files never load fully into memory.
-/// See `saf.rs` for the JNI implementation.
+/// Streams a finished download from cache into a SAF content:// URI (chunked, multi-GB safe).
 #[tauri::command]
 async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u64, String> {
     crate::saf::finalize_saf_download(cache_path, uri).await
 }
 
-/// Delete the SAF placeholder document created by the save dialog. Called
-/// when a download is canceled or fails so no 0-byte file is left at the
-/// user's chosen destination.
+/// Removes the SAF placeholder document after a canceled/failed download (no 0-byte leftovers).
 #[tauri::command]
 async fn delete_saf_document(uri: String) -> Result<bool, String> {
     crate::saf::delete_saf_document(uri).await
 }
 
-/// Stream a SAF `content://` URI into the app cache and return a filesystem
-/// path the uploader can use. Also returns the human display name (from
-/// ContentResolver's OpenableColumns.DISPLAY_NAME) for use as the S3 key.
+/// Stages a SAF `content://` URI into app cache; returns a usable fs path plus the display name for the S3 key.
 #[tauri::command]
 async fn stage_saf_upload(
     uri: String,
@@ -123,25 +92,19 @@ async fn stage_saf_upload(
     crate::saf::stage_saf_upload(uri, dest_dir).await
 }
 
-/// Toggle the Android foreground TransferService. FE polling calls this with
-/// `active=true` when there is at least one in-flight transfer, and
-/// `active=false` when the queue drains. No-op on non-Android platforms.
+/// Toggles the Android foreground TransferService (FE polling; no-op off Android).
 #[tauri::command]
 fn set_transfer_service(active: bool) -> Result<(), String> {
     crate::saf::set_transfer_service(active)
 }
 
-/// Real platform info for the bug-report dialog: OS name + version + CPU arch
-/// (and device model on Android). Resolved natively so it reflects the device,
-/// not the WebView's `navigator` string.
+/// Real OS/arch/model info for bug reports, resolved natively (not the WebView navigator string).
 #[tauri::command]
 fn get_device_info() -> Result<crate::device::DeviceInfo, String> {
     crate::device::get_device_info()
 }
 
-/// Guaranteed quit path for background running. Called by the FE quit button,
-/// primarily for no-tray hosts (e.g. Wayland) where there is no tray Quit item.
-/// Marks quit as requested so the close-guard steps aside, then exits.
+/// Guaranteed quit for no-tray hosts: marks quit requested (close-guard stands down), then exits.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn nw_quit_background(app: tauri::AppHandle) {
@@ -153,14 +116,11 @@ fn nw_quit_background(app: tauri::AppHandle) {
 pub fn run() {
     let builder = tauri::Builder::default();
 
-    // Desktop-only plugins, registered FIRST. single-instance must be the very
-    // first plugin so a second launch is routed to the running instance before
-    // any other plugin initializes. autostart is launched hidden via --hidden.
+    // Desktop-only plugins. single-instance must register FIRST so a second launch is routed
+    // to the running instance before any other plugin initializes; autostart launches with --hidden.
     #[cfg(not(target_os = "android"))]
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // A second launch focuses the existing window instead of opening a
-            // new process.
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
                 let _ = w.unminimize();
@@ -171,7 +131,6 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
         ))
-        // Restore window size/position/maximized across restarts. Desktop only.
         .plugin(tauri_plugin_window_state::Builder::default().build());
 
     builder
@@ -187,9 +146,8 @@ pub fn run() {
 
             let app_dir = app.path().app_data_dir().expect("resolve app data dir");
 
-            // If the user requested a full data wipe (via clear_app_data command),
-            // a marker file is written before exit. Apply it now, before any
-            // files in app_dir are opened, so nothing is held open during removal.
+            // Apply a requested full wipe (marker from clear_app_data) BEFORE anything opens
+            // files under app_dir, so no open handles block removal.
             let wipe_marker = app_dir.join("pending_wipe");
             if wipe_marker.exists() {
                 match std::fs::remove_dir_all(&app_dir) {
@@ -197,9 +155,8 @@ pub fn run() {
                         let _ = std::fs::create_dir_all(&app_dir);
                     }
                     Err(e) => {
-                        // Wipe failed (permissions, locked file, etc.). Remove the
-                        // marker so the app doesn't retry on every boot with partial
-                        // data present. User can retry the clear via Settings.
+                        // Drop the marker so a failed wipe isn't retried every boot;
+                        // the user can retry via Settings.
                         eprintln!("pending_wipe: remove_dir_all failed: {e}");
                         let _ = std::fs::remove_file(&wipe_marker);
                     }
@@ -210,8 +167,6 @@ pub fn run() {
             let log_dir = app_dir.join("logs");
 
             std::fs::create_dir_all(&log_dir).ok();
-            // Daily rotation, capped at 30 files so the log dir can't grow
-            // without bound. Falls back to plain daily if the builder fails.
             let file_appender = tracing_appender::rolling::Builder::new()
                 .rotation(tracing_appender::rolling::Rotation::DAILY)
                 .filename_prefix("cosmog.log")
@@ -219,8 +174,7 @@ pub fn run() {
                 .build(&log_dir)
                 .unwrap_or_else(|_| tracing_appender::rolling::daily(&log_dir, "cosmog.log"));
             let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
-            // Keep guard alive for the lifetime of the process so the
-            // non-blocking writer flushes its queue on clean shutdown.
+            // The guard must outlive the process or buffered logs are lost at shutdown.
             static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
                 std::sync::OnceLock::new();
             let _ = LOG_GUARD.set(guard);
@@ -230,7 +184,6 @@ pub fn run() {
                     .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
             };
 
-            // Both layers registered in one registry so neither silently loses.
             let console_layer = tracing_subscriber::fmt::layer().with_filter(env_filter());
             let file_layer = tracing_subscriber::fmt::layer()
                 .with_writer(file_writer)
@@ -244,13 +197,8 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::block_on(async move {
-                // Apply any pending restore staged by the user in a previous
-                // session. Re-validate the file is still a SQLite DB right
-                // before the swap — paranoia in case the file was tampered
-                // with between staging and boot. Beyond the 16-byte magic we
-                // also run a read-only `PRAGMA quick_check`: a truncated or
-                // corrupt file can carry a valid header, and renaming it over
-                // the live DB would brick every account on this machine.
+                // Apply a staged restore BEFORE Db::open, re-validating right before the swap
+                // (magic bytes + PRAGMA quick_check): a corrupt file with a valid header would brick all accounts.
                 let pending = db_path.with_extension("restore_pending");
                 if pending.exists() {
                     let magic_ok = match tokio::fs::File::open(&pending).await {
@@ -263,10 +211,6 @@ pub fn run() {
                         Err(_) => false,
                     };
                     let valid = magic_ok && {
-                        // Read-only open + structural sanity. Blocking SQLite
-                        // work goes to spawn_blocking; any error at all (open,
-                        // query, panic) counts as invalid so we never swap in
-                        // an unverified file.
                         let check_path = pending.clone();
                         tokio::task::spawn_blocking(move || -> bool {
                             (|| -> rusqlite::Result<bool> {
@@ -297,34 +241,26 @@ pub fn run() {
                 }
 
                 let db = Db::open(&db_path).await.expect("open db");
-                // Reap transfers left Active/Pending by a previous crash so the
-                // UI doesn't show ghost-running rows. Desktop only: on Android
-                // the sibling :nightwatch process may hold genuinely-live rows,
-                // and this blind UPDATE has no owner column to spare them.
+                // Reap transfers orphaned by a crash so the UI shows no ghost-running rows.
+                // Desktop only: on Android the sibling :nightwatch process may own live rows.
                 #[cfg(not(target_os = "android"))]
                 if let Err(e) = db.reap_orphan_transfers().await {
                     tracing::warn!("reap_orphan_transfers failed: {e}");
                 }
-                // Android: the main process owns `user` transfers; the
-                // `:nightwatch` service owns `nightwatch` ones. Reap only our
-                // own orphans so a swipe-killed upload becomes a Failed row the
-                // user can retry (resuming from persisted parts), without
-                // clobbering the sibling's live rows.
+                // Android: main process owns `user` rows, :nightwatch owns `nightwatch` ones;
+                // reap only our orphans so a swipe-killed upload becomes a retryable Failed row.
                 #[cfg(target_os = "android")]
                 if let Err(e) = db.reap_orphan_transfers_by_origin("user").await {
                     tracing::warn!("reap_orphan_transfers_by_origin failed: {e}");
                 }
-                // Honour user-configured concurrency at startup. Note: changes
-                // made via update_settings only take effect on next launch
-                // because the Semaphore is not resizable in place.
+                // Concurrency changes take effect next launch: the Semaphore isn't resizable in place.
                 let settings = db.settings_load().await.unwrap_or_default();
                 // Apply proxy / custom-CA env BEFORE any SDK client is built.
                 crate::db::settings::apply_network_env(&settings);
                 let concurrency = settings.transfer_concurrency as usize;
 
-                // Critical path ends here: manage state + show the window so
-                // first paint is not blocked by log pruning, the enc_tmp sweep,
-                // scheduler/night-watcher spawns, tray build, or MCP bind.
+                // Critical path ends here: manage state + show the window before slow
+                // background work (log pruning, enc_tmp sweep, scheduler/tray/MCP startup).
                 let state = AppState::new(
                     db,
                     concurrency,
@@ -334,9 +270,7 @@ pub fn run() {
                 );
                 handle.manage(state.clone());
 
-                // Show the window unless launched hidden (autostart passes
-                // --hidden). With visible:false in the config, doing nothing
-                // keeps it hidden.
+                // Autostart passes --hidden; config has visible:false, so skipping show keeps it hidden.
                 #[cfg(not(target_os = "android"))]
                 if !std::env::args().any(|a| a == "--hidden") {
                     if let Some(w) = handle.get_webview_window("main") {
@@ -344,19 +278,15 @@ pub fn run() {
                     }
                 }
 
-                // Defer everything non-critical off the first-paint path.
                 let bg_handle = handle.clone();
                 let ttl_days = settings.request_log_ttl_days as i64;
                 tauri::async_runtime::spawn(async move {
-                    // Prune request logs older than the configured TTL.
                     let ttl_cutoff = chrono::Utc::now().timestamp() - (ttl_days * 86_400);
                     if let Err(e) = state.db.delete_old_request_logs(ttl_cutoff).await {
                         tracing::warn!("request log TTL cleanup failed: {e}");
                     }
-                    // Sweep leftover encryption temp files from a previous crash.
-                    // Files under <db_dir>/enc_tmp/ are ciphertext-only, safe to
-                    // delete unconditionally: they were staged for uploads that
-                    // never completed. Blocking std::fs -> spawn_blocking.
+                    // Crash leftovers under <db_dir>/enc_tmp/ are ciphertext-only, safe to delete
+                    // unconditionally (staged for uploads that never completed).
                     if let Some(parent) = db_path.parent() {
                         let enc_tmp = parent.join("enc_tmp");
                         if enc_tmp.exists() {
@@ -383,23 +313,13 @@ pub fn run() {
                             .await;
                         }
                     }
-                    // Keep the cancel token alive for the process lifetime so the
-                    // scheduler can be stopped cleanly if needed. Stored in a
-                    // OnceLock so it is not dropped until the process exits.
+                    // Cancel token parked in a OnceLock so it lives until process exit.
                     static SCHEDULER_CANCEL: std::sync::OnceLock<
                         tokio_util::sync::CancellationToken,
                     > = std::sync::OnceLock::new();
                     let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
-                    // Night Watcher: background local-dir -> S3 sync. Sibling of
-                    // the scheduler; its cancel token is likewise parked for the
-                    // process lifetime.
-                    //
-                    // Android: the sync loop runs in the separate `:nightwatch`
-                    // service process (night_watcher_headless), NOT here. wry
-                    // exits this process when the Activity is destroyed, and a
-                    // second loop in this process would double-scan + race the
-                    // service's writes to nw_file_state. The main process only
-                    // edits watch config.
+                    // Night Watcher: bg local-dir -> S3 sync; token parked for process lifetime. On Android the
+                    // loop runs in the :nightwatch service process — a duplicate here would double-scan/race nw_file_state.
                     #[cfg(not(target_os = "android"))]
                     {
                         static NIGHT_WATCHER_CANCEL: std::sync::OnceLock<
@@ -421,10 +341,7 @@ pub fn run() {
                             .unwrap_or(false);
                         app_lifecycle::apply(&bg_handle, enabled);
                     }
-                    // MCP server: local Streamable HTTP endpoint. Starts only
-                    // when enabled in settings; shares the one AppState with
-                    // everything else. Its enabled flag also feeds the
-                    // background-run gate.
+                    // MCP server starts only when enabled in settings; its flag feeds the background-run gate.
                     #[cfg(not(target_os = "android"))]
                     if let Err(e) = mcp::apply(&state).await {
                         tracing::warn!("MCP server start failed: {e}");
@@ -436,7 +353,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // -------- accounts: provider credentials + connection state --------
             commands::accounts::add_account,
             commands::accounts::list_accounts,
             commands::accounts::get_account,
@@ -445,7 +361,6 @@ pub fn run() {
             commands::accounts::test_account,
             commands::accounts::detect_account_region,
 
-            // -------- buckets: top-level container ops --------
             commands::buckets::list_buckets,
             commands::buckets::create_bucket,
             commands::buckets::delete_bucket,
@@ -464,7 +379,6 @@ pub fn run() {
             commands::buckets::cleanup_stale_multiparts,
             commands::buckets::abort_multipart_upload,
 
-            // -------- objects: single-object ops (metadata-only paths) --------
             commands::objects::list_objects,
             commands::objects::head_object,
             commands::objects::create_folder,
@@ -485,7 +399,6 @@ pub fn run() {
             commands::objects::put_object_bytes_cmd,
             commands::objects::list_keys_under_prefix,
 
-            // -------- transfers: persistent upload/download queue --------
             commands::transfers::enqueue_upload,
             commands::transfers::enqueue_download,
             commands::transfers::list_transfers,
@@ -495,7 +408,6 @@ pub fn run() {
             commands::transfers::clear_completed_transfers,
             commands::transfers::clear_transfer,
 
-            // -------- search: cached-object FTS + faceted browse --------
             commands::search::search_objects,
             commands::search::sync_prefix,
             commands::search::bucket_index_status,
@@ -506,42 +418,35 @@ pub fn run() {
             commands::search::bucket_stats,
             commands::search::set_bucket_auto_reindex,
 
-            // -------- settings: user preferences --------
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::reset_settings,
 
-            // -------- bulk: folder-scoped multi-object operations --------
             commands::bulk::delete_folder_cmd,
             commands::bulk::upload_directory_cmd,
             commands::bulk::download_directory_cmd,
             commands::bulk::cancel_bulk_op,
 
-            // -------- capabilities: permission probing --------
             commands::capabilities::probe_account_capabilities,
             commands::capabilities::probe_bucket_capabilities,
             commands::capabilities::get_account_capabilities,
             commands::capabilities::get_bucket_capabilities,
 
-            // -------- logs: diagnostic file access --------
             commands::logs::get_log_dir,
             commands::logs::get_log_tail,
 
-            // -------- request_logs: S3 API call history --------
             commands::request_logs::list_request_logs,
             commands::request_logs::count_request_logs,
             commands::request_logs::get_request_log_stats,
             commands::request_logs::clear_request_logs,
             commands::request_logs::purge_old_request_logs,
 
-            // -------- portable: backup / restore / import / export --------
             commands::portable::export_config,
             commands::portable::import_config,
             commands::portable::backup_database,
             commands::portable::stage_restore,
             commands::portable::clear_app_data,
 
-            // -------- encryption: per-bucket age (X25519 + ChaCha20-Poly1305) --------
             commands::encryption::enable_bucket_encryption,
             commands::encryption::disable_bucket_encryption,
             commands::encryption::get_bucket_encryption_status,
@@ -552,10 +457,8 @@ pub fn run() {
             commands::encryption::has_encryption_identity,
             commands::encryption::list_encrypted_buckets,
 
-            // -------- browse: cache-aware navigation --------
             commands::browse::browse_prefix,
 
-            // -------- night watcher: background local-dir -> S3 sync --------
             commands::night_watcher::nw_list_watches,
             commands::night_watcher::nw_add_watch,
             commands::night_watcher::nw_update_watch,
@@ -564,23 +467,18 @@ pub fn run() {
             commands::night_watcher::nw_get_status,
             commands::night_watcher::nw_pick_tree,
 
-            // -------- device: native OS/arch/model for bug reports --------
             get_device_info,
 
-            // -------- notifications: native builder with icon + stable id --------
             notify_ex,
 
-            // -------- Android SAF: stream SAF URIs into/out of app cache without loading files into JS --------
             finalize_saf_download,
             delete_saf_document,
             stage_saf_upload,
             set_transfer_service,
 
-            // -------- desktop: guaranteed background-run quit path --------
             #[cfg(not(target_os = "android"))]
             nw_quit_background,
 
-            // -------- mcp: local AI server config (desktop only) --------
             #[cfg(not(target_os = "android"))]
             commands::mcp::mcp_get_config,
             #[cfg(not(target_os = "android"))]
@@ -590,17 +488,14 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             commands::mcp::mcp_status,
 
-            // -------- dev: debug helpers --------
             #[cfg(debug_assertions)]
             open_devtools,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
-            // Desktop close-guard: while a watch is enabled and a tray exists,
-            // closing the main window hides it instead of quitting so the
-            // Night Watcher loop keeps running. On a no-tray host the guard is
-            // disabled (close == real quit) so the user is never trapped.
+            // Close-guard: while background running is armed (and quit not requested), hide the
+            // main window instead of quitting so Night Watcher survives. No tray => close really quits.
             #[cfg(not(target_os = "android"))]
             if let tauri::RunEvent::WindowEvent {
                 label,
@@ -613,15 +508,11 @@ pub fn run() {
                     && !app_lifecycle::quit_requested()
                 {
                     if app_lifecycle::tray_available() {
-                        // Tray present: hide to keep the loop running.
                         api.prevent_close();
                         if let Some(w) = _app_handle.get_webview_window("main") {
                             let _ = w.hide();
                         }
                     } else {
-                        // No tray to restore from: let the close proceed as a
-                        // real quit so the user is not trapped. Background sync
-                        // stops with the process.
                         tracing::warn!(
                             "closing window quits: no system tray, background sync stops"
                         );

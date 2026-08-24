@@ -1,10 +1,5 @@
-//! Persistence for Night Watcher: watch definitions (`nw_watch`) and the
-//! per-file sync state (`nw_file_state`) used to detect changes cheaply.
-//!
-//! `nw_file_state` is kept fully separate from the search cache
-//! (`cached_objects` + its mark/sweep FTS triggers) on purpose. Sharing those
-//! tables would let a Night Watcher reconcile corrupt the search index's
-//! seen=0 markers, and vice versa.
+//! Persistence for Night Watcher: watch definitions (`nw_watch`) and per-file sync state
+//! (`nw_file_state`), deliberately separate from the search cache so neither corrupts the other.
 
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -29,13 +24,11 @@ pub struct NightWatch {
     pub last_scan_at: Option<i64>,
     pub last_error: Option<String>,
     pub created_at: i64,
-    /// Android: the SAF tree `content://` URI to sync. NULL/`None` on desktop,
-    /// where `local_dir` is a real filesystem path instead.
+    /// Android SAF tree `content://` URI; `None` on desktop (`local_dir` is the fs path).
     pub tree_uri: Option<String>,
 }
 
-/// Fields a caller supplies to create a watch. `id` and `created_at` are
-/// assigned by [`Db::insert_watch`].
+/// Creation input; `id` and `created_at` are assigned by [`Db::insert_watch`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewWatch {
     pub account_id: String,
@@ -50,8 +43,7 @@ pub struct NewWatch {
     pub tree_uri: Option<String>,
 }
 
-/// Optional per-field patch for [`Db::update_watch`]. `None` leaves a field
-/// untouched.
+/// Per-field patch for [`Db::update_watch`]; `None` leaves a field untouched.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct WatchPatch {
     pub key_prefix: Option<String>,
@@ -171,16 +163,13 @@ impl Db {
         let id = id.to_string();
         self.conn
             .call(move |conn| {
-                // One transaction: a partial patch (e.g. new key_prefix with
-                // old full_scan_secs) on a mid-way IO failure would leave the
-                // watch config internally inconsistent.
+                // One transaction: a partial patch after an IO failure would mix new + old config.
                 let tx = conn.transaction()?;
                 if let Some(v) = patch.key_prefix {
                     tx.execute("UPDATE nw_watch SET key_prefix=?2 WHERE id=?1", params![id, v])?;
                 }
                 if let Some(v) = patch.ignore_file {
-                    // An empty string means "clear" — storing '' would make
-                    // Matcher::build fail on every scan forever.
+                    // Empty string means "clear": storing '' would break Matcher::build every scan.
                     let v = if v.trim().is_empty() { None } else { Some(v) };
                     tx.execute(
                         "UPDATE nw_watch SET ignore_file=?2 WHERE id=?1",
@@ -221,8 +210,7 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Record the outcome of a full scan: bump `last_scan_at` and store (or
-    /// clear) the last error message.
+    /// Record a scan outcome: bump `last_scan_at`, set/clear `last_error`.
     pub async fn set_watch_scan_result(
         &self,
         id: &str,
@@ -285,9 +273,7 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Load every `nw_file_state` row for a watch into a `rel_path`-keyed map.
-    /// A scan calls this once up front so the per-file fast-path is an in-memory
-    /// lookup instead of one DB round-trip per file on the single connection.
+    /// Load a watch's state rows into a rel_path-keyed map (one bulk load for the scan fast-path).
     pub async fn file_state_map(
         &self,
         watch_id: &str,
@@ -367,8 +353,7 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Delete many state rows in one transaction (one fsync). Used by the
-    /// mark-and-sweep so removing a large directory is not N separate writes.
+    /// Batch delete in one transaction so mark-and-sweep isn't N separate writes.
     pub async fn file_state_delete_many(
         &self,
         watch_id: &str,
@@ -399,8 +384,7 @@ impl Db {
         Ok(n)
     }
 
-    /// List every `rel_path` with a recorded state for this watch. Used by the
-    /// full-scan mark-and-sweep to prune rows for files no longer present.
+    /// Recorded rel_paths for a watch; input to the full-scan mark-and-sweep prune.
     pub async fn file_state_list_rel_paths(&self, watch_id: &str) -> AppResult<Vec<String>> {
         let watch_id = watch_id.to_string();
         self.conn
@@ -433,8 +417,7 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Read the retry backoff row for a file: `(fail_count, retry_after)`.
-    /// `None` means no failures recorded (clear to upload).
+    /// Retry row `(fail_count, retry_after)`; `None` means no failures recorded.
     pub async fn file_retry_get(
         &self,
         watch_id: &str,
@@ -457,9 +440,8 @@ impl Db {
             .map_err(Into::into)
     }
 
-    /// Record an upload failure: bump `fail_count` and set `retry_after`. Once
-    /// the count reaches `max_retries`, `retry_after` = now + `pause_secs` so the
-    /// file is skipped until the pause elapses. Returns the new fail_count.
+    /// Bump `fail_count`; at `max_retries` set `retry_after = now + pause_secs` so the file
+    /// pauses until it elapses. Returns the new fail_count.
     pub async fn file_retry_record_failure(
         &self,
         watch_id: &str,

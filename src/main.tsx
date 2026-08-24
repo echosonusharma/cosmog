@@ -14,7 +14,6 @@ import { restoreBrowseState } from "./state/app";
 import "./styles/index.css";
 
 if (import.meta.env.DEV) {
-  // F12 / Ctrl+Shift+I open devtools — dev builds only
   document.addEventListener("keydown", (e) => {
     if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I")) {
       e.preventDefault();
@@ -26,8 +25,7 @@ if (import.meta.env.DEV) {
 // Block native context menu everywhere (components show their own)
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
-// Load UI prefs and restore last-viewed location before first paint so the
-// app reopens where the user left off.
+// Restore last-viewed location before first paint so the app reopens where the user left off.
 initPrefs().then(() => {
   initEditorTheme();
   restoreBrowseState();

@@ -13,10 +13,8 @@ export function IndexBar(props: {
   refetchIndex: () => void;
   onReindex: () => void;
 }) {
-  // Prefer the in-flight resource value. Do NOT fall back to `.latest` while
-  // loading — after a bucket switch `.latest` is still the previous bucket.
-  // Same-bucket refetch keeps `()` as the prior value in Solid, so the bar
-  // stays stable without showing the wrong bucket's stats.
+  // Prefer the in-flight resource value; do NOT fall back to `.latest` while
+  // loading — after a bucket switch it's still the previous bucket's stats.
   const st = () => props.indexStatus() ?? (!props.indexStatus.loading ? props.indexStatus.latest : undefined);
 
   return (

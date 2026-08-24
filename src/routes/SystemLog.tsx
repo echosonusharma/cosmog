@@ -14,9 +14,8 @@ export function SystemLog(props: { active?: boolean }) {
   const [clearedAt, setClearedAt] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal("");
   const [levelFilter, setLevelFilter] = createSignal("");
-  const [sourceFilter, setSourceFilter] = createSignal<string>("");   // "" | source key
+  const [sourceFilter, setSourceFilter] = createSignal<string>("");
 
-  // Click a source chip to filter to it; click the active one (or All) to clear.
   function toggleSource(key: string) {
     setSourceFilter((cur) => (cur === key ? "" : key));
   }
@@ -39,7 +38,6 @@ export function SystemLog(props: { active?: boolean }) {
     onCleanup(() => clearInterval(timer));
   });
 
-  // Newest first + level/text filters, all client-side.
   const filtered = createMemo(() => {
     const q = search().trim().toLowerCase();
     const lvl = levelFilter();

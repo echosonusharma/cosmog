@@ -3,10 +3,7 @@ import { IconAlertCircle, IconX } from "./icons";
 import { parseWireError, isCredentialError, isNetworkError } from "./errors";
 import { setCurrentView } from "../state/app";
 
-/**
- * Dismissable error popup — floats centered over the nearest `position:relative`
- * ancestor (every `.view-container` qualifies). Click backdrop or X to close.
- */
+/** Dismissable popup; floats over the nearest `position:relative` ancestor (every `.view-container`). */
 export function ErrorPopup(props: { error: unknown; onClose: () => void }) {
   const { code, message } = parseWireError(props.error);
   const credErr = isCredentialError(code);

@@ -1,16 +1,5 @@
-//! Capability discovery + recall for an account / bucket.
-//!
-//! Every permission field is tri-state: [`CapState::Allowed`] (confirmed by a
-//! recent probe or successful real op), [`CapState::Denied`] (server returned
-//! AccessDenied), or [`CapState::Unknown`] (never probed, or last probe was
-//! inconclusive). The FE uses this to grey-out buttons the current credentials
-//! cannot fulfill.
-//!
-//! Read-side caps are populated proactively via a probe (`list_buckets`,
-//! `head_bucket`, etc.). Write-side caps are populated *reactively* — we
-//! cannot do a dry-run PUT/DELETE without side effects, so we update
-//! `last_put_result` / `last_delete_result` whenever a real operation
-//! succeeds or fails with AccessDenied.
+//! Tri-state capability flags (`allowed`/`denied`/`unknown`) the FE uses to
+//! grey out buttons. Read caps probed; write caps updated reactively (no dry-run).
 
 use std::sync::Arc;
 
@@ -23,9 +12,6 @@ use crate::store::ObjectStore;
 
 use super::Db;
 
-/// Tri-state capability flag stored as `Option<bool>` in the DB.
-///
-/// Serialized as `"allowed"` / `"denied"` / `"unknown"` for FE simplicity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CapState {
@@ -50,9 +36,7 @@ impl CapState {
         }
     }
 
-    /// Map a single probe result into a tri-state. `Ok` → Allowed,
-    /// `Err(AccessDenied)` → Denied, anything else → Unknown (could be a
-    /// network blip; we don't want to lock the user out).
+    /// Non-denial errors map to Unknown (network blips shouldn't lock the user out).
     fn from_probe<T>(result: &AppResult<T>) -> Self {
         match result {
             Ok(_) => CapState::Allowed,
@@ -223,8 +207,7 @@ impl Db {
         Ok(())
     }
 
-    /// Record the outcome of a real write op. Only updates the relevant
-    /// `last_*` columns; doesn't disturb probe-derived read caps.
+    /// Record a real write outcome without disturbing probe-derived read caps.
     pub async fn capability_record_write(
         &self,
         account_id: &str,
@@ -242,7 +225,6 @@ impl Db {
                     WriteOp::Put => ("last_put_result", "last_put_at"),
                     WriteOp::Delete => ("last_delete_result", "last_delete_at"),
                 };
-                // INSERT-OR-UPDATE; only touches the one pair of columns for op.
                 let sql = format!(
                     "INSERT INTO bucket_capabilities (account_id, bucket, {result_col}, {at_col})
                      VALUES (?1, ?2, ?3, ?4)
@@ -280,10 +262,8 @@ fn parse_result_str(s: Option<&str>) -> CapState {
     }
 }
 
-/// Probe the account-level capabilities. Always runs `list_buckets`. To probe
-/// `create_bucket` we'd need to actually create one — there is no dry-run —
-/// so we leave it `Unknown` here and update it reactively if the user ever
-/// hits the button.
+/// Probe account-level caps. `create_bucket` stays Unknown (no dry-run
+/// exists) and is updated reactively when the user attempts it.
 pub async fn probe_account(
     store: Arc<dyn ObjectStore>,
     account_id: &str,
@@ -299,8 +279,8 @@ pub async fn probe_account(
     })
 }
 
-/// Probe a bucket's read-side capabilities. Each call independently catches
-/// `AccessDenied` so a partial-permissions key gets an accurate map.
+/// Probe a bucket's read caps; each independently catches AccessDenied so a
+/// partial-permission key gets an accurate map.
 pub async fn probe_bucket(
     store: Arc<dyn ObjectStore>,
     account_id: &str,

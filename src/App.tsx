@@ -16,10 +16,8 @@ export default function App() {
       reset();
       refetch();
     } else {
-      // batch() ensures all signal writes flush atomically with reset() so that
-      // when SolidJS re-evaluates ErrorBoundary children, browseState.bucket is
-      // already null — preventing Browse from mounting ObjectBrowser with a
-      // stale bucket, which would immediately re-throw the same credential error.
+      // batch() flushes signal writes atomically with reset(), so when the ErrorBoundary re-renders,
+      // browseState.bucket is already null — Browse never remounts with a stale bucket and re-throw.
       batch(() => {
         setBrowseState({ bucket: null, prefix: "" });
         setCurrentView(targetView);

@@ -1,8 +1,5 @@
-//! Access guards for the local MCP endpoint.
-//!
-//! Localhost binding is not isolation on its own: any local process can reach
-//! the port, and a browser page can try to drive it via DNS rebinding. So we
-//! validate the Origin/Host headers and require a bearer token on every call.
+//! Access guards for the local MCP endpoint: Origin/Host validation (DNS
+//! rebinding defense) plus a required bearer token on every call.
 
 use std::sync::Arc;
 
@@ -17,9 +14,8 @@ use super::McpCtx;
 pub async fn guard(State(ctx): State<Arc<McpCtx>>, req: Request, next: Next) -> Response {
     let headers = req.headers();
 
-    // Origin, when present, must be local. Non-browser clients send none, which
-    // is fine. A cross-site browser page sends its own origin and is rejected:
-    // the DNS-rebinding defense.
+    // Origin, when present, must be local (none is fine for non-browser
+    // clients); cross-site browser origins are rejected — DNS-rebinding defense.
     if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
         if !origin_is_local(origin) {
             return deny(StatusCode::FORBIDDEN, "origin not allowed");
@@ -56,7 +52,6 @@ fn origin_is_local(origin: &str) -> bool {
 }
 
 fn host_is_local(host: &str) -> bool {
-    // Strip a trailing port.
     let hostname = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
     let hostname = hostname.trim_start_matches('[').trim_end_matches(']');
     matches!(hostname, "localhost" | "127.0.0.1" | "::1")

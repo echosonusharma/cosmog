@@ -5,9 +5,8 @@ import { IconEye, IconPlay, IconPause, IconVolume, IconMute } from "../../../uti
 import { extOf } from "../helpers";
 import type { CachedObjectMeta } from "../../../types";
 
-// Map extension to a concrete MIME. Android WebView refuses to decode a Blob
-// with an invalid/wildcard type (e.g. "audio/*"), so encrypted playback needs
-// a real type here.
+// Android WebView refuses to decode a Blob with an invalid/wildcard type
+// (e.g. "audio/*"), so encrypted playback needs a concrete MIME per extension.
 const AUDIO_MIME: Record<string, string> = {
   mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg",
   m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", opus: "audio/ogg",
@@ -24,9 +23,8 @@ function describeMediaError(e: MediaError | null): string {
   return `${codes[e.code] || `code ${e.code}`}${e.message ? `: ${e.message}` : ""}`;
 }
 
-// Encrypted audio can't be range-streamed: playing it means decrypting the
-// whole object into an in-memory Blob. Past this cap we refuse and point the
-// user at Download so a multi-GB track can't OOM the webview.
+// Encrypted audio can't be range-streamed: playing decrypts the whole object
+// into an in-memory Blob. Past this cap we refuse and point at Download.
 const ENCRYPTED_HARD_MAX = 100 * 1024 * 1024;
 
 function fmtTime(s: number): string {
@@ -40,10 +38,8 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
   const [armed, setArmed] = createSignal(false);
   const encTooBig = () => !!props.encrypted && props.obj.size > ENCRYPTED_HARD_MAX;
 
-  // Unencrypted streams from a presigned URL (the presign call pulls no object
-  // bytes; preload="none" defers the real fetch to play). Encrypted must
-  // decrypt the whole object up front, so it stays gated behind an explicit
-  // Load click and is never auto-loaded.
+  // Unencrypted streams from a presigned URL (preload="none" defers the fetch).
+  // Encrypted must decrypt whole up front, gated behind an explicit Load click.
   const shouldLoad = () => {
     if (props.encrypted === undefined) return false;
     if (props.encrypted) return armed() && !encTooBig();
@@ -67,11 +63,9 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     },
   );
 
-  // Latch the resolved src: keep the previous track mounted while the next one
-  // loads (createResource returns undefined mid-refetch, which would unmount
-  // the player and flash a layout jump). displaySrc only advances to defined
-  // values; a spinner overlays it while src.loading. Revoke the prior blob only
-  // once the new url has replaced it.
+  // Latch the resolved src: createResource returns undefined mid-refetch, which
+  // would unmount the player and flash a layout jump; prior blob is revoked
+  // only once the new url has replaced it.
   const [displaySrc, setDisplaySrc] = createSignal<string | null>(null);
   createEffect(() => {
     const s = src();
@@ -94,8 +88,8 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
 
   const progress = () => (dur() > 0 ? cur() / dur() : 0);
 
-  // Cycle playback speed. Rate resets to 1 whenever the element loads a new
-  // src, so onLoadedMetadata reapplies the current pick.
+  // Rate resets to 1 whenever the element loads a new src; onLoadedMetadata
+  // reapplies the current pick.
   const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
   function cycleRate() {
     const i = RATES.indexOf(rate());
@@ -104,9 +98,8 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     if (audio) audio.playbackRate = next;
   }
 
-  // Streamed media may report duration=Infinity until the engine resolves it.
-  // Just latch it when finite (loadedmetadata/durationchange, plus the
-  // timeupdate fallback). Do NOT seek to force it: seeking past the end on
+  // Streamed media may report duration=Infinity until the engine resolves it;
+  // latch it when finite. Do NOT seek to force it: seeking past the end on
   // Android WebView ends the track and kills playback.
   function readDuration() {
     if (!audio) return;
@@ -114,9 +107,6 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     if (isFinite(d) && d > 0) setDur(d);
   }
 
-  // Reset on object change: re-lock encrypted decryption and clear playback
-  // state (the element persists across track switches, so stop it and zero the
-  // signals; new metadata repopulates dur once the next track loads).
   createEffect(() => {
     void props.obj.key;
     setArmed(false);
@@ -125,12 +115,8 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     setDur(0);
     setPlayErr(null);
     if (audio) { audio.pause(); audio.currentTime = 0; }
-    // Tear down the latched player when the new track won't auto-load: an
-    // encrypted track needs a fresh "Load" click (armed was just reset) and an
-    // unresolved status shouldn't show a stale player. Otherwise the previous
-    // track's UI + blob would linger. Unencrypted keeps the latch so switching
-    // between plain tracks doesn't flash. NB: don't read armed() here or arming
-    // would retrigger this effect and re-lock itself.
+    // Tear down the latched player when the new track won't auto-load, else the
+    // previous UI + blob linger. Don't read armed() here: arming would retrigger.
     if (props.encrypted !== false) {
       if (priorBlob) { URL.revokeObjectURL(priorBlob); priorBlob = null; }
       setDisplaySrc(null);
@@ -141,8 +127,6 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     if (!audio) return;
     if (!audio.paused) { audio.pause(); return; }
     setPlayErr(null);
-    // play() can reject (autoplay gate, unsupported source). Surface it so the
-    // failure isn't silent, especially on the Android WebView media stack.
     audio.play().catch((e) => setPlayErr(e?.message || String(e)));
   }
 
@@ -179,8 +163,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
   onCleanup(() => endDrag?.());
 
   // OS "now playing" integration (Windows SMTC / macOS Now Playing / Linux
-  // MPRIS via the Media Session API). Feature-detected: a no-op where the
-  // webview doesn't support it (notably WebKitGTK on Linux).
+  // MPRIS) via the Media Session API; no-op where unsupported (e.g. WebKitGTK).
   function setupMediaSession() {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
@@ -324,9 +307,6 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
             onTimeUpdate={() => {
               if (!audio) return;
               setCur(audio.currentTime);
-              // Fallback: some engines resolve duration late (or never fire a
-              // clean durationchange) for streamed media. Latch it here once
-              // it's finite, since timeupdate reliably fires during playback.
               if (dur() === 0 && isFinite(audio.duration) && audio.duration > 0) {
                 setDur(audio.duration);
               }

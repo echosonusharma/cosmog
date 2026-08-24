@@ -8,14 +8,13 @@ use crate::secrets;
 use crate::state::AppState;
 use crate::validate;
 
-/// Apply `require_non_empty`'s non-empty + length-cap rules to an optional
-/// field, preserving absence (`None` stays `None`).
+/// Applies non-empty + length-cap validation to an optional field, preserving absence.
 fn validated_optional(field: &str, value: &Option<String>) -> AppResult<Option<String>> {
     value.as_deref().map(|v| validate::require_non_empty(field, v)).transpose()
 }
 
-/// Run the synchronous keyring write off the async runtime. `keyring` blocks;
-/// on macOS a prompt or locked keychain can stall for seconds.
+/// Runs the synchronous keyring write off the async runtime; on macOS a
+/// prompt or locked keychain can stall for seconds.
 async fn set_secret_blocking(id: String, secret: String) -> AppResult<()> {
     tokio::task::spawn_blocking(move || secrets::set_secret(&id, &secret))
         .await
@@ -27,8 +26,8 @@ pub struct AddAccountInput {
     pub name: String,
     pub protocol: String,
     pub endpoint: Option<String>,
-    /// Optional — defaults to `"us-east-1"`. For AWS S3 accounts the real
-    /// region is auto-detected on first access via PermanentRedirect recovery.
+    /// Optional — defaults to `"us-east-1"`; for AWS, auto-detected on first
+    /// access via PermanentRedirect recovery.
     pub region: Option<String>,
     pub access_key_id: String,
     pub secret_access_key: String,
@@ -71,9 +70,8 @@ pub async fn add_account(
             addressing_style: input.addressing_style,
         })
         .await?;
-    // Write secret AFTER DB insert (we need the generated id).
-    // On keyring failure roll back the DB row so no orphan is left.
-    // The keyring write runs on a blocking thread (see set_secret_blocking).
+    // Secret written AFTER the DB insert (the id is needed); on keyring
+    // failure roll back the row so no orphan is left.
     if let Err(e) =
         set_secret_blocking(acct.id.clone(), input.secret_access_key).await
     {
@@ -85,7 +83,6 @@ pub async fn add_account(
     Ok(acct)
 }
 
-/// Account row + whether its secret is still in the keychain.
 #[derive(Debug, serde::Serialize)]
 pub struct AccountView {
     #[serde(flatten)]
@@ -147,7 +144,7 @@ pub async fn update_account(
     let name = validated_optional("name", &input.name)?;
     let endpoint = match input.endpoint {
         // Double-Option: Some(None) explicitly clears the endpoint; only the
-        // inner Some(String) is subject to the non-empty/length rules.
+        // inner Some(String) is validated.
         Some(inner) => Some(validated_optional("endpoint", &inner)?),
         None => None,
     };
@@ -176,9 +173,8 @@ pub async fn update_account(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    // Signal every active transfer for this account so the workers stop
-    // before the DB rows get cascade-deleted. The ON DELETE CASCADE will
-    // then sweep up transfers/cached_objects/bucket_index/prefix_sync rows.
+    // Cancel active transfers first so workers stop before the DB rows are
+    // cascade-deleted (transfers/cache/index rows swept by ON DELETE CASCADE).
     if let Err(e) = state.transfers.cancel_for_account(&id).await {
         tracing::warn!(account_id = %id, "cancel_for_account failed: {e}");
     }
@@ -195,8 +191,7 @@ pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn test_account(state: State<'_, AppState>, id: String) -> AppResult<usize> {
-    // Invalidate cached client so every test probe builds a fresh connection.
-    // This doubles as a reconnect when the server was restarted.
+    // Invalidate so each probe builds a fresh connection (doubles as reconnect).
     state.invalidate(&id);
     let store = state.store_for(&id).await?;
     let buckets = store.list_buckets().await?;
@@ -205,16 +200,15 @@ pub async fn test_account(state: State<'_, AppState>, id: String) -> AppResult<u
 
 #[derive(Debug, serde::Serialize)]
 pub struct RegionDetectResult {
-    /// Region as reported by the bucket. `None` for `us-east-1` per S3
-    /// protocol convention (an empty `LocationConstraint`).
+    /// Region as reported by the bucket; `None` = us-east-1 convention
+    /// (empty `LocationConstraint`).
     pub region: Option<String>,
-    /// `true` if we updated the stored account region to match.
+    /// True if we updated the stored account region to match.
     pub updated: bool,
 }
 
-/// Detect a bucket's real region and persist it on the account if it differs
-/// from the configured value. Useful when the user creates an account with
-/// the wrong region and gets PermanentRedirect / SignatureDoesNotMatch.
+/// Detects a bucket's real region and persists it on the account when it
+/// differs (fixes PermanentRedirect / SignatureDoesNotMatch).
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn detect_account_region(

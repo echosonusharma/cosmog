@@ -1,118 +1,81 @@
-//! Centralized error type for backend operations.
-//!
-//! Every fallible API in the backend returns [`AppResult<T>`]. Variants are
-//! shaped so that the front-end can branch on a stable `code` string when an
-//! error is serialized over Tauri's IPC. Specifically, [`AppError`] serializes
-//! into a [`WireError`] (`{ code, message }`) so the FE does not have to parse
-//! free-form `Display` output.
-//!
-//! When adding a new variant, also update [`AppError::code`] and the
-//! `From<…>` implementations as needed.
+//! Centralized backend error type. Serializes over Tauri IPC as a JSON string of
+//! `{ code, message }` so the FE branches on the stable `code`, never Display text.
 
 use serde::Serialize;
 use thiserror::Error;
 
-/// Backend-wide error type.
-///
-/// Variants intentionally avoid carrying typed payloads (only `String` messages)
-/// to keep the type cheap to clone, format, and serialize. If a caller needs to
-/// branch on a specific error condition, use [`AppError::code`] instead of
-/// matching on the message text.
+/// Backend-wide error type. Variants carry only `String` messages (cheap to clone/serialize);
+/// branch via [`AppError::code`], not message text.
 #[derive(Debug, Error)]
 pub enum AppError {
-    /// The requested entity was not found.
     #[error("not found: {0}")]
     NotFound(String),
 
-    /// Caller supplied invalid arguments (empty key, bad protocol, etc.).
     #[error("invalid input: {0}")]
     InvalidInput(String),
 
-    /// SQLite or migration layer failure.
     #[error("database error: {0}")]
     Database(String),
 
-    /// OS keyring access failure (missing entry surfaces as `NotFound`).
+    /// OS keyring access failure; a missing entry surfaces as `NotFound`.
     #[error("keyring error: {0}")]
     Keyring(String),
 
-    /// AWS SDK / S3-protocol failure not classified into a more specific
-    /// variant. Message contains the SDK's error code + reason verbatim.
+    /// Catch-all AWS SDK / S3-protocol failure; message carries the SDK error code + reason verbatim.
     #[error("s3 error: {0}")]
     S3(String),
 
-    /// Caller is authenticated but not authorized for this operation.
     #[error("access denied: {0}")]
     AccessDenied(String),
 
-    /// Credentials don't match the server's expected signature. Almost always
-    /// means the secret was rotated outside Cosmog or the user typed it
-    /// wrong. UI should prompt for re-entry.
+    /// Signature mismatch: secret rotated outside Cosmog or mistyped; FE should prompt re-entry.
     #[error("credentials invalid: {0}")]
     CredentialsInvalid(String),
 
-    /// Operation conflicts with current resource state (`PreconditionFailed`,
-    /// `BucketAlreadyExists`, etc.). Usually retryable only after the caller
-    /// fixes the precondition.
+    /// State conflict (`PreconditionFailed`, `BucketAlreadyExists`, ...); retryable once fixed.
     #[error("conflict: {0}")]
     Conflict(String),
 
-    /// Server signalled `SlowDown` / `TooManyRequests`. Caller should back off
-    /// before retrying.
+    /// Server signalled `SlowDown`/`TooManyRequests`; back off before retrying.
     #[error("rate limited: {0}")]
     RateLimited(String),
 
-    /// Local I/O failure (file read, write, mkdir).
     #[error("io error: {0}")]
     Io(String),
 
-    /// Transfer was cooperatively canceled via its `CancellationToken`.
-    ///
-    /// Returned by stream/multipart workers when [`tokio_util::sync::CancellationToken::cancelled`]
-    /// fires. Not an error in the usual sense — callers typically treat this as
-    /// a terminal `canceled` status, not a failure.
+    /// Cooperative cancellation via `CancellationToken`; callers treat this as a terminal
+    /// `canceled` status, not a failure.
     #[error("canceled: {0}")]
     Canceled(String),
 
-    /// S3 returned `PermanentRedirect` — bucket lives in a different region
-    /// than the account is configured for. The backend auto-corrects the stored
-    /// region and retries; this variant is only surfaced if the retry also fails.
+    /// `PermanentRedirect`: bucket is in another region. Backend auto-corrects the stored region
+    /// and retries; surfaced only if the retry also fails.
     #[error("region redirect: {0}")]
     RegionRedirect(String),
 
-    /// Network-level failure: connection refused, DNS resolution failure,
-    /// TCP timeout, or TLS error. The endpoint is likely down or misconfigured.
+    /// Connection refused, DNS failure, TCP timeout, or TLS error; endpoint down or misconfigured.
     #[error("network unreachable: {0}")]
     NetworkUnreachable(String),
 
-    /// The provider does not implement this operation (`NotImplemented` / HTTP
-    /// 501). Common on non-AWS S3-compatibles (B2, R2) for bucket policy or
-    /// CORS. FE should switch on this to hide the feature rather than surface a
-    /// generic error.
+    /// Provider doesn't implement the op (`NotImplemented`/HTTP 501, common on B2/R2); FE should
+    /// hide the feature rather than surface a generic error.
     #[error("unsupported: {0}")]
     Unsupported(String),
 
-    /// Bucket has encryption configured but no identity is present in the OS
-    /// keychain (keychain wiped, new machine, different OS user). FE should
-    /// prompt the user to import a previously exported identity file.
+    /// Bucket is encrypted but no identity is in the OS keychain; FE should prompt for import.
     #[error("encryption identity missing: {0}")]
     EncryptionIdentityMissing(String),
 
-    /// Object's storage class doesn't allow direct reads; it must be restored or
-    /// moved to a standard tier first. S3-compatible providers signal this as
-    /// `InvalidObjectState` on GetObject (AWS Glacier, and equivalents on other
-    /// providers). FE should explain rather than surface a raw error.
+    /// Archived object (`InvalidObjectState`, e.g. Glacier) must be restored before reading;
+    /// FE should explain rather than show a raw error.
     #[error("archived: {0}")]
     Archived(String),
 
-    /// Catch-all for unexpected internal failures.
     #[error("internal: {0}")]
     Internal(String),
 }
 
 impl AppError {
-    /// Stable machine-readable tag for this error. Front-end can match on this
-    /// to render localized messages or branch on error class.
     pub fn code(&self) -> &'static str {
         match self {
             AppError::NotFound(_) => "not_found",
@@ -170,8 +133,7 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
-/// Wire-format error returned to the front-end. Always serializes as
-/// `{ "code": "...", "message": "..." }`.
+/// Wire-format error returned to the FE: serializes as `{ "code": "...", "message": "..." }`.
 #[derive(Debug, Serialize)]
 pub struct WireError {
     pub code: &'static str,
@@ -192,10 +154,8 @@ impl serde::Serialize for AppError {
     where
         S: serde::Serializer,
     {
-        // Serialize as a JSON string rather than an object so the payload
-        // survives Linux/WebKitGTK IPC, which silently drops JSON error objects
-        // and replaces them with the literal "Unknown error" string.
-        // The frontend errMsg() already handles JSON-string → object parsing.
+        // Serialized as a JSON *string*: Linux/WebKitGTK IPC silently drops JSON error objects and
+        // replaces them with the literal "Unknown error" string. The FE errMsg() parses it back.
         let wire = WireError::from(self);
         let s = serde_json::to_string(&wire)
             .unwrap_or_else(|_| self.to_string());
@@ -203,5 +163,4 @@ impl serde::Serialize for AppError {
     }
 }
 
-/// Convenience alias for `Result<T, AppError>`.
 pub type AppResult<T> = Result<T, AppError>;

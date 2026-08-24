@@ -15,7 +15,6 @@ export function Donut(props: { segments: DonutSegment[]; size?: number; thicknes
   const circ = () => 2 * Math.PI * r();
   const total = createMemo(() => props.segments.reduce((s, x) => s + x.value, 0) || 1);
 
-  // Precompute each arc's dash length and rotation offset.
   const arcs = createMemo(() => {
     let acc = 0;
     return props.segments.map((seg) => {

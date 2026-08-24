@@ -1,5 +1,3 @@
-/** Centralized error parsing and formatting for Tauri IPC errors. */
-
 const PREFIXES: Record<string, string> = {
   not_found:            "not found: ",
   invalid_input:        "invalid input: ",
@@ -21,11 +19,8 @@ const PREFIXES: Record<string, string> = {
 
 export interface WireError { code: string; message: string }
 
-/**
- * Parse a Tauri IPC rejection into a structured WireError.
- * Handles up to 2 levels of JSON encoding (Linux/WebKitGTK may double-encode).
- * Strips the Rust Display prefix (e.g. "not found: ") and capitalises.
- */
+/** Parse a Tauri IPC rejection into a WireError; handles up to 2 levels of JSON encoding
+ *  (Linux/WebKitGTK may double-encode) and strips the Rust Display prefix. */
 export function parseWireError(raw: unknown): WireError {
   // WebView2 (Windows) wraps Tauri IPC rejections as JS Error objects whose
   // .message holds the serialized backend error JSON. Unwrap before parsing.
@@ -43,26 +38,21 @@ export function parseWireError(raw: unknown): WireError {
   return { code, message: message || "An unexpected error occurred" };
 }
 
-/** True when the error code indicates a credentials/keychain problem. */
 export function isCredentialError(code: string): boolean {
   return code === "not_found" || code === "credentials_invalid" || code === "keyring";
 }
 
-/** True when the error is a network-level failure (endpoint down, no internet). */
 export function isNetworkError(code: string): boolean {
   return code === "network_unreachable";
 }
 
-/** Extract a user-facing string from any Tauri IPC rejection. */
 export function errMsg(raw: unknown): string {
   if (raw == null) return "An unexpected error occurred";
-  // parseWireError already unwraps Error objects whose .message holds a JSON
-  // envelope (WebView2 path). Route everything through it so callers don't
-  // have to think about wrapping.
+  // parseWireError unwraps Error objects whose .message holds a JSON envelope (WebView2 path);
+  // route everything through it so callers don't have to think about wrapping.
   return parseWireError(raw).message;
 }
 
-/** Extract the wire code from any Tauri IPC rejection, or "" if unknown. */
 export function errCode(raw: unknown): string {
   if (raw == null) return "";
   return parseWireError(raw).code;

@@ -1,15 +1,5 @@
-//! Local MCP server (desktop only).
-//!
-//! Serves a Streamable HTTP endpoint on `127.0.0.1:<port>/mcp` so a local AI
-//! client can drive S3 ops. It shares the one `AppState` with the rest of the
-//! app: tools call the same methods the Tauri commands do, so there is a single
-//! `TransferManager` and no second SQLite writer.
-//!
-//! Transport is hand-rolled JSON-RPC 2.0 over HTTP POST, stateless (no session
-//! id). It is dual-era: it serves modern clients (2026-07-28, per-request
-//! protocol metadata + `server/discover`) and legacy clients (the 2025-11-25
-//! and earlier `initialize` handshake) on the same endpoint. Auth lives in
-//! [`auth`]: local Origin/Host plus a bearer token.
+//! Local MCP server (desktop only): stateless JSON-RPC 2.0 over HTTP POST on
+//! `127.0.0.1:<port>/mcp`, dual-era (2026-07-28 + legacy handshake), sharing the app's `AppState`.
 
 mod auth;
 mod format;
@@ -33,11 +23,9 @@ use crate::state::AppState;
 /// Keychain key for the MCP bearer token. Not stored in SQLite.
 const TOKEN_KEY: &str = "mcp_bearer_token";
 
-/// Every protocol version this server speaks, modern and legacy. Newest first.
-/// Reported by `server/discover` and used to accept/reject per-request versions.
+/// All protocol versions spoken, newest first; reported by `server/discover`.
 const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
-/// Legacy handshake versions. The modern era (2026-07-28) has no `initialize`,
-/// so the handshake negotiates only within these.
+/// Legacy handshake versions (the modern era has no `initialize`).
 const LEGACY_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
 const LATEST_LEGACY: &str = "2025-11-25";
 
@@ -52,8 +40,8 @@ const E_INVALID_PARAMS: i64 = -32602;
 const E_HEADER_MISMATCH: i64 = -32020;
 const E_UNSUPPORTED_VERSION: i64 = -32022;
 
-/// Per-run tool context. Captured when the server starts, so toggling a setting
-/// restarts the listener (see [`apply`]) rather than mutating a live server.
+/// Per-run tool context captured at server start; toggling a setting restarts
+/// the listener ([`apply`]) rather than mutating a live server.
 pub struct McpCtx {
     pub state: AppState,
     pub token: String,
@@ -62,8 +50,7 @@ pub struct McpCtx {
     pub bind_all_accounts: bool,
     pub disabled_tools: Vec<String>,
     pub disabled_accounts: Vec<String>,
-    /// Canonicalized folder the upload/download tools are confined to. `None`
-    /// (unset, empty, or unresolvable) means file transfers are refused.
+    /// Canonicalized transfer-confinement folder; `None` refuses file transfers.
     pub fs_root: Option<std::path::PathBuf>,
 }
 
@@ -77,12 +64,10 @@ fn slot() -> &'static Mutex<Option<Running>> {
     SERVER.get_or_init(|| Mutex::new(None))
 }
 
-/// Port the server is currently bound to, if running.
 pub fn running_port() -> Option<u16> {
     slot().lock().ok().and_then(|g| g.as_ref().map(|r| r.port))
 }
 
-/// Stop the running server, if any.
 pub fn stop() {
     if let Ok(mut g) = slot().lock() {
         if let Some(r) = g.take() {
@@ -91,14 +76,12 @@ pub fn stop() {
     }
 }
 
-/// Reconcile the running server with current settings. Stops any live server,
-/// then starts a fresh one when `mcp_enabled`. Also reflects enabled state to
-/// the desktop background-run gate. Call at startup and after a config change.
+/// Reconcile the running server with current settings: stops any live server,
+/// restarts when enabled, and reflects state to the background-run gate.
 pub async fn apply(state: &AppState) -> AppResult<()> {
     let s = state.db.settings_load().await?;
-    // set_mcp_enabled mutates the tray and (on macOS) the activation policy,
-    // both main-thread only. apply() runs off the main thread from the config
-    // commands, so hop over (mirrors nw_refresh_service).
+    // set_mcp_enabled mutates tray/activation policy, main-thread only on
+    // macOS; hop over since apply() runs off-main (mirrors nw_refresh_service).
     let app = state.app.clone();
     let enabled = s.mcp_enabled;
     let _ = state.app.run_on_main_thread(move || {
@@ -109,9 +92,8 @@ pub async fn apply(state: &AppState) -> AppResult<()> {
         return Ok(());
     }
     let token = ensure_token().await?;
-    // Canonicalize the sandbox root once, resolving symlinks and `..` so the
-    // per-call containment check compares real paths. An unresolvable root
-    // (missing dir) collapses to None, which refuses transfers.
+    // Resolve symlinks/`..` once so containment checks compare real paths;
+    // an unresolvable root becomes None, refusing transfers.
     let fs_root = s
         .mcp_fs_root
         .as_deref()
@@ -157,8 +139,6 @@ async fn serve(ctx: Arc<McpCtx>, port: u16, cancel: CancellationToken) -> AppRes
     Ok(())
 }
 
-/// GET/DELETE carry meaning only in the old transport (standalone SSE stream,
-/// session teardown). This revision has neither, so reject them.
 async fn handle_405() -> StatusCode {
     StatusCode::METHOD_NOT_ALLOWED
 }
@@ -171,36 +151,32 @@ async fn handle_post(State(ctx): State<Arc<McpCtx>>, headers: HeaderMap, body: B
         }
     };
 
-    // The body must be a single JSON-RPC message: batching was removed in the
-    // 2025-06-18 transport.
+    // Single JSON-RPC message only: batching removed in the 2025-06-18 transport.
     match process_message(&ctx, &headers, &value).await {
         Some((status, r)) => json_status(status, &r),
         None => accepted(),
     }
 }
 
-/// Route one JSON-RPC message to the modern or legacy handler. Returns `None`
-/// for a notification/response (no `id`), which becomes a bare 202.
+/// Routes to the modern or legacy handler; `None` (notification/response, no
+/// `id`) becomes a bare 202.
 async fn process_message(
     ctx: &Arc<McpCtx>,
     headers: &HeaderMap,
     msg: &Value,
 ) -> Option<(StatusCode, Value)> {
     if msg.get("id").is_none() {
-        // A notification (e.g. legacy notifications/initialized). Nothing to return.
         return None;
     }
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
-    // `server/discover` is modern-only and doubles as the capability probe.
     if method == "server/discover" {
         return Some(discover_result(id));
     }
 
-    // A request that carries the modern per-request protocol version in
-    // params._meta is served under 2026-07-28 rules; anything else is the
-    // legacy initialize-handshake era.
+    // Requests carrying per-request protocolVersion in params._meta follow
+    // 2026-07-28 rules; anything else is the legacy initialize era.
     let body_pv = msg
         .get("params")
         .and_then(|p| p.get("_meta"))
@@ -213,8 +189,8 @@ async fn process_message(
     })
 }
 
-/// Modern (2026-07-28) request: validate header/body agreement and required
-/// metadata, then dispatch. Errors map to the specced HTTP status + code.
+/// Modern (2026-07-28) request: header/body agreement + required metadata,
+/// with specced HTTP status + code errors.
 async fn modern(
     ctx: &Arc<McpCtx>,
     headers: &HeaderMap,
@@ -223,8 +199,8 @@ async fn modern(
     method: &str,
     body_pv: &str,
 ) -> (StatusCode, Value) {
-    // The MCP-Protocol-Version header MUST match the body, and Mcp-Method MUST
-    // match the method. A missing/mismatched header is a HeaderMismatch.
+    // MCP-Protocol-Version / Mcp-Method MUST mirror the body values; a
+    // missing/mismatched header is a HeaderMismatch.
     if header_str(headers, "mcp-protocol-version") != Some(body_pv) {
         return err(E_HEADER_MISMATCH, id, "MCP-Protocol-Version header missing or does not match body");
     }
@@ -247,7 +223,6 @@ async fn modern(
         "tools/call" => {
             let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
-            // Mcp-Name mirrors params.name and MUST agree with it.
             if !name_header_ok(headers, name) {
                 return err(E_HEADER_MISMATCH, id, "Mcp-Name header missing or does not match tool name");
             }
@@ -265,8 +240,8 @@ async fn modern(
     }
 }
 
-/// Legacy (initialize-handshake, 2025-11-25 and earlier) request. Responses
-/// keep HTTP 200 with a JSON-RPC body, as those clients expect.
+/// Legacy (initialize-handshake) request: responses stay HTTP 200 with a
+/// JSON-RPC body, as those clients expect.
 async fn legacy(
     ctx: &Arc<McpCtx>,
     msg: &Value,
@@ -274,8 +249,8 @@ async fn legacy(
     id: Value,
     method: &str,
 ) -> (StatusCode, Value) {
-    // An explicit unsupported version header is a 400 (2025-06-18+). Absent
-    // header is allowed; the version was negotiated at initialize.
+    // Explicit unsupported version header = 400 (2025-06-18+); absent is fine,
+    // negotiated at initialize.
     if let Some(v) = header_str(headers, "mcp-protocol-version") {
         if !SUPPORTED_VERSIONS.contains(&v) {
             return (
@@ -308,7 +283,6 @@ async fn legacy(
     }
 }
 
-/// Tools advertised for the current gates, minus the per-tool disable set.
 fn listed_tools(ctx: &McpCtx) -> Vec<Value> {
     tools::list(ctx.allow_write, ctx.allow_delete)
         .into_iter()
@@ -326,8 +300,8 @@ fn initialize_result(msg: &Value) -> Value {
         .get("params")
         .and_then(|p| p.get("protocolVersion"))
         .and_then(|v| v.as_str());
-    // Handshake negotiates within the legacy set only. Echo the client's
-    // version if we speak it; otherwise offer our newest legacy version.
+    // Negotiates within the legacy set only: echo the client's version if
+    // supported, else offer the newest legacy version.
     let pv = match requested {
         Some(v) if LEGACY_VERSIONS.contains(&v) => v,
         _ => LATEST_LEGACY,
@@ -339,7 +313,6 @@ fn initialize_result(msg: &Value) -> Value {
     })
 }
 
-/// `server/discover` result: supported versions, capabilities, identity.
 fn discover_result(id: Value) -> (StatusCode, Value) {
     (
         StatusCode::OK,
@@ -357,7 +330,6 @@ fn discover_result(id: Value) -> (StatusCode, Value) {
     )
 }
 
-/// Wrap a modern result: stamp `resultType` and the server identity `_meta`.
 fn ok_modern(id: Value, mut result: Value) -> (StatusCode, Value) {
     if let Some(obj) = result.as_object_mut() {
         obj.entry("resultType").or_insert_with(|| json!("complete"));
@@ -442,17 +414,14 @@ fn accepted() -> Response {
         .unwrap_or_else(|_| Response::new(String::new().into()))
 }
 
-// ---- bearer token (keychain) ----
-
-/// Load the bearer token, minting one on first use. Runs on a blocking thread
-/// because keyring access is synchronous.
+/// Loads the bearer token (minting one on first use); keyring access runs on
+/// a blocking thread because it is synchronous.
 pub async fn ensure_token() -> AppResult<String> {
     tokio::task::spawn_blocking(load_or_create_token)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
-/// Mint a fresh token, replacing any existing one.
 pub async fn regenerate_token() -> AppResult<String> {
     tokio::task::spawn_blocking(|| {
         let t = gen_token();
@@ -482,19 +451,16 @@ fn gen_token() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// One advertised tool: name plus its human description. Used by the settings
-/// UI to show what the AI can do right now.
+/// One advertised tool, shown in the settings UI.
 #[derive(serde::Serialize)]
 pub struct AdvertisedTool {
     pub name: String,
     pub description: String,
-    /// False when the user turned this tool off individually.
     pub enabled: bool,
 }
 
-/// Candidate tools for the given write/delete gates, each carrying whether it is
-/// enabled after the per-tool disable set is applied. The UI lists all of them
-/// so a disabled tool can be turned back on.
+/// Candidate tools for the given gates, flagged per the disable set; the UI
+/// lists all of them so a disabled tool can be turned back on.
 pub fn advertised_tools(
     allow_write: bool,
     allow_delete: bool,
@@ -571,7 +537,6 @@ mod tests {
 
     #[test]
     fn ok_modern_preserves_an_explicit_result_type() {
-        // A tool that already set input_required is not overwritten with complete.
         let (_, body) = ok_modern(json!(4), json!({ "resultType": "input_required" }));
         assert_eq!(body["result"]["resultType"], "input_required");
     }
@@ -579,12 +544,10 @@ mod tests {
     #[test]
     fn decode_header_value_handles_plain_and_base64_sentinel() {
         assert_eq!(decode_header_value("s3_object_upload").as_deref(), Some("s3_object_upload"));
-        // "=?base64?SGVsbG8sIOS4lueVjA==?=" decodes to "Hello, 世界".
         assert_eq!(
             decode_header_value("=?base64?SGVsbG8sIOS4lueVjA==?=").as_deref(),
             Some("Hello, 世界")
         );
-        // Malformed base64 yields None (rejected upstream).
         assert!(decode_header_value("=?base64?not valid!?=").is_none());
     }
 
@@ -594,7 +557,6 @@ mod tests {
         headers.insert("mcp-name", "s3_objects_list".parse().unwrap());
         assert!(name_header_ok(&headers, "s3_objects_list"));
         assert!(!name_header_ok(&headers, "s3_object_delete"));
-        // Absent header never matches.
         assert!(!name_header_ok(&HeaderMap::new(), "s3_objects_list"));
     }
 }

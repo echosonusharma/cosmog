@@ -483,7 +483,6 @@ export function RequestLogs(props: { active?: boolean }) {
               </Show>
             </div>
 
-            {/* Desktop: right inspector pane */}
             <Show when={!isMobile() && selectedId()}>
               <aside class="req-log-detail-pane">
                 {detailToolbar()}
@@ -496,7 +495,6 @@ export function RequestLogs(props: { active?: boolean }) {
         </Show>
       </Show>
 
-      {/* Mobile: bottom sheet */}
       <Show when={isMobile() && selectedId()}>
         <div class="req-log-sheet-backdrop" onClick={() => setSelectedId(null)}>
           <div class="req-log-sheet" onClick={(e) => e.stopPropagation()}>

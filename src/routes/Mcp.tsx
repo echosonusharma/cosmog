@@ -69,7 +69,6 @@ export default function Mcp() {
   const [portDraft, setPortDraft] = createSignal(4123);
   const [rootDraft, setRootDraft] = createSignal("");
 
-  // Keep the editable fields in sync with loaded config.
   createEffect(() => {
     const c = cfg();
     if (c) {
@@ -112,7 +111,6 @@ export default function Mcp() {
   async function toggleTool(name: string, enabled: boolean) {
     const c = cfg();
     if (!c) return;
-    // Rebuild the disabled set from current tool state, then flip this one.
     const disabled = new Set(
       c.advertised_tools.filter((t) => !t.enabled).map((t) => t.name),
     );
@@ -208,8 +206,7 @@ export default function Mcp() {
         <Show when={cfg()}>
           {(c) => (
             <>
-              {/* Consent gate. Settings stay hidden until acknowledged, and the
-                  warning is never shown again once accepted. */}
+              {/* Consent gate: settings stay hidden until acknowledged, never shown again once accepted. */}
               <Show when={!c().acknowledged}>
                 <div class="mcp-warning">
                   <div class="mcp-warning-title">Read this before enabling</div>
@@ -266,7 +263,6 @@ export default function Mcp() {
                 </div>
               </div>
 
-              {/* Connection details, only meaningful when running. */}
               <Show when={c().enabled}>
                 <div class="settings-section">
                   <div class="settings-section-title">Connection</div>
@@ -378,9 +374,8 @@ export default function Mcp() {
                 </label>
               </div>
 
-              {/* Sandbox for the file tools. Upload/download refuse any path
-                  outside this folder, so an untrusted object key cannot steer a
-                  read or write elsewhere on disk. */}
+              {/* Sandbox for file tools: upload/download refuse any path outside this folder, so
+                  an untrusted object key cannot steer a read or write elsewhere on disk. */}
               <Show when={c().allow_write}>
                 <div class="settings-section">
                   <div class="settings-section-title">File access</div>

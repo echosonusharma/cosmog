@@ -62,10 +62,8 @@ export function ObjectBrowser(props: {
     () => ({ a: props.accountId, b: props.bucket }),
     ({ a, b }) => getBucketEncryptionStatus(a, b),
   );
-  // Preflight the keychain so we can prompt the user to re-import the age
-  // identity when the OS layer lost it (new machine, keychain wipe, different
-  // OS user). Refetches when encStatus changes so the banner clears the moment
-  // an import succeeds.
+  // Preflight the keychain so we can prompt re-import when the OS layer lost
+  // the age identity; refetches with encStatus so the banner clears on import.
   const [identityPresent, { refetch: refetchIdentityPresent }] = createResource(
     () => {
       const s = encStatus.latest ?? encStatus();
@@ -76,9 +74,8 @@ export function ObjectBrowser(props: {
   );
   const [showEncryption, setShowEncryption] = createSignal(false);
 
-  // Accumulating search: page 1 fetched on query change, further pages appended
-  // via next_cursor. Replaces a single fixed-size fetch that silently capped
-  // results at one page.
+  // Accumulating search: page 1 on query change, further pages appended
+  // via next_cursor (a single fixed fetch would silently cap results).
   const SEARCH_PAGE = 200;
   const [searchItems, setSearchItems] = createSignal<CachedObjectMeta[]>([]);
   const [searchTotal, setSearchTotal] = createSignal(0);
@@ -113,9 +110,8 @@ export function ObjectBrowser(props: {
     const q = debouncedQuery();
     props.accountId; props.bucket; refresh();
     if (!q) {
-      // Bump seq so any in-flight fetch is dropped, and reset every bit of
-      // search state including the loading flags (a superseded fetch skips its
-      // own finally, so it can't clear them for us).
+      // Bump seq to drop any in-flight fetch and reset all search state incl.
+      // loading flags — a superseded fetch skips its own finally.
       searchSeq++;
       setSearchItems([]); setSearchTotal(0); setSearchCursor(null);
       setSearchLoading(false); setSearchMoreLoading(false);
@@ -159,10 +155,8 @@ export function ObjectBrowser(props: {
     finally { setIndexBusy(false); }
   }
 
-  // Toolbar refresh: when indexed, live-LIST the current folder into the
-  // local cache (upsert + sweep), then re-read browse from the index. When
-  // not indexed, browse_prefix already hits S3 so a counter bump is enough.
-  // Spin is held for a minimum so fast syncs are still visible.
+  // Indexed: live-LIST the current folder into cache (upsert + sweep), re-read
+  // from index; unindexed browse already hits S3 so a counter bump suffices.
   async function handleRefresh() {
     if (refreshing()) return;
     setRefreshing(true);
@@ -213,16 +207,16 @@ export function ObjectBrowser(props: {
   const [renameTarget, setRenameTarget] = createSignal<CachedObjectMeta | null>(null);
   const [versionTarget, setVersionTarget] = createSignal<CachedObjectMeta | null>(null);
   const [previewTarget, setPreviewTarget] = createSignal<CachedObjectMeta | null>(null);
-  // Bumped to force the open preview to refetch when its object content changes
-  // underneath it (e.g. a version restore) without the key changing.
+  // Forces an open preview to refetch when its object changes underneath it
+  // (e.g. version restore) without the key changing.
   const [previewReload, setPreviewReload] = createSignal(0);
   const [ctxMenu, setCtxMenu] = createSignal<CtxMenu | null>(null);
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
 
-  // Android back: unwind the object browser's own overlays before the shell
-  // handles view/prefix navigation. Most-modal first; selection clears last.
+  // Android back: unwind this browser's own overlays (most-modal first) before
+  // the shell handles view/prefix navigation; selection clears last.
   useBackHandler(() => true, () => {
     if (ctxMenu()) { setCtxMenu(null); return true; }
     if (versionTarget()) { setVersionTarget(null); return true; }
@@ -236,7 +230,6 @@ export function ObjectBrowser(props: {
     return false;
   });
 
-  // Auto-prune pending folders once real browse data for the current prefix covers them.
   createEffect(() => {
     const realSubs = new Set(browseData.subprefixes);
     if (realSubs.size > 0)
@@ -257,8 +250,8 @@ export function ObjectBrowser(props: {
   });
 
   createEffect(() => { props.bucket; setPreviewTarget(null); });
-  // Only the manual refresh path drives the toolbar spinner — browse loading
-  // already has pane/overlay feedback, and flashing a badge causes jitter.
+  // Only the manual refresh drives the toolbar spinner — browse loading already
+  // has pane/overlay feedback, and a badge flash causes jitter.
   const showSyncing = () => refreshing();
 
   function toggleSel(key: string) {
@@ -337,8 +330,8 @@ export function ObjectBrowser(props: {
 
   async function handleCopyLink(obj: CachedObjectMeta) {
     try {
-      // Encrypted buckets: backend refuses presign for encrypted objects unless
-      // the caller explicitly opts in to sharing ciphertext. Prompt first.
+      // Backend refuses presign for encrypted objects unless the caller opts in
+      // to sharing ciphertext — prompt first.
       let allowCiphertext = false;
       if ((encStatus.latest ?? encStatus())?.enabled) {
         const ok = await confirmDialog({
@@ -364,7 +357,8 @@ export function ObjectBrowser(props: {
     } catch (e) { toast.err(e); }
   }
 
-  // Drag-drop wiring (Tauri webview file drops would need plugin-fs; for now show overlay on dragover)
+  // Tauri webview file drops would need plugin-fs; for now show overlay on
+  // dragover and route the drop to the Upload dialog.
   function onDragOver(e: DragEvent) {
     e.preventDefault();
     setDragOver(true);
@@ -377,8 +371,8 @@ export function ObjectBrowser(props: {
     setShowUpload(props.prefix);
   }
 
-  // Keep the menu on-screen: clicking a row-end kebab (or long-pressing near an
-  // edge) can put the anchor point flush against the viewport border.
+  // Keep the menu on-screen: a row-end kebab (or long-press near an edge) can
+  // put the anchor point flush against the viewport border.
   function clampMenu(x: number, y: number): { x: number; y: number } {
     const MENU_W = 210, MENU_H = 320, PAD = 8;
     return {
@@ -401,7 +395,7 @@ export function ObjectBrowser(props: {
 
   onMount(() => {
     // Close on any click EXCEPT the kebab that opens it (that same click would
-    // otherwise close the menu the instant it opened) or clicks inside the menu.
+    // otherwise close the menu instantly) or clicks inside the menu.
     const close = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".col-kebab, .obj-kebab, .context-menu")) return;
@@ -435,8 +429,8 @@ export function ObjectBrowser(props: {
     });
   }
 
-  // Only scroll on folder/column navigation — not on every preview file click
-  // (that smooth-scroll was the whole-UI hitch when switching files).
+  // Scroll only on folder/column navigation — not on every preview file click
+  // (that smooth-scroll caused a whole-UI hitch when switching files).
   createEffect(() => { colPrefixes(); scrollColumnsRight(); });
 
   return (
@@ -527,7 +521,6 @@ export function ObjectBrowser(props: {
         />
       </Show>
 
-      {/* ── view area: all view modes + shared preview as flex-row siblings ── */}
       <div class="browse-area" classList={{ hidden: !!searchQuery(), "has-preview": !!previewTarget() }}>
 
         <div class="browse-view" classList={{ hidden: viewMode() !== "columns" || !!searchQuery() }}>

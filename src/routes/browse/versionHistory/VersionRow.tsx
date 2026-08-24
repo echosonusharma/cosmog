@@ -17,9 +17,8 @@ export function VersionRow(props: {
 }) {
   const v = () => props.version;
   const hasVersionId = () => v().version_id !== null;
-  // Restore: non-latest, non-delete-marker versions; also a delete marker that
-  // is the current (latest) one can be "restored" by removing it, exposing the
-  // prior version. In both cases we need a version id to act on.
+  // Restore covers non-latest versions plus removing a latest delete marker
+  // (which re-exposes the prior version); both need a version id to act on.
   const canRestore = () =>
     hasVersionId() &&
     ((!v().is_latest && !v().is_delete_marker) || (v().is_latest && v().is_delete_marker));

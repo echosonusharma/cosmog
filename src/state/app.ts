@@ -19,9 +19,8 @@ export const [browseState, setBrowseState] = createStore<BrowseState>({
   prefix: "",
 });
 
-// Restore the last-viewed location from prefs, then persist future changes.
-// Called once at boot after initPrefs(). MainApp's accounts effect corrects
-// the account if the stored one no longer exists.
+// Restore last-viewed location from prefs, then persist future changes. Called once at boot
+// after initPrefs(); MainApp's accounts effect corrects the account if it no longer exists.
 export function restoreBrowseState() {
   setBrowseState({
     accountId: getPref<string | null>("browse.accountId", null),
@@ -50,9 +49,8 @@ export const [pendingPreview, setPendingPreview] = createSignal<CachedObjectMeta
 
 export const [openAddAccount, setOpenAddAccount] = createSignal(false);
 
-/** Full list of in-flight transfers, kept fresh by MainApp's poll. Consumed
- *  by the sticky ActiveTransfersBar so every view can show live speed and
- *  bytes remaining without spinning up its own polling loop. */
+/** Kept fresh by MainApp's poll so the sticky ActiveTransfersBar (and anything else) can show
+ *  live speed/bytes remaining without spinning up its own polling loop. */
 export const [activeTransfers, setActiveTransfers] = createSignal<Transfer[]>([]);
 
 export function navigateToBucket(accountId: string, bucket: string) {

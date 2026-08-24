@@ -1,14 +1,5 @@
-//! Android headless Night Watcher host.
-//!
-//! Runs the sync loop in the dedicated `:nightwatch` service process (see the
-//! manifest), independent of the Tauri/wry Activity. wry calls
-//! `std::process::exit(0)` when the Activity is destroyed, which would kill an
-//! in-process loop; a separate process survives that.
-//!
-//! `CosmogApp.onCreate` runs per process, so this process gets its own
-//! `ndk_context` + cached `SecretStore` class before the service starts. The DB
-//! path comes from `context.getDataDir()`, the same call Tauri's
-//! `app_data_dir()` makes, so both processes open the same file.
+//! Android headless Night Watcher host in the dedicated `:nightwatch` service process, which
+//! survives wry's exit-on-Activity-destroy; opens the same DB via `context.getDataDir()`.
 
 #![cfg(target_os = "android")]
 
@@ -30,9 +21,8 @@ use crate::store::region_retry::RegionRetryStore;
 use crate::store::ObjectStore;
 use crate::transfer::TransferManager;
 
-/// Lightweight [`NwCtx`] for the service process: real `Db` + `TransferManager`
-/// + a store cache, minus the `AppHandle` and the `LoggingStore` request-log
-/// layer (no webview to emit to).
+/// Lightweight [`NwCtx`] for the service process: real `Db` + `TransferManager` + store cache,
+/// minus the `AppHandle` and request-log layer (no webview).
 #[derive(Clone)]
 struct NwHeadlessCtx {
     db: Db,
@@ -59,8 +49,7 @@ impl NwCtx for NwHeadlessCtx {
         }
         let account = self.db.get_account(account_id).await?;
         let mut inner = build_store(&account).await?;
-        // Real AWS only: route + retry per bucket so a cross-region bucket
-        // never surfaces PermanentRedirect. Mirrors AppState::store_for.
+        // Real AWS only: route/retry per bucket so cross-region buckets don't PermanentRedirect.
         if account.endpoint.is_none() {
             inner = Arc::new(RegionRetryStore::new(inner, account.clone()));
         }
@@ -86,9 +75,8 @@ impl NwCtx for NwHeadlessCtx {
     }
 }
 
-// Process-lifetime singletons. The runtime and ctx are built once and REUSED
-// across a service stop/restart within the same process, so a restart never
-// spawns a second Db/TransferManager racing the first over the same rows.
+// Process-lifetime singletons: runtime + ctx are built once and REUSED across service
+// stop/restart, so a restart never spawns rival Db/TransferManagers racing over the same rows.
 static NW_RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
 static NW_CTX: std::sync::OnceLock<NwHeadlessCtx> = std::sync::OnceLock::new();
 static NW_CANCEL: std::sync::Mutex<Option<CancellationToken>> = std::sync::Mutex::new(None);
@@ -96,8 +84,8 @@ static NW_CANCEL: std::sync::Mutex<Option<CancellationToken>> = std::sync::Mutex
 static NW_RUNNING: AtomicBool = AtomicBool::new(false);
 static LOG_INIT: std::sync::Once = std::sync::Once::new();
 
-/// Resolve `context.getDataDir()` via JNI, the same call Tauri's
-/// `app_data_dir()` makes, so the service opens the file the main process wrote.
+/// JNI `context.getDataDir()`: same path Tauri's `app_data_dir()` resolves, so the service
+/// opens the DB file the main process wrote.
 fn resolve_data_dir() -> Result<PathBuf, String> {
     use jni::objects::{JObject, JString};
     use jni::JavaVM;
@@ -128,8 +116,7 @@ fn resolve_data_dir() -> Result<PathBuf, String> {
     Ok(PathBuf::from(path))
 }
 
-/// Bring up logging in the service process, writing to stdout (logcat) and its
-/// own rolling file so it never contends with the main log writer.
+/// Service-process logging to stdout (logcat) + a private rolling file, away from the main log writer.
 fn init_logging(log_dir: &Path) {
     LOG_INIT.call_once(|| {
         use tracing_subscriber::layer::SubscriberExt;
@@ -161,18 +148,15 @@ fn init_logging(log_dir: &Path) {
 
 async fn build_ctx(db_path: PathBuf) -> AppResult<NwHeadlessCtx> {
     let db = Db::open(&db_path).await?;
-    // Reap our own orphans: a swipe/LMK kill mid-upload leaves `nightwatch` rows
-    // stuck active/pending (workers are in-memory, nothing re-picks them). This
-    // process is the sole owner of that origin and nothing is live yet at its
-    // startup, so reaping here is safe; the main process only reaps `user`.
+    // Reap our orphans: a swipe/LMK kill strands `nightwatch` rows (in-memory workers, nothing
+    // re-picks). Safe here: sole owner of this origin, nothing live yet; main reaps only `user`.
     match db.reap_orphan_transfers_by_origin("nightwatch").await {
         Ok(n) if n > 0 => info!("reaped {n} orphan nightwatch transfer(s)"),
         Ok(_) => {}
         Err(e) => warn!("reap nightwatch orphans failed: {e}"),
     }
-    // Sweep leftover SAF staging copies from a killed run. Mirrors the desktop
-    // enc_tmp sweep: files under <db_dir>/nw_stage/ are per-upload scratch, safe
-    // to delete unconditionally (their transfer never completed).
+    // Sweep leftover SAF staging from a killed run: nw_stage/ holds per-upload scratch copies,
+    // safe to delete unconditionally (mirrors the desktop enc_tmp sweep).
     sweep_nw_stage(&db_path);
     let settings = db.settings_load().await.unwrap_or_default();
     // Same proxy / custom-CA env the main process applies at boot.
@@ -188,9 +172,8 @@ async fn build_ctx(db_path: PathBuf) -> AppResult<NwHeadlessCtx> {
     })
 }
 
-/// Delete the whole `nw_stage/` scratch tree. Staging writes per-upload
-/// <nw_stage>/<uuid>/ subdirs; on a clean run persist_sink removes each, so
-/// anything left is orphaned by a killed process. Best-effort, blocking fs.
+/// Delete the whole `nw_stage/` scratch tree; clean runs remove the per-upload `<uuid>/`
+/// subdirs themselves, so leftovers were orphaned by a killed process. Best-effort, blocking.
 fn sweep_nw_stage(db_path: &Path) {
     let Some(stage) = db_path.parent().map(|p| p.join("nw_stage")) else {
         return;
@@ -219,7 +202,6 @@ fn start_inner() {
     };
     init_logging(&data_dir.join("logs"));
 
-    // Build the runtime once per process; reuse on restart.
     if NW_RT.get().is_none() {
         match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -237,9 +219,6 @@ fn start_inner() {
     }
     let rt = NW_RT.get().expect("runtime set above");
 
-    // Build the ctx once per process; reuse on restart so a second loop shares
-    // the same Db + TransferManager + claim sets (no double-scan, no racing
-    // writers) rather than spinning up a rival set.
     if NW_CTX.get().is_none() {
         match rt.block_on(build_ctx(data_dir.join("cosmog.sqlite"))) {
             Ok(c) => {
@@ -256,17 +235,15 @@ fn start_inner() {
 
     let token = CancellationToken::new();
     *NW_CANCEL.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
-    // Keep the service wakelock alive across long syncs: its acquire is bounded
-    // (10 min) so a crash can never leak it, but that means a sync running past
-    // the cap would lose the CPU. Ping the Java side well inside the window.
+    // Wakelock acquire is bounded (10 min) so a crash can't leak it, but a longer sync would
+    // lose the CPU past the cap. Ping the Java side well inside the window to re-arm it.
     rt.spawn(wakelock_heartbeat(token.clone()));
     rt.spawn(run_loop(ctx, token));
     info!("headless night watcher started (service process)");
 }
 
-/// Re-arm the NightWatchService wakelock every 5 min while the loop runs. The
-/// Java cap is 10 min, so a 5-min heartbeat keeps a wide margin; the loop's
-/// cancellation token stops the pings the moment the service is torn down.
+/// Re-arm the service wakelock every 5 min (Java cap 10 min, wide margin); the loop's
+/// cancellation token stops pings the moment the service is torn down.
 async fn wakelock_heartbeat(token: CancellationToken) {
     const HEARTBEAT_SECS: u64 = 5 * 60;
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_SECS));
@@ -294,8 +271,7 @@ fn stop_inner() {
     info!("headless night watcher stop requested");
 }
 
-/// Start the headless sync loop. Idempotent; never lets a panic unwind across
-/// the JNI boundary (that is UB with `panic = "unwind"`).
+/// Start the headless loop. Idempotent; panics are contained — unwinding across JNI is UB.
 #[no_mangle]
 pub extern "system" fn Java_com_sonus_cosmog_NightWatchService_startNwSync(
     _env: jni::JNIEnv,
@@ -307,8 +283,7 @@ pub extern "system" fn Java_com_sonus_cosmog_NightWatchService_startNwSync(
     }
 }
 
-/// Stop the headless sync loop (service destroyed). Cancels the loop; the parked
-/// runtime + ctx are kept for a same-process restart.
+/// Stop the loop (service destroyed); the parked runtime + ctx stay for same-process restart.
 #[no_mangle]
 pub extern "system" fn Java_com_sonus_cosmog_NightWatchService_stopNwSync(
     _env: jni::JNIEnv,

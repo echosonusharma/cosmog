@@ -11,8 +11,6 @@ import { extOf, parseCsvIntoSheet, worksheetToCsv } from "../helpers";
 
 const SHEET_CAP = 10 * 1024 * 1024;
 
-// Spreadsheet trigger button + full-screen modal. Holds its own loaded
-// workbook + edit state; resets when `obj` changes.
 export function SheetPreview(props: { obj: CachedObjectMeta }) {
   const ext = () => extOf(props.obj.basename);
   const sheetTooBig = () => props.obj.size > SHEET_CAP;
@@ -164,7 +162,6 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
         </Show>
       </div>
 
-      {/* Full-screen spreadsheet modal */}
       <Show when={sheetExpanded()}>
         <div class="sheet-modal-overlay" onClick={closeSheet}>
           <div class="sheet-modal-inner" onClick={(e) => e.stopPropagation()}>

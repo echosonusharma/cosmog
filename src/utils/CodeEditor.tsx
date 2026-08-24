@@ -13,8 +13,6 @@ import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
 
-// ── language loader (lazy) ────────────────────────────────────────────────────
-
 async function langExtension(ext: string): Promise<Extension> {
   switch (ext) {
     case "json":
@@ -86,14 +84,12 @@ async function langExtension(ext: string): Promise<Extension> {
   }
 }
 
-// ── component ────────────────────────────────────────────────────────────────
-
 export function CodeEditor(props: {
   value: string;
   ext: string;
   readOnly?: boolean;
   dark?: boolean;
-  gutters?: boolean;   // line numbers + fold gutter; default false
+  gutters?: boolean;
   onChange?: (v: string) => void;
 }) {
   let container!: HTMLDivElement;
@@ -205,12 +201,10 @@ export function CodeEditor(props: {
     loadLang(ext);
   });
 
-  // Sync readOnly changes (guard: view may not be ready yet)
   createEffect(() => {
     view?.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(props.readOnly ?? false)) });
   });
 
-  // Sync shell + highlight theme when app light/dark or highlight theme changes
   createEffect(() => {
     if (!editorReady()) return;
     const dark = props.dark ?? true;
@@ -219,7 +213,6 @@ export function CodeEditor(props: {
     loadTheme(dark, themeId);
   });
 
-  // Replace content when file changes
   createEffect(() => {
     const v = props.value;
     if (!view) return;
@@ -249,8 +242,6 @@ export function CodeEditor(props: {
   );
 }
 
-// ── format helpers ────────────────────────────────────────────────────────────
-
 async function formatCode(ext: string, code: string): Promise<string> {
   try {
     switch (ext) {
@@ -267,8 +258,6 @@ async function formatCode(ext: string, code: string): Promise<string> {
     }
   } catch { return code; }
 }
-
-// ── editor modal ──────────────────────────────────────────────────────────────
 
 export function EditorModal(props: {
   value: string;

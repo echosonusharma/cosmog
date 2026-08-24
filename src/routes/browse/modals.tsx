@@ -31,19 +31,16 @@ export function DownloadModal(props: {
 }) {
   const mobile = isMobile();
   const defaultPath = `${props.defaultDir}/${props.obj.basename}`.replace(/\/+/g, "/");
-  // Desktop: writable text path input. Mobile: file must come from SAF picker
-  // (a text path lands in app cache and is invisible to the user).
+  // Desktop: writable text path input. Mobile: file must come from the SAF
+  // picker (a text path lands in app cache, invisible to the user).
   const [dest, setDest] = createSignal(mobile ? "" : defaultPath);
   const [safUri, setSafUri] = createSignal<string | null>(null);
-  // Human label shown to the user on mobile after they pick a location.
   const [pickedLabel, setPickedLabel] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
 
-  // The save dialog pre-creates a 0-byte placeholder the moment a location is
-  // picked. Until the download is actually queued, an abandoned pick (modal
-  // canceled, or a re-pick replacing it) must delete that placeholder or the
-  // user finds an empty file at the old location.
+  // The save dialog pre-creates a 0-byte placeholder at the picked location;
+  // an abandoned pick must delete it or the user finds an empty file there.
   let queued = false;
   function dropPlaceholder(uri: string | null) {
     if (uri) invoke("delete_saf_document", { uri }).catch(() => {});
@@ -54,8 +51,6 @@ export function DownloadModal(props: {
   }
 
   async function browse() {
-    // Pre-fill the picker with a timestamped name so the extension stays
-    // intact and repeated downloads never collide on the same filename.
     const suggested = mobile ? withTimestamp(props.obj.basename) : dest() || defaultPath;
     const sel = await saveDialog({ defaultPath: suggested });
     if (!sel) return;
@@ -155,10 +150,9 @@ export function UploadModal(props: {
   const [keyPrefix, setKeyPrefix] = createSignal(props.prefix);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
-  // Which file we're currently encrypting (encrypted buckets stream through
+  // Which file we're currently encrypting: encrypted buckets stream through
   // crypto::encrypt_file synchronously before enqueue returns, so a 3 GB file
-  // can spend minutes here with the button stuck on "Queuing…"). Surface the
-  // file name so the user knows something is happening.
+  // can sit minutes on "Queuing…" — surface the name instead.
   const [currentIdx, setCurrentIdx] = createSignal(0);
 
   async function browse() {

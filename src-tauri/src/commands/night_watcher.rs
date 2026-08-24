@@ -1,6 +1,5 @@
-//! Tauri commands for Night Watcher: manage watch definitions and report
-//! per-watch sync status. The actual syncing runs in the background task
-//! spawned from `crate::night_watcher::spawn`.
+//! Tauri commands managing Night Watcher watch definitions and status; the actual syncing
+//! runs in the background task spawned by `crate::night_watcher::spawn`.
 
 use serde::Serialize;
 use tauri::State;
@@ -10,8 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::validate;
 
-/// Smallest allowed full-scan interval. Guards against a runaway 1s scan loop
-/// hammering S3 HEADs and the CPU.
+/// Floor on full-scan cadence: blocks a runaway 1s scan loop hammering S3 HEADs + CPU.
 const MIN_FULL_SCAN_SECS: i64 = 30;
 
 #[derive(Debug, Serialize)]
@@ -40,28 +38,21 @@ pub async fn nw_add_watch(
     key_prefix: Option<String>,
     ignore_file: Option<String>,
     full_scan_secs: i64,
-    // Accepted for forward-compat with the FE form; only "keep" is honoured in
-    // the MVP so it is not stored from here.
+    // FE forward-compat; the MVP honours only "keep", so it is not stored here.
     delete_policy: Option<String>,
-    // Android only: a SAF tree `content://` URI. When present the watch syncs
-    // that tree and `local_dir` is treated as a human label, not an fs path.
+    // Android SAF tree `content://` URI; when present, `local_dir` is only a human label.
     tree_uri: Option<String>,
 ) -> AppResult<NightWatch> {
     let _ = delete_policy;
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
-    // `local_dir` is required in both modes: on Android it is the human label
-    // (e.g. the tree display name the FE passes).
     let local_dir = validate::require_non_empty("local_dir", &local_dir)?;
 
-    // Confirm the account exists before creating a watch that references it.
     state.db.get_account(&account_id).await?;
 
     let tree_uri = tree_uri.filter(|s| !s.trim().is_empty());
 
-    // SAF URIs are not filesystem paths, so skip the absolute-path/is_dir
-    // validation entirely in tree mode. Desktop (no tree_uri) keeps the exact
-    // existing filesystem validation.
+    // Tree mode skips fs validation: SAF URIs aren't filesystem paths.
     if tree_uri.is_none() {
         let dir = std::path::Path::new(&local_dir);
         if !dir.is_absolute() {
@@ -107,8 +98,7 @@ pub async fn nw_add_watch(
     Ok(watch)
 }
 
-/// Launch the Android SAF tree picker and return the picked tree
-/// `{uri, display_name}`. On desktop the underlying saf twin returns an error.
+/// Launch the Android SAF tree picker; the desktop twin returns an error.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn nw_pick_tree(_state: State<'_, AppState>) -> AppResult<crate::saf::SafTree> {
@@ -121,10 +111,8 @@ pub async fn nw_pick_tree(_state: State<'_, AppState>) -> AppResult<crate::saf::
     })
 }
 
-/// Reflect the current enabled-watch count into the Android NightWatchService:
-/// start/keep the foreground service (and set the boot flag) when at least one
-/// watch is enabled, stop it otherwise. Both saf calls are no-ops on desktop.
-/// Not a tauri command: callers invoke it after mutating watches.
+/// Mirror enabled-watch presence onto the Android NightWatchService (foreground service +
+/// boot flag); saf calls are no-ops on desktop. Helper, not a tauri command.
 pub async fn nw_refresh_service(state: &AppState) {
     let active = !state
         .db
@@ -135,9 +123,8 @@ pub async fn nw_refresh_service(state: &AppState) {
     let _ = crate::saf::set_nightwatch_service(active);
     let _ = crate::saf::set_nightwatch_boot_flag(active);
 
-    // Desktop: arm/disarm the tray + close-guard + autostart. apply() mutates
-    // the tray and (on macOS) the activation policy, both main-thread only, and
-    // this runs off the main thread (async command), so hop over.
+    // Desktop tray/close-guard/autostart mutate main-thread-only state (tray, macOS activation
+    // policy) and this runs off-main, so hop threads.
     #[cfg(not(target_os = "android"))]
     {
         let app = state.app.clone();

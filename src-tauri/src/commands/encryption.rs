@@ -1,10 +1,5 @@
-//! Tauri commands for per-bucket client-side encryption.
-//!
-//! Backend uses the `age` file format. Enabling generates a fresh X25519
-//! identity, stores the secret in the OS keychain, and returns the recipient
-//! (public) string. The user must export the secret identity before disabling
-//! or losing access to the machine; without it, all uploaded objects become
-//! undecryptable.
+//! Per-bucket client-side encryption (age): X25519 identity in the OS keychain.
+//! Export the secret before disabling, or all uploaded objects become undecryptable.
 
 use serde::Serialize;
 use tauri::State;
@@ -22,11 +17,10 @@ pub struct EncryptionStatus {
 
 #[derive(Debug, Serialize)]
 pub struct EnableResult {
-    /// The bech32 `age1...` recipient. Public, safe to display + persist.
+    /// Public bech32 `age1...` recipient; safe to display + persist.
     pub public_recipient: String,
-    /// The bech32 `AGE-SECRET-KEY-...` string. SECRET. Return once to the FE
-    /// so the user can immediately export a backup. Never persisted anywhere
-    /// besides the OS keychain.
+    /// SECRET bech32 key: returned once for immediate backup; never persisted
+    /// outside the OS keychain.
     pub secret_identity: String,
 }
 
@@ -36,21 +30,15 @@ pub struct KeyExport {
     pub version: u32,
     pub encryption_format: &'static str,
     pub encryption_algorithm: &'static str,
-    /// bech32 `AGE-SECRET-KEY-...`. Handles both `age` and `rage` CLIs plus
-    /// `pyrage`. Users decrypt with `age -d -i keyfile.txt ciphertext.bin`.
+    /// bech32 `AGE-SECRET-KEY-...`; decrypt with `age -d -i keyfile.txt ciphertext.bin`.
     pub secret_identity: String,
-    /// bech32 `age1...`. Public counterpart; not required for decryption but
-    /// useful for external re-encryption tooling.
+    /// bech32 `age1...`; useful for external re-encryption tooling.
     pub public_recipient: String,
     pub external_decrypt_cmd: &'static str,
 }
 
-/// Enable encryption for a bucket. Generates a fresh X25519 identity, stores
-/// the secret in the OS keychain, records the public recipient in the DB.
-///
-/// Refuses if encryption is already configured unless `allow_rotate=true`.
-/// Rotation invalidates the previous identity: every object already uploaded
-/// becomes undecryptable without a copy of the old identity file.
+/// Enables encryption: generates an X25519 identity, stores the secret in the
+/// keychain, records the recipient in DB. Rotation invalidates all prior objects.
 #[tauri::command]
 pub async fn enable_bucket_encryption(
     state: State<'_, AppState>,
@@ -74,9 +62,8 @@ pub async fn enable_bucket_encryption(
                 .into(),
         ));
     }
-    // Rotation destroys the previous keychain entry. Require the caller to
-    // confirm they have exported (or explicitly discarded) the previous key
-    // so the FE can never rotate without walking the user through export.
+    // Rotation destroys the previous keychain entry; require explicit
+    // confirmation so the FE can't skip the user's export step.
     if already_enabled
         && allow_rotate.unwrap_or(false)
         && !confirm_previous_key_saved.unwrap_or(false)
@@ -89,10 +76,8 @@ pub async fn enable_bucket_encryption(
         ));
     }
     let (secret_str, public_recipient) = crypto::new_identity();
-    // Zeroize the local copy on drop. The clone handed to keychain persistence
-    // (also Zeroizing) is scrubbed after write. The one that leaves via
-    // EnableResult is unavoidably serialized into a new String by serde-json;
-    // the FE clears its signal on modal close (see EncryptionModal.tsx).
+    // Zeroized locally (and in the keychain-write clone); serde unavoidably
+    // copies one out via EnableResult — the FE clears its signal on modal close.
     let secret_identity = Zeroizing::new(secret_str);
 
     tokio::task::spawn_blocking({
@@ -115,10 +100,8 @@ pub async fn enable_bucket_encryption(
     })
 }
 
-/// Disable encryption for a bucket. Removes the identity from the keychain
-/// and the recipient from the DB. Existing encrypted objects are NOT
-/// decrypted; they remain encrypted on S3 and the app can no longer decrypt
-/// them after this without a re-imported identity file.
+/// Disables encryption: removes the keychain identity and DB config. Existing
+/// objects stay encrypted and become undecryptable without a re-imported identity.
 #[tauri::command]
 pub async fn disable_bucket_encryption(
     state: State<'_, AppState>,
@@ -151,10 +134,8 @@ pub async fn get_bucket_encryption_status(
     })
 }
 
-/// Return the identity export payload. Includes the raw secret identity
-/// string, which is sensitive: callers should either save it directly (see
-/// `save_encryption_key_export`) or hand-off to an OS clipboard/dialog and
-/// then discard.
+/// Returns the sensitive identity export; callers should save it directly
+/// (see `save_encryption_key_export`) or hand off to a dialog and discard.
 #[tauri::command]
 pub async fn export_encryption_key(
     state: State<'_, AppState>,
@@ -186,9 +167,8 @@ pub async fn export_encryption_key(
     })
 }
 
-/// Write the identity secret directly to `dest_path` as a plain text file
-/// compatible with `age -i`. The file is exactly the bech32 secret string
-/// followed by a newline — no JSON envelope, so `age` accepts it as-is.
+/// Writes the identity secret to `dest_path` as plain text compatible with
+/// `age -i`: the bech32 string plus newline, no JSON envelope.
 #[tauri::command]
 pub async fn save_encryption_key_export(
     state: State<'_, AppState>,
@@ -209,10 +189,8 @@ pub async fn save_encryption_key_export(
     Ok(())
 }
 
-/// Import a previously exported age identity file into the OS keychain for
-/// `(account_id, bucket)`. Accepts either the raw bech32 secret string or a
-/// full export file (comment lines starting with `#` are skipped). Verifies
-/// the identity matches the recipient recorded in the DB for the bucket.
+/// Imports a raw bech32 secret or full export file (comment lines skipped)
+/// into the keychain, verifying it matches the bucket's recorded recipient.
 #[tauri::command]
 pub async fn import_encryption_identity(
     state: State<'_, AppState>,
@@ -223,7 +201,6 @@ pub async fn import_encryption_identity(
     let lock = state.encryption_lock(&account_id, &bucket);
     let _guard = lock.lock().await;
 
-    // Extract the first non-comment line beginning with AGE-SECRET-KEY-.
     let secret_line = identity_text
         .lines()
         .map(|l| l.trim())
@@ -233,14 +210,11 @@ pub async fn import_encryption_identity(
         ))?;
     let secret = Zeroizing::new(secret_line.to_string());
 
-    // Verify parseability + derive the public recipient.
     let identity = crypto::parse_identity(&secret)?;
     let derived_recipient = identity.to_public().to_string();
 
-    // Cross-check against the DB-recorded recipient. If the DB doesn't have
-    // one yet (fresh bucket), record it. If it has one and it disagrees,
-    // refuse: importing the wrong identity would silently break every future
-    // upload for objects encrypted to the existing recipient.
+    // Refuse a mismatched identity: importing the wrong one would silently
+    // break every future upload to the recorded recipient.
     match state.db.get_encryption_config(&account_id, &bucket).await? {
         Some(cfg) if cfg.recipient != derived_recipient => {
             return Err(AppError::InvalidInput(format!(
@@ -269,9 +243,8 @@ pub async fn import_encryption_identity(
     Ok(())
 }
 
-/// Read an age identity file from disk and import it. Convenience wrapper
-/// over `import_encryption_identity` — reads the file (bounded to 64 KiB so a
-/// mis-picked huge binary can't OOM us) then delegates.
+/// Reads an age identity file from disk and imports it; bounded to 64 KiB so
+/// a mis-picked huge binary can't OOM us.
 #[tauri::command]
 pub async fn import_encryption_identity_from_file(
     state: State<'_, AppState>,
@@ -296,8 +269,7 @@ pub async fn import_encryption_identity_from_file(
     import_encryption_identity(state, account_id, bucket, text).await
 }
 
-/// Return the list of buckets for `account_id` that have client-side
-/// encryption enabled. FE uses this to render lock badges on the bucket grid.
+/// Buckets of `account_id` with client-side encryption enabled (FE lock badges).
 #[tauri::command]
 pub async fn list_encrypted_buckets(
     state: State<'_, AppState>,
@@ -306,17 +278,14 @@ pub async fn list_encrypted_buckets(
     state.db.list_encrypted_buckets_for_account(&account_id).await
 }
 
-/// Return `true` iff the OS keychain has an identity stored for this bucket.
-/// Used by the FE to detect the "identity missing" state proactively (fresh
-/// install, keychain wipe) and prompt for import before an operation fails.
+/// True iff the keychain holds an identity for this bucket, so the FE can
+/// detect the "identity missing" state proactively (fresh install, keychain wipe).
 #[tauri::command]
 pub async fn has_encryption_identity(
     state: State<'_, AppState>,
     account_id: String,
     bucket: String,
 ) -> AppResult<bool> {
-    // Only meaningful if the bucket has encryption configured. If no config,
-    // there is no identity to be missing.
     if state.db.get_encryption_config(&account_id, &bucket).await?.is_none() {
         return Ok(false);
     }
@@ -329,10 +298,8 @@ pub async fn has_encryption_identity(
     Ok(found)
 }
 
-/// Write `body` to `path` with owner-only permissions (0600) on Unix.
-/// On Windows we rely on the default per-user ACL of files under the user's
-/// profile directory (Downloads etc.), which is already restricted to the
-/// current user + admins.
+/// Writes `body` owner-only: mode 0600 on Unix; on Windows the default
+/// per-user profile ACL already restricts to current user + admins.
 async fn write_secret_file(path: &str, body: &str) -> AppResult<()> {
     let path_owned = path.to_string();
     let body_owned = body.to_string();
@@ -347,8 +314,7 @@ async fn write_secret_file(path: &str, body: &str) -> AppResult<()> {
                 .truncate(true)
                 .mode(0o600)
                 .open(&path_owned)?;
-            // If the file pre-existed with looser bits, OpenOptions::mode is
-            // ignored — chmod explicitly to be safe.
+            // mode(0600) is ignored if the file pre-existed with looser bits; chmod explicitly.
             use std::os::unix::fs::PermissionsExt;
             f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             f.write_all(body_owned.as_bytes())?;

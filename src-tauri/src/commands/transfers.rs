@@ -1,11 +1,5 @@
-//! Tauri commands for the persistent transfer queue.
-//!
-//! Each enqueue command takes a [`tauri::ipc::Channel<TransferEvent>`] supplied
-//! by the FE. The channel receives live progress events while the underlying
-//! transfer is persisted to SQLite and tracked by [`TransferManager`].
-//!
-//! All local paths are validated through [`crate::validate`] before any
-//! filesystem or S3 work happens.
+//! Persistent transfer queue commands: each enqueue takes a progress
+//! `Channel<TransferEvent>`; local paths are validated before any FS/S3 work.
 
 use tauri::ipc::Channel;
 use tauri::State;
@@ -19,8 +13,8 @@ use crate::validate;
 
 fn channel_sink(channel: Channel<TransferEvent>) -> ProgressSink {
     ProgressSink::from_fn(move |event| {
-        // Channel send fails silently when the FE has dropped the receiver.
-        // That's intentional: the worker is the source of truth and continues.
+        // Send fails silently once the FE drops the receiver; the worker is
+        // the source of truth and continues.
         let _ = channel.send(event);
     })
 }
@@ -48,9 +42,8 @@ pub async fn enqueue_upload(
 
     let mut opts = options.unwrap_or_default();
 
-    // If the bucket has encryption enabled, encrypt the source file to a temp
-    // path before enqueuing. The transfer worker deletes the temp file via
-    // opts.cleanup_path once the upload finishes (success or failure).
+    // Encrypted buckets: encrypt the source file to a temp path before
+    // enqueuing; the worker deletes it via opts.cleanup_path when done.
     let (upload_path, cleanup_on_err) =
         crate::transfer::encrypt::encrypt_for_bucket_if_needed(&state, &account_id, &bucket, &path, &mut opts)
             .await?;

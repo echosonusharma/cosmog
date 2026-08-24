@@ -1,7 +1,5 @@
-//! Capability discovery commands. The FE calls [`probe_account_capabilities`]
-//! once after add-account, and [`probe_bucket_capabilities`] when the user
-//! opens a bucket. Results are cached in the DB and re-queried via
-//! [`get_account_capabilities`] / [`get_bucket_capabilities`].
+//! Capability discovery: probe after add-account / when opening a bucket;
+//! results cache in the DB and are re-read via the get_* commands.
 
 use tauri::State;
 

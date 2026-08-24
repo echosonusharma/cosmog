@@ -50,10 +50,8 @@ export default function MainApp() {
   const openDrawer = () => setDrawerOpen(true);
   const closeDrawer = () => setDrawerOpen(false);
 
-  // Shell-level Android back handling. Registered first (parent mounts before
-  // children), so it sits at the bottom of the back stack — overlays and the
-  // object browser get first crack. Returning false at the browse root lets
-  // the OS take the back press and background/exit the app.
+  // Registered first (parent mounts before children) so it sits at the bottom of the back
+  // stack — overlays get first crack. False at browse root lets the OS background/exit.
   useBackHandler(() => true, () => {
     if (drawerOpen()) { closeDrawer(); return true; }
     if (currentView() !== "browse") { setCurrentView("browse"); return true; }
@@ -83,9 +81,8 @@ export default function MainApp() {
     if (s) setTheme(s.theme ?? "system");
   });
 
-  // Load buckets for active account; refetch on global bucket refresh tick.
-  // Keep the previous list visible while refreshing the same account — clearing
-  // on every tick made the sidebar flash empty on create/delete.
+  // Refetch on refresh tick; keep previous list visible while refreshing so the sidebar
+  // doesn't flash empty on create/delete. Clear immediately on account switch.
   let sidebarAccountId = "";
   createEffect(() => {
     const id = browseState.accountId;
@@ -101,16 +98,13 @@ export default function MainApp() {
       .catch(() => {});
   });
 
-  // poll active transfer count + drive system notifications.
-  // Two stages per transfer: "Downloading…" / "Uploading…" on start,
-  // then "Download complete" / "Upload complete" (or failed) on finish.
-  // Same stable id per transfer replaces the start notification.
+  // Poll drives active count + system notifications: "Uploading…" on start, completion notice
+  // on finish; the same stable id per transfer replaces the start notification in place.
   const notifiedStart = new Set<string>();
   const notifiedEnd   = new Set<string>();
   let firstLoad = true;
-  // null = unknown; forces one unconditional sync on the first poll so a
-  // service orphaned by a previous process (start refused, app killed) is
-  // stopped even though this session never saw a transition to active.
+  // null = unknown; forces one unconditional sync so a service orphaned by a previous
+  // process is stopped even though this session never saw a transition to active.
   let serviceOn: boolean | null = null;
   async function refreshCount() {
     try {
@@ -120,11 +114,8 @@ export default function MainApp() {
       // Publish the live list so the sticky ActiveTransfersBar (and anything
       // else that wants live progress) doesn't have to spin up a second poll.
       setActiveTransfers(list.filter((t) => t.status === "active" || t.status === "pending"));
-      // Android: keep a foreground service running while transfers are in
-      // flight. Without this, backgrounding the app lets Doze/cached-process
-      // reap kill in-flight requests and progress restarts from 0 on retry.
-      // Only mark the state applied once the invoke succeeds so a failed
-      // start/stop is retried on the next tick.
+      // Android: keep a foreground service while transfers are in flight, else Doze/cached-process
+      // reaping kills in-flight requests. Mark applied only on invoke success so failures retry.
       const wantService = active > 0;
       if (wantService !== serviceOn) {
         invoke("set_transfer_service", { active: wantService })
@@ -139,8 +130,8 @@ export default function MainApp() {
         firstLoad = false;
         return;
       }
-      // Cleared/history-pruned transfers never come back; drop their tracker
-      // entries so the sets don't grow for the whole session.
+      // Cleared/pruned transfers never come back; drop their tracker entries so the sets
+      // don't grow for the whole session.
       const liveIds = new Set(list.map((t) => t.id));
       for (const id of notifiedStart) if (!liveIds.has(id)) notifiedStart.delete(id);
       for (const id of notifiedEnd) if (!liveIds.has(id)) notifiedEnd.delete(id);
@@ -157,11 +148,8 @@ export default function MainApp() {
         // Night watcher is a silent background sync: skip start/progress/done
         // notifications, surface only failures.
         if (t.origin === "nightwatch" && t.status !== "failed") continue;
-        // Title carries the human-relevant bits (verb + filename); body pins
-        // the transfer to a specific account + bucket so the user can tell
-        // parallel transfers apart at a glance in the notification tray.
-        // summary puts the account name in the collapsed header line, and
-        // largeBody spells out the whole story in the expanded view.
+        // Title carries verb + filename; body pins account + bucket so parallel transfers are
+        // distinguishable in the tray. summary = collapsed header, largeBody = expanded story.
         const body = `${acct} · ${t.bucket}`;
         const where = up ? `to "${t.bucket}" on ${acct}` : `from "${t.bucket}" on ${acct}`;
         const rich = (opts: Parameters<typeof notify>[2]) => ({
@@ -187,7 +175,6 @@ export default function MainApp() {
           notifiedEnd.add(t.id);
           notifiedStart.delete(t.id);
           discardSafDownload(t.id);
-          // Same nid replaces the ongoing "Uploading…" entry in place.
           notify(`${dir} canceled: ${name}`, body, rich({
             largeBody: `${dir} ${where} was canceled`,
             channelId: CHANNEL_EVENTS,
@@ -200,18 +187,15 @@ export default function MainApp() {
         if ((t.status === "done" || t.status === "failed") && !notifiedEnd.has(t.id)) {
           notifiedEnd.add(t.id);
           const done = t.status === "done";
-          // A done SAF download is only really "complete" once the bytes are
-          // copied out of app cache into the user-picked location; that copy
-          // can take minutes for multi-GB files and can fail (revoked grant,
-          // disk full). Finalize first, notify after.
+          // A done SAF download is only complete once bytes are copied out of app cache to the
+          // user-picked location; that copy can take minutes and can fail (revoked grant, disk full).
           if (done && t.direction === "download") {
             const pending = takeSafFinalize(t.id);
             if (pending) {
               try {
                 await finalizeSafDownload(pending.cachePath, pending.safUri);
               } catch (e) {
-                // Keep the cache copy (finalize only deletes it on success)
-                // so the bytes are not lost; tell the user what happened.
+                // Keep the cache copy (finalize only deletes it on success) so bytes aren't lost.
                 notify(`Download failed: ${name}`, body, rich({
                   largeBody: `Downloaded ${where} but saving to the chosen location failed: ${errMsg(e)}`,
                   channelId: CHANNEL_ALERTS,
@@ -232,44 +216,36 @@ export default function MainApp() {
             ongoing: false,
             autoCancel: true,
           }));
-          // Failed downloads intentionally keep their SAF finalize entry and
-          // 0-byte placeholder: Retry re-enqueues under a new id and
-          // Transfers.retry() moves the entry over so the retried download
-          // still lands at the picked location. The placeholder is deleted
-          // when the transfer is canceled or cleared instead.
+          // Failed downloads intentionally keep their SAF finalize entry and 0-byte placeholder:
+          // Retry re-enqueues under a new id and Transfers.retry() moves the entry over so the
+          // retried download still lands at the picked location. Deleted on cancel/clear instead.
         }
       }
-    } catch { /* ignore */ }
+    } catch { }
   }
   refreshCount();
-  // Poll fast enough that speed and ETA feel live; the queries are all
-  // in-memory on the Rust side, so 1s is comfortable even on mobile.
+  // 1s poll keeps speed/ETA feeling live; queries are in-memory Rust-side, so it's
+  // comfortable even on mobile.
   const countTimer = setInterval(refreshCount, 1000);
   onCleanup(() => clearInterval(countTimer));
 
-  // Ask for notification permission and create channels immediately so the
-  // prompt appears on first launch rather than mid-transfer.
+  // Prompt for notification permission on first launch rather than mid-transfer.
   if (IS_MOBILE_OS) ensureNotificationPermission();
 
-  // Route the notification "Cancel" button to the transfer cancel command.
-  // Mobile only: the desktop plugin build does not register the listener
-  // command and the registration itself would reject.
+  // Route the notification "Cancel" button to the transfer cancel command. Mobile only: the
+  // desktop plugin build does not register the listener command and registration would reject.
   let unlistenAction: (() => void) | null = null;
   if (IS_MOBILE_OS) {
     onNotificationAction(async (actionId, extra) => {
       const tid = extra.transfer_id;
       if (typeof tid !== "string" || !tid) return;
-      // Tapping a transfer notification body jumps straight to the queue.
       if (actionId === NOTIFICATION_TAP_ACTION_ID) {
         setCurrentView("transfers");
         return;
       }
       if (actionId !== TRANSFER_CANCEL_ACTION_ID) return;
-      // Let the backend confirm before touching anything: if the transfer
-      // actually finished a moment ago, cancel rejects and the completion
-      // path (SAF finalize included) proceeds untouched. On success the next
-      // poll tick posts the proper "canceled" notification and deletes the
-      // SAF placeholder.
+      // Let the backend confirm before touching anything: if the transfer actually finished
+      // a moment ago, cancel rejects and the completion path (SAF finalize included) proceeds.
       try {
         await cancelTransfer(tid);
         dismissNotification(notifId(tid));
@@ -280,10 +256,8 @@ export default function MainApp() {
   }
   onCleanup(() => { unlistenAction?.(); });
 
-  // Android/WebView backgrounds the process when the screen locks or the
-  // user switches apps. In-flight network requests can be killed mid-flight
-  // and the AWS SDK surfaces this as "dispatch failure". On resume, re-run
-  // the queries so the UI doesn't sit on a stale error indefinitely.
+  // Android/WebView can kill in-flight requests when backgrounded ("dispatch failure"); re-run
+  // the queries on resume so the UI doesn't sit on a stale error indefinitely.
   const onVis = () => {
     if (document.visibilityState === "visible") {
       bumpAccountsRefresh();

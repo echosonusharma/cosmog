@@ -1,13 +1,5 @@
-//! Client-side encryption using the `age` file format.
-//!
-//! Payload is standard age binary (or armored when the caller opts in): header
-//! + streaming ChaCha20-Poly1305 chunks of 64 KiB with per-chunk counter
-//! nonces + last-chunk marker. External decryption: `age -d -i keyfile.txt`
-//! (or `rage`, `pyrage`, Go `age`).
-//!
-//! Per-bucket key material is a randomly generated X25519 age identity. The
-//! secret string (`AGE-SECRET-KEY-...`) lives in the OS keychain; the derived
-//! recipient (`age1...`) is what encrypts new uploads.
+//! Client-side encryption in the standard `age` format: header + streaming ChaCha20-Poly1305 chunks
+//! (64 KiB, per-chunk counter nonces, last-chunk marker; decryptable by any age tool). Keys are X25519 identities, secrets in the OS keychain.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -18,27 +10,21 @@ use age::x25519;
 
 use crate::error::{AppError, AppResult};
 
-/// Format tag written to S3 user metadata (`cosmog-format`). Lets a future
-/// implementation branch on the payload format without probing bytes.
+/// Written to S3 user metadata (`cosmog-format`) so a future impl can branch without probing bytes.
 pub const FORMAT_TAG: &str = "age-v1";
 
-/// Magic prefix of an age v1 header. We probe object bytes for this instead of
-/// trusting S3 user metadata, which is attacker-controllable for any principal
-/// with PUT rights on the bucket.
+/// Probed from object bytes instead of trusting S3 user metadata, which is attacker-controllable
+/// for any principal with PUT rights on the bucket.
 pub const AGE_MAGIC: &[u8] = b"age-encryption.org/v1\n";
 
-/// True if the first bytes look like an age v1 ciphertext header.
 pub fn is_age_ciphertext(bytes: &[u8]) -> bool {
     bytes.starts_with(AGE_MAGIC)
 }
 
-/// Preview / in-app crypt operations must not buffer more than this many bytes
-/// of plaintext. Streaming file paths (upload/download) do not use this cap.
+/// Cap for preview/in-app crypt buffering only; streaming upload/download paths bypass it.
 pub const MAX_INMEMORY_CRYPT_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Generate a fresh X25519 identity. The returned secret string is a bech32
-/// `AGE-SECRET-KEY-...` value suitable for storage in the OS keychain and for
-/// direct use with the `age` CLI (`age -d -i keyfile.txt`).
+/// Fresh X25519 identity; the secret is bech32, usable directly with the `age` CLI.
 pub fn new_identity() -> (String, String) {
     let id = x25519::Identity::generate();
     let secret = id.to_string().expose_secret().to_string();
@@ -46,9 +32,7 @@ pub fn new_identity() -> (String, String) {
     (secret, public)
 }
 
-/// Parse a `AGE-SECRET-KEY-...` string into an identity object. The input
-/// buffer is not scrubbed by this function; callers hold the responsibility
-/// for zeroizing it if it lives in their own memory.
+/// Parses an `AGE-SECRET-KEY-...` string; the input buffer is NOT scrubbed here — callers own zeroizing it.
 pub fn parse_identity(secret: &str) -> AppResult<x25519::Identity> {
     x25519::Identity::from_str(secret)
         .map_err(|e| AppError::Internal(format!("parse identity: {e}")))
@@ -88,8 +72,7 @@ pub fn decrypt_bytes(identity: &x25519::Identity, ciphertext: &[u8]) -> AppResul
     Ok(out)
 }
 
-/// Stream-encrypt `src` to `dst`. Runs on a blocking thread so tokio's runtime
-/// stays responsive during file IO + AEAD. Memory usage is O(64 KiB chunk).
+/// Stream-encrypt on a blocking thread so the runtime stays responsive; O(64 KiB chunk) memory.
 pub async fn encrypt_file(
     src: &Path,
     dst: &Path,
@@ -120,7 +103,7 @@ pub async fn encrypt_file(
     .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
-/// Stream-decrypt `src` to `dst`. See `encrypt_file` for RAM behavior.
+/// Stream-decrypt on a blocking thread; same chunked memory profile as [`encrypt_file`].
 pub async fn decrypt_file(
     src: &Path,
     dst: &Path,

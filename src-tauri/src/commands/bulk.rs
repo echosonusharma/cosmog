@@ -1,13 +1,5 @@
-//! Folder-scoped bulk commands: recursive delete, recursive upload, recursive
-//! download.
-//!
-//! Each command takes a [`Channel<TransferEvent>`] and forwards every
-//! lifecycle event through it. For `upload_directory` / `download_directory`
-//! the events stream the *parent* operation only (start/done/cancel/fail);
-//! the per-file progress events go through each file's own enqueue-result
-//! channel (which is internal to the bulk job here — the FE typically listens
-//! on `list_transfers` and the transfer-level event channel for fine-grained
-//! UI).
+//! Bulk-op Tauri commands forwarding lifecycle events through a Channel. These stream
+//! parent-op events only; per-file progress rides each file's own enqueue sink.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,8 +34,7 @@ pub async fn delete_folder_cmd(
         let _ = on_event.send(event);
     });
     let transfer_id = Uuid::new_v4().to_string();
-    // Bulk ops use their own registry so the cancel paths can't collide with
-    // bucket scans or accidentally kill an unrelated job on account delete.
+    // Own registry so bulk cancels can't collide with scans or account-delete kills.
     let cancel = state.register_bulk(&transfer_id);
     let result = delete_folder(
         &state.db,
@@ -84,9 +75,7 @@ pub async fn upload_directory_cmd(
     let local_root = PathBuf::from(local_root);
     let store = state.store_for(&account_id).await?;
 
-    // The same channel is reused for every file in the directory. Each file
-    // emits its own events tagged with its own transfer_id, so the FE can
-    // distinguish them.
+    // One channel reused for every file; events carry per-file transfer_ids.
     let channel = Arc::new(on_event);
     let factory = move |_key: &str| {
         let channel = channel.clone();
@@ -136,9 +125,7 @@ pub async fn download_directory_cmd(
             let _ = channel.send(event);
         })
     };
-    // Same bulk-op registry wiring as upload_directory_cmd so cancel_bulk_op
-    // can abort a running download too (the LIST walk + per-object enqueue
-    // both listen on this token).
+    // Same bulk registry wiring so cancel_bulk_op can abort running downloads too.
     let transfer_id = Uuid::new_v4().to_string();
     let cancel = state.register_bulk(&transfer_id);
     let result = download_directory(

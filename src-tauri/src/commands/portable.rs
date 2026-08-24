@@ -1,12 +1,5 @@
-//! Backup / restore commands for moving Cosmog config between machines.
-//!
-//! Exports a JSON document containing accounts (sans secrets) and the user
-//! settings row-set. Secrets stay in the OS keyring and are intentionally
-//! never serialized — the receiving machine must re-enter them after import.
-//!
-//! `import_config` is a merge, not a replace: existing accounts with the same
-//! `id` get their endpoint/region/access_key updated; new ones are inserted.
-//! Settings are merged field-by-field.
+//! Backup/restore commands. Exports carry accounts (sans secrets — keyring is
+//! never serialized) + settings; import merges by account id instead of replacing.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -17,8 +10,8 @@ use crate::db::settings::AppSettings;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-/// Serialized snapshot of a Cosmog install. Versioned so future schema
-/// changes can be detected and migrated on import.
+/// Versioned snapshot of a Cosmog install, so future schema changes can be
+/// migrated on import.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigExport {
     pub schema_version: u32,
@@ -49,8 +42,8 @@ pub struct ImportSummary {
     pub settings_applied: bool,
 }
 
-/// Copy the live SQLite file to `dest_path` after a WAL checkpoint. Useful as
-/// a "Save backup..." command in the FE. Does NOT include OS-keyring secrets.
+/// Copies the live SQLite file to `dest_path` after a WAL checkpoint; does NOT
+/// include OS-keyring secrets.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn backup_database(
@@ -61,23 +54,8 @@ pub async fn backup_database(
     state.db.backup_to(dest).await
 }
 
-/// Stage a backup file to be applied on the next app launch.
-///
-/// We cannot replace the live SQLite file while the process holds open
-/// connections to it. Instead we write the source bytes to
-/// `<db_path>.restore_pending`; on next startup the boot code atomically
-/// renames it over the live DB after a SQLite-header + integrity sanity check.
-///
-/// The source is validated before staging: must be an existing regular file,
-/// non-empty, and start with the SQLite 3 magic header. This prevents the FE
-/// from accidentally bricking the database with an empty/wrong file.
-///
-/// Staging is crash- and concurrency-safe: bytes land at a unique temp name in
-/// the same directory (so the final rename is atomic on every supported FS),
-/// then rename into `.restore_pending`. A static mutex serializes concurrent
-/// stagings — two interleaved `copy` calls into the same pending path would
-/// otherwise produce a corrupt hybrid file that passes the header check but
-/// fails at boot.
+/// Validates the source is a SQLite DB, then stages it as
+/// `<db_path>.restore_pending` for atomic application at next boot.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn stage_restore(
@@ -101,8 +79,6 @@ pub async fn stage_restore(
             "src_path too small to be a SQLite database".into(),
         ));
     }
-    // Verify the SQLite 3 magic header. Refuses any non-SQLite blob so a
-    // typo'd path can't render the app unusable on next boot.
     let mut f = tokio::fs::File::open(&src)
         .await
         .map_err(|e| AppError::InvalidInput(format!("src_path: {e}")))?;
@@ -124,9 +100,8 @@ pub async fn stage_restore(
         .ok_or_else(|| AppError::Internal("db_path has no parent directory".into()))?
         .to_path_buf();
     let pending = state.db_path.with_extension("restore_pending");
-    // Unique temp name in the SAME directory as the target: same-FS rename is
-    // atomic, so a crash mid-copy can never leave a half-written
-    // restore_pending behind for boot to pick up.
+    // Unique temp name in the SAME directory as the target so the final
+    // rename is atomic; a crash can't leave a half-written pending file.
     let staging = dir.join(format!(".restore_stage.{}", uuid::Uuid::new_v4()));
     let copied = tokio::fs::copy(&src, &staging).await;
     if let Err(e) = copied {
@@ -140,15 +115,8 @@ pub async fn stage_restore(
     Ok(pending.to_string_lossy().to_string())
 }
 
-/// Wipe all local app data and exit.
-///
-/// Deletes every OS keyring secret for every configured account, then writes
-/// a `pending_wipe` marker file next to the database. On the next launch the
-/// boot sequence detects the marker and removes the entire app data directory
-/// before opening any files, giving a guaranteed clean slate.
-///
-/// The app exits immediately after writing the marker so no open file handles
-/// block the deletion.
+/// Wipes local data and exits: deletes every keyring secret, writes a
+/// `pending_wipe` marker the next boot consumes to remove the app data dir.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn clear_app_data(state: State<'_, AppState>) -> AppResult<()> {
@@ -168,9 +136,8 @@ pub async fn clear_app_data(state: State<'_, AppState>) -> AppResult<()> {
         .ok_or_else(|| AppError::Internal("db_path has no parent directory".into()))?;
     tokio::fs::write(app_dir.join("pending_wipe"), b"1").await?;
 
-    // Delay exit so the IPC response reaches the frontend before the process
-    // terminates. app.exit() tears down Tauri synchronously and can crash if
-    // called while the command response is still in flight.
+    // Delay exit so the IPC response lands first; app.exit() mid-response
+    // tears down Tauri synchronously and can crash.
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         std::process::exit(0);
@@ -185,9 +152,8 @@ pub async fn import_config(
     state: State<'_, AppState>,
     bundle: ConfigExport,
 ) -> AppResult<ImportSummary> {
-    // Refuse bundles from a NEWER Cosmog than this build: their extra fields
-    // would be silently dropped by serde, corrupting the imported config.
-    // Older versions are fine — missing fields default per serde.
+    // Refuse bundles from a NEWER build: serde would silently drop their extra
+    // fields, corrupting the config; older versions default fine.
     if bundle.schema_version > EXPORT_SCHEMA {
         return Err(AppError::InvalidInput(format!(
             "unsupported export schema_version {} (this build supports up to {EXPORT_SCHEMA}); \
@@ -205,8 +171,6 @@ pub async fn import_config(
         } else {
             inserted += 1;
         }
-        // Invalidate any cached client for the touched account so the next
-        // call rebuilds with fresh endpoint/key.
         state.invalidate(&acct.id);
     }
     state.db.settings_save(bundle.settings).await?;

@@ -1,5 +1,4 @@
-// Derive which subsystem emitted a log line so it can be tagged + filtered.
-// Precedence: tracing target prefix first, then message keyword match.
+// Derive which subsystem emitted a log line; tracing target prefix wins over message keywords.
 
 export interface LogSource { key: string; label: string; color: string; }
 

@@ -1,12 +1,5 @@
-//! Android-specific HTTPS client for the AWS SDK.
-//!
-//! `rustls-native-certs` does not know how to read Android's system trust
-//! store, so the default aws-smithy connector panics at startup with
-//! "TrustStore configured to enable native roots but no valid root certificates
-//! parsed!" (see aws-smithy-http-client rustls_provider.rs:159 debug_assert).
-//!
-//! We ship the Mozilla root store from `webpki-root-certs` and feed it to
-//! aws-smithy-http-client's `TrustStore` as a single concatenated PEM blob.
+//! Android HTTPS client for the AWS SDK: rustls-native-certs can't read Android's trust store
+//! (smithy panics at startup), so the webpki-root-certs Mozilla store feeds TrustStore as one PEM blob.
 
 use std::sync::OnceLock;
 

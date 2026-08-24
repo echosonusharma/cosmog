@@ -1,21 +1,5 @@
-//! Night Watcher: keep a local directory synced one-way to an S3 prefix.
-//!
-//! Two mechanisms feed the same reconcile core:
-//!
-//! - A periodic full scan (every watch, when `last_scan_at + full_scan_secs`
-//!   has elapsed). This is the **source of truth**: it catches everything that
-//!   changed while the app was closed, plus any FS events the watcher dropped.
-//! - On desktop only, a `notify` filesystem watcher gives near-instant reaction
-//!   to changes. It is a pure accelerator; correctness never depends on it.
-//!   Android has no inotify under SAF, so it relies on the periodic scan.
-//!
-//! Change detection is a cheap `mtime + size` fast-path; only on a miss do we
-//! hash the file (blake3) to decide whether the content actually changed. The
-//! recorded state lives in `nw_file_state` (see `db::night_watcher`), kept
-//! separate from the search cache so the two never corrupt each other.
-//!
-//! `delete_policy` is `"keep"` for the MVP: a locally-removed file just drops
-//! its `nw_file_state` row; the remote object is left untouched.
+//! Night Watcher: one-way local-dir → S3-prefix sync. Periodic full scan is the source of truth; the
+//! notify watcher is an accelerator only (Android has no inotify under SAF). Detection = mtime+size fast-path then blake3; delete_policy="keep" never deletes remote.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,13 +16,8 @@ use crate::state::AppState;
 use crate::store::{ObjectStore, PutOptions};
 use crate::transfer::{ProgressSink, TransferEvent, TransferManager};
 
-/// The exact slice of `AppState` the reconcile core actually needs. Extracting
-/// it behind a trait lets integration tests drive the *real* reconcile path
-/// (change detection, encrypt-if-needed, upload, state persist) with an
-/// injected MinIO store + `Db` + `TransferManager`, bypassing only the parts
-/// that require a live `tauri::AppHandle` and the OS keyring. `AppState` is the
-/// sole production implementor; its methods are called verbatim, so behavior is
-/// unchanged.
+/// Slice of `AppState` behind this trait so integration tests can drive the *real* reconcile core
+/// with an injected MinIO store + `Db` + `TransferManager`; `AppState` is the sole implementor.
 #[allow(async_fn_in_trait)]
 pub trait NwCtx: Clone + Send + Sync + 'static {
     fn db(&self) -> &Db;
@@ -81,8 +60,7 @@ impl NwCtx for AppState {
     }
 }
 
-/// How often the loop checks whether any watch is due for a full scan. The
-/// per-watch cadence is governed by `full_scan_secs`, not this tick.
+/// Loop tick only; per-watch cadence comes from `full_scan_secs`.
 const TICK_SECS: u64 = 30;
 
 /// Max consecutive upload failures for one file before it is paused.
@@ -90,16 +68,12 @@ const MAX_UPLOAD_RETRIES: i64 = 3;
 /// How long a file is skipped after hitting [`MAX_UPLOAD_RETRIES`] failures.
 const RETRY_PAUSE_SECS: i64 = 3600;
 
-/// Spawn the Night Watcher. Returns immediately; the caller keeps the
-/// [`CancellationToken`] alive for the process lifetime.
-// Desktop only. On Android the loop runs in the :nightwatch service process
-// (night_watcher_headless), never here, so this in-process spawn is gated off
-// to keep a second reconcile loop from racing the service's writes.
+/// Spawn the Night Watcher; returns immediately. Caller keeps the token alive for the process.
+// Desktop only: Android's loop lives in the :nightwatch service process, so this in-process
+// spawn is gated off to keep a second reconcile loop from racing the service's writes.
 #[cfg(not(target_os = "android"))]
 pub fn spawn(state: AppState) -> CancellationToken {
     let cancel = CancellationToken::new();
-
-    // Near-instant filesystem watcher task (accelerator; scan is source of truth).
     {
         let token = cancel.clone();
         let st = state.clone();
@@ -112,9 +86,8 @@ pub fn spawn(state: AppState) -> CancellationToken {
     cancel
 }
 
-/// The periodic full-scan loop shared by every host. Generic over [`NwCtx`] so
-/// the Android headless service process can drive the *same* reconcile core
-/// with a lightweight (no `AppHandle`) context. Runs until the token cancels.
+/// Periodic full-scan loop shared by every host; generic over [`NwCtx`] so the Android headless
+/// service process can drive the same reconcile core. Runs until the token cancels.
 pub async fn run_loop<S: NwCtx>(ctx: S, token: CancellationToken) {
     info!("night watcher started");
     let mut tick = tokio::time::interval(Duration::from_secs(TICK_SECS));
@@ -133,8 +106,8 @@ pub async fn run_loop<S: NwCtx>(ctx: S, token: CancellationToken) {
     }
 }
 
-/// RAII guard that releases a watch's full-scan claim on drop, so a panic or
-/// early return in the scan task can never strand the claim.
+/// RAII guard releasing a watch's full-scan claim on drop, so a panic or early return
+/// in the scan task can never strand the claim.
 struct ScanClaimGuard<S: NwCtx> {
     state: S,
     watch_id: String,
@@ -146,11 +119,8 @@ impl<S: NwCtx> Drop for ScanClaimGuard<S> {
     }
 }
 
-/// Trigger a full scan for every enabled watch whose interval has elapsed.
-/// Each scan runs in its own task, guarded so the same watch never scans twice
-/// concurrently. The loop's cancel token is threaded into every spawned scan
-/// so a stop request also halts in-flight scans (Android headless relies on
-/// this: uploads must not keep running after the wakelock is released).
+/// Scan every due enabled watch, one guarded task per watch (never concurrent scans of one
+/// watch). Token threads into scans so a stop also halts in-flight uploads (wakelock).
 async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<()> {
     let watches = state.db().list_enabled_watches().await?;
     let now = Utc::now().timestamp();
@@ -171,8 +141,6 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
         let state = state.clone();
         let task_token = token.clone();
         tokio::spawn(async move {
-            // Drop-guard: releases the scan claim even if reconcile_watch panics
-            // or the task is aborted, so a crashed scan never strands the watch.
             let _guard = ScanClaimGuard {
                 state: state.clone(),
                 watch_id: w.id.clone(),
@@ -194,17 +162,8 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
     Ok(())
 }
 
-/// Walk a watch's location and reconcile every (non-ignored) file. Errors on a
-/// single file are swallowed + logged so one unreadable file can't abort the
-/// whole scan.
-///
-/// Two modes, chosen at runtime by `watch.tree_uri`:
-///
-/// - `None` (desktop): `local_dir` is a real filesystem directory; walk it and
-///   reconcile via [`reconcile_file`].
-/// - `Some(uri)` (Android SAF): enumerate the tree via `crate::saf`, using the
-///   provider-supplied mtime/size for the cheap fast-path, hashing/staging only
-///   the entries that actually changed.
+/// Walk a watch's location and reconcile every non-ignored file; per-file errors are
+/// logged, never fatal. Two modes: real fs dir (desktop) or SAF tree via `crate::saf`.
 pub(crate) async fn reconcile_watch<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
@@ -223,14 +182,12 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
     let matcher = Matcher::build(watch);
     // read_errors seeds `errors` so a subdir vanishing mid-scan blocks the sweep.
     let (files, read_errors) = collect_files(root.clone()).await?;
-    // Bulk-load recorded state once so the per-file fast-path is an in-memory
-    // lookup, not a DB round-trip per file on the single connection.
+    // Bulk-load state once: the per-file fast-path is an in-memory lookup, not a DB round-trip.
     let prefetched = state.db().file_state_map(&watch.id).await?;
     let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for rel in files {
-        // Stop promptly on a stop request. A partial walk must never sweep:
-        // the seen set is incomplete, so pruning would mass-delete live rows.
+        // A partial walk must never sweep: its incomplete seen set would mass-delete live rows.
         if token.is_cancelled() {
             info!(watch = %watch.id, "night watcher: scan aborted by cancellation");
             return Ok(());
@@ -257,10 +214,8 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
             }
         }
     }
-    // Mark-and-sweep: this walk saw the whole tree, so any state row not in the
-    // seen set is a file that no longer exists. delete_policy=keep means we only
-    // drop the local state row (remote is untouched). Skipped only on a clean
-    // walk (errors==0) so a transient read failure can't mass-prune.
+    // Mark-and-sweep, only on a clean walk: a transient read failure must not mass-prune.
+    // delete_policy=keep drops just the state row; the remote object is untouched.
     let pruned = if errors == 0 {
         sweep_deleted(state, watch, &seen).await
     } else {
@@ -275,8 +230,8 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
     Ok(())
 }
 
-/// Prune `nw_file_state` rows for files not seen in a completed full scan.
-/// Returns the number of rows removed. delete_policy=keep: remote is untouched.
+/// Prune state rows for files absent from a completed full scan; returns rows removed.
+/// delete_policy=keep: the remote object is left untouched.
 async fn sweep_deleted<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
@@ -305,19 +260,15 @@ async fn sweep_deleted<S: NwCtx>(
     }
 }
 
-/// SAF-tree variant of [`reconcile_watch`] (Android). Enumerates the tree via
-/// `crate::saf::collect_tree_files`, then reconciles each entry using the
-/// provider-supplied mtime/size fast-path. Only genuinely-changed entries are
-/// hashed (`hash_saf_document`) and staged to a real fs path
-/// (`stage_saf_upload`) before feeding the existing encrypt/enqueue path.
+/// SAF-tree variant of [`reconcile_watch`] (Android): enumerate via `crate::saf`, fast-path
+/// on the provider's mtime/size, hashing/staging only entries that actually changed.
 async fn reconcile_watch_saf<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
     token: &CancellationToken,
 ) -> AppResult<()> {
     let uri = watch.tree_uri.clone().expect("tree_uri present");
-    // read_errors seeds `errors` so an unreadable subtree blocks the sweep,
-    // matching the desktop path. A revoked/deleted root still hard-errors above.
+    // read_errors seeds `errors` (blocks sweep), matching the desktop path.
     let (entries, read_errors) = crate::saf::collect_tree_files(uri)
         .await
         .map_err(AppError::Internal)?;
@@ -330,7 +281,6 @@ async fn reconcile_watch_saf<S: NwCtx>(
         if entry.is_dir {
             continue;
         }
-        // Same partial-walk rule as the desktop path: abort without sweeping.
         if token.is_cancelled() {
             info!(watch = %watch.id, "night watcher: SAF scan aborted by cancellation");
             return Ok(());
@@ -356,8 +306,7 @@ async fn reconcile_watch_saf<S: NwCtx>(
             }
         }
     }
-    // Mark-and-sweep: prune rows for tree entries no longer present. Only on a
-    // clean enumeration+reconcile so a transient failure can't mass-prune.
+    // Mark-and-sweep only after a clean enumeration+reconcile: transient failures must not mass-prune.
     let pruned = if errors == 0 {
         sweep_deleted(state, watch, &seen).await
     } else {
@@ -372,18 +321,15 @@ async fn reconcile_watch_saf<S: NwCtx>(
     Ok(())
 }
 
-/// Outcome of reconciling one entry. `enqueued` is true when an upload was
-/// queued. `seen` is true when the entry was successfully observed this scan;
-/// it is false only on a transient stat/metadata error, so the full-scan
-/// mark-and-sweep does NOT prune a file we merely failed to read once.
+/// Outcome of reconciling one entry. `seen=false` (only on a transient stat/metadata error)
+/// keeps mark-and-sweep from pruning a file we merely failed to read once.
 pub(crate) struct Reconciled {
     enqueued: bool,
     seen: bool,
 }
 
-/// Reconcile a single filesystem file against its recorded state. Desktop path:
-/// stat the file, then run the shared reconcile tail hashing/uploading straight
-/// from the fs path. A transient stat error leaves the recorded state untouched.
+/// Reconcile one filesystem file (desktop): stat, then the shared reconcile tail reading
+/// straight from the fs path. A transient stat error leaves recorded state untouched.
 pub(crate) async fn reconcile_file<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
@@ -398,10 +344,8 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
             return Ok(Reconciled { enqueued: false, seen: false });
         }
         Err(e) => {
-            // Transient failure (AV/indexer lock, brief EIO): surface as an
-            // error so the scan is not "clean" and the sweep stays blocked.
-            // Returning seen:false here would let one locked file's state row
-            // be pruned, forcing a full redundant re-upload next scan.
+            // Transient failure (AV/indexer lock, brief EIO): error so the sweep stays blocked;
+            // seen:false would prune the row and force a redundant re-upload next scan.
             warn!(watch = %watch.id, rel = %rel_path, "night watcher: stat failed, blocking sweep this scan: {e}");
             return Err(AppError::Internal(format!(
                 "stat {} failed: {e}",
@@ -413,8 +357,7 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
         return Ok(Reconciled { enqueued: false, seen: false });
     }
     let size = meta.len() as i64;
-    // Millisecond precision: whole-second truncation made same-second,
-    // same-size edits invisible to the fingerprint forever.
+    // Millisecond precision: whole-second truncation made same-second edits invisible forever.
     let mtime = meta
         .modified()
         .ok()
@@ -445,9 +388,8 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
     Ok(Reconciled { enqueued, seen: true })
 }
 
-/// Reconcile a single SAF tree entry (Android). Mirrors [`reconcile_file`] but
-/// feeds the provider-supplied mtime/size into the same shared tail, and only
-/// hashes/stages the document when the tail decides an upload is required.
+/// Reconcile one SAF tree entry (Android), mirroring [`reconcile_file`] with provider-supplied
+/// mtime/size; hash/stage only when the shared tail decides an upload is required.
 async fn reconcile_saf_entry<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
@@ -456,15 +398,12 @@ async fn reconcile_saf_entry<S: NwCtx>(
 ) -> AppResult<Reconciled> {
     let rel_path = entry.rel_path.clone();
     let doc_uri = entry.doc_uri.clone();
-    // SAF providers report -1 for unknown size; clamp to 0 so the fast-path
-    // fingerprint stays a non-negative, comparable value.
+    // SAF providers may report -1 for unknown size; clamp so fingerprints stay comparable.
     let size = entry.size.max(0);
-    // Provider mtimes may arrive in seconds or milliseconds depending on the
-    // provider; normalize into the same millisecond domain the fs path uses.
+    // Provider mtimes arrive in seconds or ms; normalize to the fs path's millisecond domain.
     let mtime = norm_mtime(entry.mtime);
 
-    // Stage dir: a sibling of the db file, mirroring how the encrypt path uses
-    // an enc_tmp scratch area under the same parent.
+    // Stage dir beside the db file, mirroring the encrypt path's enc_tmp scratch placement.
     let stage_dir = state
         .db_path()
         .parent()
@@ -483,8 +422,7 @@ async fn reconcile_saf_entry<S: NwCtx>(
             let doc_uri = doc_uri.clone();
             move || async move { crate::saf::hash_saf_document(doc_uri).await.map_err(AppError::Internal) }
         },
-        // upload source: copy the SAF document to a real fs path first, so the
-        // existing encrypt/enqueue path (which needs a File) can consume it.
+        // upload source: stage the SAF doc to a real fs path the encrypt/enqueue path can open.
         move || {
             let doc_uri = doc_uri.clone();
             let stage_dir = stage_dir.clone();
@@ -493,38 +431,26 @@ async fn reconcile_saf_entry<S: NwCtx>(
                     .await
                     .map_err(AppError::Internal)?;
                 let path = PathBuf::from(&staged.path);
-                // Clean up the per-call staging subdir after the upload consumes
-                // the file. `stage_saf_upload` writes into <stage_dir>/<uuid>/.
+                // stage_saf_upload writes <stage_dir>/<uuid>/; drop that subdir once consumed.
                 let cleanup_dir = path.parent().map(|p| p.to_path_buf());
                 Ok(UploadSource { path, cleanup_dir })
             }
         },
     )
     .await?;
-    // The SAF enumerator already reported this entry exists (it supplied the
-    // mtime/size), so a reconciled SAF entry is always "seen".
+    // The enumerator supplied this entry's metadata, so a reconciled SAF entry is always seen.
     Ok(Reconciled { enqueued, seen: true })
 }
 
-/// The upload source produced for the shared reconcile tail: `path` is a real
-/// filesystem file the encrypt/enqueue path can open; `cleanup_dir`, when set,
-/// is a staging directory to remove once the source is no longer needed (SAF
-/// staging only; desktop reuses the file in place).
+/// Upload source for the shared reconcile tail. `cleanup_dir` (SAF staging only; desktop
+/// passes `None`) is a scratch dir removed once the source is no longer needed.
 struct UploadSource {
     path: PathBuf,
     cleanup_dir: Option<PathBuf>,
 }
 
-/// Shared reconcile tail for both the fs (desktop) and SAF (Android) paths.
-///
-/// Given a `rel_path` plus its cheap `mtime`/`size` fingerprint, it runs the
-/// exact same logic the desktop path always did: fast-path skip on an unchanged
-/// fingerprint, then hash + [`decide`], then TouchOnly-refresh or claim + enqueue.
-///
-/// `hash_fn` computes the content hash (only invoked on a fingerprint miss).
-/// `source_fn` produces the upload source path (only invoked once the file is
-/// claimed and definitely uploading), so SAF staging never touches unchanged
-/// files.
+/// Shared reconcile tail for the fs (desktop) and SAF (Android) paths: mtime+size fast-path
+/// skip, then hash + [`decide`]. `hash_fn` runs only on a miss; `source_fn` only once uploading.
 #[allow(clippy::too_many_arguments)]
 async fn reconcile_entry<S, HFut, SFut, HF, SF>(
     state: &S,
@@ -543,13 +469,11 @@ where
     SF: FnOnce() -> SFut,
     SFut: std::future::Future<Output = AppResult<UploadSource>>,
 {
-    // Fast-path state comes from the scan's prefetched map when present (one
-    // bulk load); the single-file watcher path + tests pass None and hit the DB.
+    // State from the scan's prefetched map when present; watcher path/tests pass None (DB hit).
     let prev = match prefetched {
         Some(map) => map.get(rel_path).cloned(),
         None => state.db().file_state_get(&watch.id, rel_path).await?,
     };
-    // Fast path: unchanged by cheap fingerprint.
     if let Some(p) = &prev {
         if norm_mtime(p.mtime) == mtime && p.size == size {
             debug!(watch = %watch.id, rel = %rel_path, "night watcher: unchanged (mtime+size)");
@@ -557,12 +481,8 @@ where
         }
     }
 
-    // Retry backoff BEFORE hashing: a file paused after MAX_UPLOAD_RETRIES
-    // failures must not cost a full disk read + blake3 pass on every scan
-    // while it waits out the pause. Once the pause elapses, clear the row for
-    // a fresh set of tries. (Side effect: TouchOnly fingerprint refreshes are
-    // deferred until the pause ends — one extra hash later, no correctness
-    // impact.)
+    // Backoff checked BEFORE hashing: a paused file mustn't pay a disk read + blake3 pass per
+    // scan. When the pause elapses the row clears for fresh tries (TouchOnly refresh waits too).
     if let Some((fail_count, retry_after)) =
         state.db().file_retry_get(&watch.id, rel_path).await?
     {
@@ -583,8 +503,7 @@ where
             return Ok(false);
         }
         Decision::TouchOnly => {
-            // Content identical (e.g. touch / metadata-only change): refresh
-            // the cheap fingerprint so we don't rehash next scan. No upload.
+            // Content identical (touch/metadata-only): refresh fingerprint so we don't rehash next scan.
             let synced_etag = prev.and_then(|p| p.synced_etag);
             state
                 .db()
@@ -605,15 +524,13 @@ where
         Decision::Upload => {}
     }
 
-    // Content changed (or new). Claim the file so the watcher and the full
-    // scan can't double-enqueue it.
+    // Changed/new: claim so the watcher and full scan can't double-enqueue.
     if !state.nw_claim(&watch.id, rel_path) {
         debug!(watch = %watch.id, rel = %rel_path, "night watcher: already in flight, skipping");
         return Ok(false);
     }
     info!(watch = %watch.id, rel = %rel_path, size, "night watcher: enqueuing upload");
 
-    // Materialize the upload source only now that we are committed to uploading.
     let source = match source_fn().await {
         Ok(s) => s,
         Err(e) => {
@@ -622,10 +539,8 @@ where
         }
     };
 
-    // The staging scratch dir (SAF only) must outlive enqueue: the upload runs
-    // later in a TransferManager worker that opens the file asynchronously. Its
-    // removal is deferred to the persist sink, which fires on the terminal
-    // transfer event. On an enqueue error we clean it up here.
+    // The SAF staging dir must outlive enqueue (the worker opens the file asynchronously), so
+    // removal defers to the persist sink's terminal event; enqueue errors clean up here.
     let result = enqueue_upload_for(
         state,
         watch,
@@ -646,9 +561,7 @@ where
     result.map(|_| true)
 }
 
-/// Test-only reconcile entrypoint mirroring the production `AppState` path but
-/// with an injected `NwCtx` (real `Db` + `TransferManager` + MinIO store). Not
-/// compiled into release binaries.
+/// Test-only reconcile entrypoint driving the real path via an injected [`NwCtx`].
 #[cfg(feature = "nw-test-hooks")]
 pub async fn reconcile_file_for_test<S: NwCtx>(
     state: &S,
@@ -661,18 +574,15 @@ pub async fn reconcile_file_for_test<S: NwCtx>(
         .map(|r| r.enqueued)
 }
 
-/// Test-only full-scan entrypoint (walks the dir, applies ignore, reconciles).
+/// Test-only full-scan entrypoint.
 #[cfg(feature = "nw-test-hooks")]
 pub async fn reconcile_watch_for_test<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
     let token = CancellationToken::new();
     reconcile_watch(state, watch, &token).await
 }
 
-/// Build the encrypted-if-needed source, resolve the store, and enqueue the
-/// upload with a sink that persists `nw_file_state` on completion.
-///
-/// `stage_dir`, when `Some` (SAF only), is a per-file staging scratch dir that
-/// the persist sink removes once the transfer reaches a terminal state.
+/// Encrypt-if-needed, resolve the store, and enqueue the upload with a sink persisting
+/// `nw_file_state` on completion. `stage_dir` (SAF only) is scratch the sink removes at term.
 #[allow(clippy::too_many_arguments)]
 async fn enqueue_upload_for<S: NwCtx>(
     state: &S,
@@ -733,14 +643,8 @@ async fn enqueue_upload_for<S: NwCtx>(
     enqueue.map(|_| ())
 }
 
-/// A progress sink that, on a successful upload, records the file's synced
-/// fingerprint and clears the in-flight claim. On failure/cancel it just
-/// releases the claim so a later scan can retry.
-///
-/// `stage_dir` (SAF only) is the per-file staging scratch dir; it is removed on
-/// every terminal event (done/failed/canceled) so a staged copy never lingers.
-/// The upload worker holds the file open until the transfer finishes, so
-/// removing it here is safe. Desktop passes `None` and nothing is touched.
+/// Progress sink: success records the synced fingerprint + clears the claim; failure/cancel
+/// releases the claim for retry. `stage_dir` (SAF) removed on terminal events; worker holds it open.
 #[allow(clippy::too_many_arguments)]
 fn persist_sink<S: NwCtx>(
     state: S,
@@ -778,7 +682,6 @@ fn persist_sink<S: NwCtx>(
                 } else {
                     info!(watch = %watch_id, rel = %rel_path, "night watcher: synced");
                 }
-                // Success clears any accumulated retry backoff for this file.
                 let _ = state.db().file_retry_clear(&watch_id, &rel_path).await;
                 state.nw_unclaim(&watch_id, &rel_path);
             });
@@ -813,7 +716,7 @@ fn persist_sink<S: NwCtx>(
     })
 }
 
-/// Stream a file through blake3. Runs on a blocking thread; O(64 KiB) memory.
+/// Stream a file through blake3 on a blocking thread.
 async fn hash_file(path: &Path) -> AppResult<String> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || -> AppResult<String> {
@@ -828,11 +731,8 @@ async fn hash_file(path: &Path) -> AppResult<String> {
     .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
-/// Recursively list every regular file under `root`, returning paths relative
-/// to `root` with `/` separators, plus a count of subdir read failures.
-/// A read failure on `root` itself is a hard error (the watched dir vanished
-/// mid-scan): return Err so the caller stops instead of silently pruning state.
-/// Runs on a blocking thread.
+/// Recursively list files under `root` as `/`-separated rel paths + a subdir read-error count.
+/// A root read failure is a hard error, so the caller stops rather than silently pruning state.
 async fn collect_files(root: PathBuf) -> AppResult<(Vec<String>, u64)> {
     tokio::task::spawn_blocking(move || -> AppResult<(Vec<String>, u64)> {
         let mut out = Vec::new();
@@ -872,22 +772,16 @@ async fn collect_files(root: PathBuf) -> AppResult<(Vec<String>, u64)> {
     .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
-/// What a reconcile should do with a file, given its recorded state and its
-/// freshly-computed fingerprint. Pure: the decision core, unit-tested below.
+/// Pure reconcile decision core (unit-tested below).
 #[derive(Debug, PartialEq, Eq)]
 enum Decision {
-    /// Already in sync (same size + mtime). No hashing needed.
     Skip,
-    /// Bytes unchanged but mtime/size fingerprint drifted: refresh record only.
     TouchOnly,
-    /// New or genuinely changed content: upload.
     Upload,
 }
 
-/// `nw_file_state.mtime` historically stored whole seconds; rows written by
-/// newer builds store milliseconds. Values below 10^12 can only be seconds
-/// (millisecond epoch values are ~1.7e12), so legacy rows are scaled up on
-/// read. Worst case for a misclassified row is one extra hash pass.
+/// Legacy rows stored whole seconds; ms epochs are ~1.7e12, so smaller positive values are
+/// seconds and get scaled up on read. Misclassification costs at most one extra hash pass.
 fn norm_mtime(v: i64) -> i64 {
     if v > 0 && v < 1_000_000_000_000 {
         v * 1000
@@ -906,10 +800,8 @@ fn decide(prev: Option<&FileState>, mtime: i64, size: i64, hash: &str) -> Decisi
 
 fn normalize_rel(rel: &Path) -> String {
     let lossy = rel.to_string_lossy();
-    // Windows separators must become '/' for S3 keys + gitignore matching.
-    // On Unix a backslash is a legal filename character — converting it would
-    // map "a\b.txt" onto the unrelated nested key "a/b.txt" (and its state
-    // row), so the conversion is Windows-only.
+    // Windows: '\' → '/' for S3 keys + gitignore matching. On Unix a backslash is a legal
+    // filename char, so converting there would collide onto unrelated keys.
     #[cfg(windows)]
     return lossy.replace('\\', "/");
     #[cfg(not(windows))]
@@ -925,8 +817,7 @@ fn build_key(prefix: &str, rel: &str) -> String {
     }
 }
 
-// Desktop uses the ripgrep `ignore` matcher. Android has no `ignore` dep, so
-// the matcher is a no-op there for the MVP.
+// Desktop uses the ripgrep `ignore` matcher; Android has no such dep, so it's a no-op there.
 
 #[cfg(not(target_os = "android"))]
 struct Matcher(Option<ignore::gitignore::Gitignore>);
@@ -946,9 +837,7 @@ impl Matcher {
 
     fn is_ignored(&self, rel: &str) -> bool {
         match &self.0 {
-            // Check ancestors too: a `build/` rule must exclude `build/x.bin`.
-            // We walk every file then filter per-path, so directory-prune rules
-            // only take effect via the parent check.
+            // Ancestors too, so a `build/` rule excludes `build/x.bin` (we filter per-file).
             Some(ig) => ig.matched_path_or_any_parents(rel, false).is_ignore(),
             None => false,
         }
@@ -985,7 +874,6 @@ mod tests {
     #[test]
     fn decide_skips_unchanged_by_fingerprint() {
         let prev = fs(1_700_000_000_000, 10, "aaa");
-        // Same mtime+size: skip without even trusting the hash.
         assert_eq!(
             decide(Some(&prev), 1_700_000_000_000, 10, "zzz"),
             Decision::Skip
@@ -994,8 +882,6 @@ mod tests {
 
     #[test]
     fn decide_normalizes_legacy_second_mtime() {
-        // Rows written by older builds store whole seconds; they must compare
-        // equal to the same instant expressed in milliseconds.
         let prev = fs(1_700_000_000, 10, "aaa");
         assert_eq!(
             decide(Some(&prev), 1_700_000_000_000, 10, "zzz"),
@@ -1006,7 +892,6 @@ mod tests {
     #[test]
     fn decide_touch_only_when_bytes_match_but_fingerprint_drifts() {
         let prev = fs(1_700_000_000_000, 10, "aaa");
-        // mtime moved but content hash identical: refresh record, no upload.
         assert_eq!(
             decide(Some(&prev), 1_700_000_100_000, 10, "aaa"),
             Decision::TouchOnly
@@ -1076,10 +961,9 @@ mod desktop {
     use super::{normalize_rel, reconcile_file, Matcher};
     use crate::state::AppState;
 
-    /// Debounce window: coalesce rapid events (editor atomic-save writes many
-    /// events) before reconciling.
+    /// Debounce window coalescing rapid FS events (e.g. editor atomic saves) before reconcile.
     const DEBOUNCE_MS: u64 = 750;
-    /// How often to reconcile the live watcher-handle set with the DB.
+    /// How often live watcher handles resync with the DB.
     const RESYNC_SECS: u64 = 30;
 
     pub async fn run_watchers(state: AppState, token: CancellationToken) {
@@ -1122,8 +1006,7 @@ mod desktop {
         }
     }
 
-    /// Add watchers for newly-enabled watches, drop watchers for ones that are
-    /// gone or disabled.
+    /// Add watchers for newly-enabled watches; drop ones gone or disabled.
     async fn sync_handles(
         state: &AppState,
         handles: &mut HashMap<String, RecommendedWatcher>,
@@ -1169,7 +1052,6 @@ mod desktop {
         }
     }
 
-    /// Map each changed absolute path back to its watch and reconcile it.
     async fn reconcile_paths(state: &AppState, paths: Vec<PathBuf>) {
         let watches = match state.db.list_enabled_watches().await {
             Ok(w) => w,

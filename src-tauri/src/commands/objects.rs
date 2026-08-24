@@ -1,9 +1,5 @@
-//! Object-level Tauri commands.
-//!
-//! Mutating commands (delete, copy) update the local search cache
-//! ([`crate::db::cache`]) immediately after the remote write succeeds. The
-//! refresh is best-effort — a cache write failure does not roll back the
-//! remote operation, only logs a warning.
+//! Object-level Tauri commands. Mutating commands update the local search
+//! cache best-effort: a cache write failure never rolls back the remote op.
 
 use chrono::Utc;
 use tauri::State;
@@ -18,15 +14,15 @@ use crate::store::{
     ObjectVersion,
 };
 
-/// Expire the prefix TTL on cache write failure so the next browse_prefix call
+/// On cache write failure, expires the prefix TTL so the next browse_prefix
 /// triggers a background re-sync and auto-corrects the stale entry.
 fn expire_prefix_on_cache_err(state: &AppState, account_id: &str, bucket: &str, key: &str, err: &crate::error::AppError) {
     warn!("cache write failed for {key}: {err} — expiring prefix TTL to trigger re-sync");
     let db = state.db.clone();
     let account_id = account_id.to_string();
     let bucket = bucket.to_string();
-    // Derive the *parent* listing prefix. Strip a trailing slash first so
-    // folder-marker keys like "foo/bar/" resolve to "foo/" instead of themselves.
+    // Derive the *parent* listing prefix; strip a trailing slash first so
+    // folder markers like "foo/bar/" resolve to "foo/" instead of themselves.
     let prefix = {
         let stripped = key.trim_end_matches('/');
         stripped.rfind('/').map(|i| &stripped[..=i]).unwrap_or("").to_string()
@@ -36,8 +32,8 @@ fn expire_prefix_on_cache_err(state: &AppState, account_id: &str, bucket: &str, 
     });
 }
 
-/// Record a write-op outcome against the capability cache. Treats Allowed +
-/// Denied; ignores other error classes (network blip ≠ proof of denial).
+/// Records Allowed/Denied write outcomes to the capability cache; ignores
+/// other error classes (a network blip is not proof of denial).
 async fn record_write(
     state: &AppState,
     account_id: &str,
@@ -94,7 +90,6 @@ pub async fn head_object(
         .await?
         .head_object(&bucket, &key)
         .await?;
-    // Refresh the cache entry while we have authoritative metadata.
     if let Err(e) = state.db.cache_upsert_object(&account_id, &bucket, &meta).await {
         expire_prefix_on_cache_err(&state, &account_id, &bucket, &meta.key, &e);
     }
@@ -117,8 +112,6 @@ pub async fn create_folder(
     let res = store.create_folder(&bucket, &prefix).await;
     record_write(&state, &account_id, &bucket, WriteOp::Put, &res).await;
     res?;
-    // Upsert the new directory marker into the local cache so browse_prefix
-    // reflects it immediately without waiting for the next background sync.
     let meta = ObjectMeta {
         key: key.clone(),
         size: 0,
@@ -166,8 +159,8 @@ pub async fn delete_objects(
         .await?
         .delete_objects(&bucket, &keys)
         .await;
-    // Per-key errors are inside the result; the outer Result reflects
-    // request-level success. Mirror that into the capability tracker.
+    // Outer Result is request-level success (per-key errors inside); mirror
+    // that into the capability tracker.
     let cap = match &res {
         Ok(_) => CapState::Allowed,
         Err(AppError::AccessDenied(_)) => CapState::Denied,
@@ -267,8 +260,6 @@ pub async fn copy_object(
     record_write(&state, &account_id, &dst_bucket, WriteOp::Put, &res).await;
     res?;
 
-    // Mirror the new object into the cache by reading authoritative metadata
-    // from the destination. Best-effort.
     match store.head_object(&dst_bucket, &dst_key).await {
         Ok(meta) => {
             if let Err(e) = state
@@ -284,10 +275,8 @@ pub async fn copy_object(
     Ok(())
 }
 
-/// Move/rename an object. S3 has no atomic move — we do a server-side `copy`
-/// followed by `delete_object` on the source. If the delete fails the
-/// destination remains and is reported in the error message; the caller can
-/// retry the delete or clean up manually.
+/// Move/rename: S3 has no atomic move — copy then delete the source. If the
+/// source delete fails, both keys exist and the error says which to clean up.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn move_object(
@@ -307,8 +296,8 @@ pub async fn move_object(
         .await;
     record_write(&state, &account_id, &dst_bucket, WriteOp::Put, &copy_res).await;
     copy_res?;
-    // Best-effort cache mirror at destination before deleting source so the
-    // FE never sees a moment when neither key is in the index.
+    // Mirror dst into the cache before deleting src so the FE never sees a
+    // moment with neither key indexed.
     if let Ok(meta) = store.head_object(&dst_bucket, &dst_key).await {
         if let Err(e) = state
             .db
@@ -321,8 +310,6 @@ pub async fn move_object(
     let del_res = store.delete_object(&src_bucket, &src_key).await;
     record_write(&state, &account_id, &src_bucket, WriteOp::Delete, &del_res).await;
     if let Err(e) = del_res {
-        // Copy succeeded but source delete failed. Both src and dst now exist in
-        // S3. Surface the dst key so the user can decide which to delete.
         return Err(AppError::Internal(format!(
             "copied to \"{dst_key}\" but could not delete source \"{src_key}\": {e}. \
              Both keys exist — delete the unwanted one manually."
@@ -354,34 +341,18 @@ pub async fn put_object_acl(
         .await
 }
 
-/// Hard cap for the in-memory write commands (`put_object_text` /
-/// `put_object_bytes_cmd`), enforced BEFORE any encryption decision so the
-/// limit holds regardless of bucket encryption status.
-///
-/// We deliberately pick a tighter 64 MiB than
-/// [`crate::crypto::MAX_INMEMORY_CRYPT_BYTES`] (512 MiB): these payloads
-/// arrive fully materialized over IPC and are held in RAM as plaintext +
-/// ciphertext simultaneously; 64 MiB comfortably covers every legitimate
-/// text-editor / small-file write, while anything larger belongs on the
-/// streaming file-upload path (`enqueue_upload`) which never buffers whole
-/// objects. This bounds worst-case command memory even when encryption is
-/// disabled and no crypt-buffer check would otherwise run.
+/// Hard cap for in-memory writes, enforced BEFORE any encryption decision;
+/// tighter than crypto's 512 MiB limit — IPC payloads buffer whole objects in RAM.
 const MAX_INMEMORY_PUT_BYTES: usize = 64 * 1024 * 1024;
 
-/// Encrypt `data` for a bucket via its age recipient, or return as-is when
-/// encryption is not configured. Small in-memory helper used by
-/// `put_object_text` / `put_object_bytes_cmd`; file-based uploads take the
-/// streaming path in `commands/transfers.rs` instead.
-///
-/// Returns `(bytes, user_metadata)`. Callers must forward `user_metadata` to
-/// the store so HEAD-based detection on later downloads/previews works.
+/// Encrypts `data` via the bucket's age recipient (passthrough when unconfigured);
+/// returns `(bytes, user_metadata)` that callers must forward for HEAD-based detection.
 async fn encrypt_for_bucket(
     state: &AppState,
     account_id: &str,
     bucket: &str,
     data: Vec<u8>,
 ) -> AppResult<(Vec<u8>, std::collections::HashMap<String, String>)> {
-    // Up-front cap, independent of encryption config (see MAX_INMEMORY_PUT_BYTES).
     if data.len() > MAX_INMEMORY_PUT_BYTES {
         return Err(AppError::InvalidInput(format!(
             "in-memory write refused: payload is {} bytes, limit is {} bytes — \
@@ -394,9 +365,6 @@ async fn encrypt_for_bucket(
         Some(c) => c,
         None => return Ok((data, Default::default())),
     };
-    // In-memory path: bounded by MAX_INMEMORY_CRYPT_BYTES because we allocate
-    // the ciphertext buffer up front. Large writes should go through the
-    // file-based upload path in `commands/transfers.rs`.
     if (data.len() as u64) > crate::crypto::MAX_INMEMORY_CRYPT_BYTES {
         return Err(AppError::InvalidInput(format!(
             "encrypted in-memory write refused: payload is {} bytes, limit is {} bytes",
@@ -429,53 +397,41 @@ pub async fn preview_object(
     let max = max_bytes.unwrap_or(1024 * 1024);
     let store = state.store_for(&account_id).await?;
 
-    // For encrypted buckets, decide per-object whether it is client-encrypted.
-    // Objects uploaded before encryption was enabled won't carry the metadata
-    // and are served as-is; objects marked encrypted go through the
-    // whole-object GCM decrypt path (GCM authentication covers all bytes).
+    // Encrypted buckets: decide per object. Pre-encryption objects lack the
+    // marker and are served as-is; marked ones take whole-object GCM decrypt.
     if state.db.get_encryption_config(&account_id, &bucket).await?.is_some() {
         let head = store.head_object(&bucket, &key).await?;
         let marked = head.user_metadata.get("cosmog-encrypted").map(|s| s.as_str()) == Some("1");
 
-        // Size guard: refuse to buffer whole ciphertext into RAM for absurdly
-        // large previews. See `MAX_PREVIEW_DECRYPT_BYTES` for rationale.
+        // Size guard: refuse to buffer huge ciphertext into RAM for previews
+        // (see `MAX_PREVIEW_DECRYPT_BYTES`).
         if marked && head.size as u64 > MAX_PREVIEW_DECRYPT_BYTES {
-            // Fall back to the standard bounded range read; if it's actually
-            // encrypted we can't decrypt it here anyway and the FE will see
-            // ciphertext bytes (marked as such by the metadata).
+            // Fall back to a bounded range read; oversized ciphertext can't be
+            // decrypted here anyway, so the FE sees ciphertext bytes.
             return store.read_object_range(&bucket, &key, max).await;
         }
 
-        // Unmarked object: do the cheap BOUNDED range read FIRST and only pay
-        // for a whole-object fetch when those bytes turn out to be an age
-        // payload. Most objects on an encrypted bucket predate encryption or
-        // were written by other tools, so this keeps the common case at one
-        // small ranged GET instead of buffering the full object.
+        // Unmarked: do the cheap BOUNDED range read first and only pay for a
+        // whole-object fetch when those bytes turn out to be an age payload.
         if !marked {
             let preview = store.read_object_range(&bucket, &key, max).await?;
-            // Range reads start at offset 0, so the first bytes are the
-            // object's header — enough for the magic probe.
+            // Range reads start at offset 0 — enough for the magic probe.
             if !crate::crypto::is_age_ciphertext(&preview.bytes) {
                 return Ok(preview);
             }
-            // Age-format bytes detected without the marker: fall through to
-            // the full-fetch decrypt path below, which re-checks and warns.
+            // Age bytes detected without the marker: fall through to the
+            // full-fetch decrypt path below, which re-checks and warns.
         }
 
-        // Fetch the whole ciphertext. `read_object_full` bypasses the 8 MiB
-        // HARD_CAP that `read_object_range` applies for FE previews; age
-        // streaming decrypt still needs the full stream to authenticate.
+        // Whole-ciphertext fetch: read_object_full bypasses read_object_range's
+        // 8 MiB preview cap; age decrypt needs the full stream to authenticate.
         let ciphertext = store.read_object_full(&bucket, &key).await?;
-        // Trust the payload bytes, not S3 user metadata. An attacker with PUT
-        // rights could otherwise strip or forge `cosmog-encrypted` to confuse
-        // the decrypt decision.
+        // Trust the payload bytes, not S3 user metadata: an attacker with PUT
+        // rights could strip/forge `cosmog-encrypted`.
         let looks_encrypted = crate::crypto::is_age_ciphertext(&ciphertext);
         if marked && !looks_encrypted {
-            // Metadata says encrypted, bytes disagree. Two cases:
-            //   - Legacy (pre-age) upload from an older cosmog build.
-            //   - Attacker stripped the age header (data-integrity attack).
-            // Either way, do NOT serve raw ciphertext to the FE — a browser
-            // will render it as garbage. Surface a clear error instead.
+            // Metadata says encrypted, bytes disagree (legacy pre-age upload or
+            // stripped header): never serve raw ciphertext — surface an error.
             return Err(AppError::InvalidInput(
                 "cannot decrypt: payload is not in the expected age format".into(),
             ));
@@ -511,10 +467,8 @@ pub async fn preview_object(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))??;
 
-        // `total_size` reports plaintext length (what the FE displays and what
-        // `truncated` is compared against). The ciphertext-vs-plaintext delta
-        // is `HEADER_LEN + 16` (nonce+tag); using plaintext keeps FE units
-        // coherent with the returned `bytes`.
+        // total_size reports plaintext length, keeping FE units coherent with
+        // the returned `bytes` (what `truncated` is compared against).
         let total_size = Some(plaintext.len() as i64);
         let truncated = plaintext.len() as u64 > max;
         let bytes = plaintext.into_iter().take(max as usize).collect();
@@ -524,9 +478,8 @@ pub async fn preview_object(
     store.read_object_range(&bucket, &key, max).await
 }
 
-/// Maximum ciphertext size we're willing to buffer in RAM for an in-app
-/// preview decrypt. Anything larger returns an error so the user knows to
-/// download the object instead of previewing it.
+/// Max ciphertext buffered in RAM for an in-app preview decrypt; anything
+/// larger errors so the user knows to download instead of preview.
 const MAX_PREVIEW_DECRYPT_BYTES: u64 = 128 * 1024 * 1024;
 
 #[tracing::instrument(skip_all, err)]
@@ -589,15 +542,13 @@ pub async fn presign_get(
         Some(s) => s,
         None => state.db.settings_load().await?.presign_default_expires_secs,
     };
-    // Clamp to S3-acceptable bounds: SigV4 presigned URLs cap at 7 days
-    // (604800s), and sub-minute links are useless (and usually a caller bug).
+    // SigV4 presigned URLs cap at 7 days (604800s); sub-minute links are
+    // useless and usually a caller bug.
     let expires = expires.clamp(60, 604_800);
     let store = state.store_for(&account_id).await?;
 
-    // If the bucket has client-side encryption configured, any presigned URL
-    // may deliver ciphertext (we can't cheaply prove the specific object is
-    // plaintext without downloading it, and the S3 marker is attacker-
-    // controllable). Refuse across the board unless the caller opts in.
+    // Encrypted bucket: a presigned URL may deliver ciphertext and the S3
+    // marker is attacker-controllable — refuse unless allow_ciphertext=true.
     if !allow_ciphertext.unwrap_or(false)
         && state.db.get_encryption_config(&account_id, &bucket).await?.is_some()
     {
@@ -666,15 +617,12 @@ pub async fn put_object_bytes_cmd(
     put_object_inner(&store, &state, &account_id, &bucket, &key, data, &content_type, md).await
 }
 
-/// Hard stop for `list_keys_under_prefix` paging. Without it, pointing the
-/// empty-bucket / delete-folder flow at a bucket root with millions of keys
-/// would page S3 forever and balloon both backend RAM and the IPC payload
-/// delivered to the FE. Callers should narrow the prefix instead.
+/// Hard stop for `list_keys_under_prefix` paging: bucket-root walks with
+/// millions of keys would otherwise page S3 forever, ballooning RAM + IPC payload.
 const MAX_LISTED_KEYS: usize = 100_000;
 
-/// List every object key under `prefix` by paging S3 directly (no cache).
-/// Used by delete-folder and empty-bucket operations so stale cache doesn't
-/// cause silent misses.
+/// Lists every key under `prefix` by paging S3 directly (no cache), used by
+/// delete-folder/empty-bucket so stale cache can't cause silent misses.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn list_keys_under_prefix(

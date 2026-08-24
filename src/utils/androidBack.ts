@@ -1,16 +1,7 @@
 import { createEffect, onCleanup } from "solid-js";
 
-// Android back button / back gesture handling.
-//
-// The app is a single SolidJS view driven by signals, not the browser history,
-// so the WebView's canGoBack() is always false and the OS back action would
-// exit the app. Instead MainActivity forwards every back press to
-// window.__androidBack(); we run a LIFO stack of handlers and return true when
-// one consumes the press. false lets the OS proceed (background / exit).
-//
-// Handlers registered later sit on top. Since a child component mounts after
-// its parent, a nested overlay's handler is checked before the shell's — the
-// back press unwinds the UI from the most-nested layer outward.
+// App state is signal-driven (WebView canGoBack() is always false), so MainActivity forwards every
+// back press to window.__androidBack(); handlers run LIFO (later-registered child/overlay wins).
 
 type BackHandler = () => boolean;
 

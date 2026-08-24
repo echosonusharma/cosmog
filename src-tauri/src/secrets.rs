@@ -1,14 +1,5 @@
-//! Thin wrapper over the platform-native secret store.
-//!
-//! Desktop: OS keyring (Secret Service on Linux, Keychain on macOS, Credential
-//! Manager on Windows) via the `keyring` crate.
-//!
-//! Android: EncryptedSharedPreferences backed by the Android Keystore. See
-//! `SecretStore.kt`.
-//!
-//! [`SERVICE`] must match the application's identifier so OS UIs render
-//! sensible attribution. If you change it, existing users will lose access to
-//! their stored secrets.
+//! Secrets never touch SQLite: the OS keyring (Secret Service / Keychain / Credential Manager) on
+//! desktop, Keystore-backed EncryptedSharedPreferences on Android. Renaming SERVICE orphans secrets.
 
 use crate::error::{AppError, AppResult};
 
@@ -46,9 +37,8 @@ mod backend {
 pub(crate) static SECRET_STORE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
 
-// Guards the one-shot ndk_context init. CosmogApp.onCreate + MainActivity.onCreate
-// both call initNdkContext; ndk_context::initialize_android_context asserts it is
-// only called once and aborts on the second, so re-entry must be a no-op.
+// One-shot ndk_context init: both CosmogApp.onCreate and MainActivity.onCreate call initNdkContext,
+// and ndk_context asserts single initialization (aborts on double), so re-entry must be a no-op.
 #[cfg(target_os = "android")]
 static NDK_CTX_INIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -78,7 +68,8 @@ pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
         }
     };
     let ctx_raw = ctx_global.as_obj().as_raw();
-    // Leak the global ref so the JNI reference stays valid for the process lifetime.
+    // SAFETY: leak the global ref so the JNI reference stays valid for the process lifetime;
+    // ndk_context keeps using it after this function returns.
     std::mem::forget(ctx_global);
     unsafe {
         ndk_context::initialize_android_context(
@@ -86,9 +77,8 @@ pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
             ctx_raw.cast(),
         );
     }
-    // Cache the SecretStore class as a global ref. FindClass from an attached
-    // native thread would otherwise use the system ClassLoader and fail to
-    // find app classes.
+    // Cache SecretStore as a global ref: FindClass from an attached native thread uses the system
+    // ClassLoader and cannot find app classes.
     match env.find_class("com/sonus/cosmog/SecretStore") {
         Ok(cls) => match env.new_global_ref(cls) {
             Ok(g) => {
@@ -129,7 +119,8 @@ mod backend {
         let cls_obj: &JObject = cls_ref.as_obj();
         let cls: &jni::objects::JClass = cls_obj.into();
         let result = f(&mut env, &app, cls).map_err(|e| AppError::Keyring(format!("JNI: {e}")));
-        // Do not drop `app` — it is a global ref owned by ndk_context.
+        // SAFETY: do NOT drop `app` — the raw pointer backs a global ref owned by ndk_context;
+        // dropping here would free a reference we don't own.
         std::mem::forget(app);
         result
     }
@@ -203,8 +194,7 @@ pub fn delete_secret(account_id: &str) -> AppResult<()> {
     backend::delete(account_id)
 }
 
-/// `Ok(true)` present, `Ok(false)` absent, `Err` transient (treat as unknown,
-/// not missing).
+/// Ok(true)=present, Ok(false)=absent, Err=transient (unknown, NOT missing).
 pub fn secret_present(account_id: &str) -> AppResult<bool> {
     Ok(backend::get(account_id)?.is_some())
 }
@@ -213,13 +203,11 @@ fn enc_key(account_id: &str, bucket: &str) -> String {
     format!("enc:{account_id}:{bucket}")
 }
 
-/// Store the bech32 `AGE-SECRET-KEY-...` string for a bucket.
 pub fn set_enc_identity(account_id: &str, bucket: &str, secret: &str) -> AppResult<()> {
     backend::set(&enc_key(account_id, bucket), secret)
 }
 
-/// Retrieve the bech32 `AGE-SECRET-KEY-...` string, or `None` if the entry is
-/// missing. Callers should scrub the returned buffer once done.
+/// Returns None if absent. Callers should scrub the returned buffer after use.
 pub fn get_enc_identity(account_id: &str, bucket: &str) -> AppResult<Option<String>> {
     backend::get(&enc_key(account_id, bucket))
 }

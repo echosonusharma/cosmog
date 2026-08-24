@@ -4,11 +4,6 @@ import { formatBytes, basename } from "../../utils/fmt";
 import { pct } from "../transfers/helpers";
 import { IconArrowUpLine, IconArrowDownLine } from "../../utils/icons";
 
-/**
- * Sticky, always-on progress strip shown on every view whenever at least one
- * transfer is in flight. Each row surfaces the filename, direction, and bytes
- * done vs total. Tap the strip to jump to the full Transfers view.
- */
 export function ActiveTransfersBar() {
   const list = () => activeTransfers();
 

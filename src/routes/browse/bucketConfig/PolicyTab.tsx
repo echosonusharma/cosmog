@@ -44,9 +44,8 @@ export function PolicyTab(props: {
     try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
   }
 
-  // Seed the editor whenever a fresh policy loads successfully. `seeded` holds
-  // the raw server value (the change key); the editor shows a pretty-printed
-  // copy so incoming minified policies are auto-formatted on load.
+  // `seeded` holds the raw server value as the change key; the editor shows a
+  // pretty-printed copy so minified policies auto-format on load.
   createEffect(() => {
     const l = loaded();
     if (!l || l.unsupported || l.denied) return;

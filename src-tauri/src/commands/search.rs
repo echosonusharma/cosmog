@@ -1,7 +1,5 @@
-//! Search + indexing Tauri commands.
-//!
-//! All search runs locally against [`crate::db::cache`]. Sync commands talk to
-//! S3 to refresh the cache. The full-bucket scan is cancellable + resumable.
+//! Search + indexing commands. Search runs locally against the cache; sync
+//! and full-bucket-scan commands refresh it from S3 (scans cancellable/resumable).
 
 use tauri::ipc::Channel;
 use tauri::State;
@@ -39,21 +37,19 @@ pub async fn sync_prefix(
     let account_id = validate::require_non_empty("account_id", &account_id)?;
     let bucket = validate::require_non_empty("bucket", &bucket)?;
 
-    // Acquire the store before claiming the slot: if it fails we bail with the
+    // Acquire the store before claiming the slot: a failure bails with the
     // slot still free (claiming first would leak it on the `?`).
     let store = state.store_for(&account_id).await?;
 
-    // A prefix sync and a full bucket scan both run mark-unseen -> upsert ->
-    // sweep. Running them concurrently on the same bucket lets one delete rows
-    // the other just marked seen. Refuse to start while a scan is in flight.
+    // Prefix syncs and full scans both run mark-unseen -> upsert -> sweep;
+    // concurrent runs would delete each other's rows. Refuse overlap.
     if state.scan_in_flight(&account_id, &bucket) {
         return Err(AppError::Conflict(format!(
             "a full index scan is running for {bucket}; try again once it finishes"
         )));
     }
-    // Atomically claim the prefix slot so overlapping syncs for the same prefix
-    // (e.g. FE double-invoke) don't corrupt each other's sweep, and so a
-    // concurrent scan sees us via prefix_sync_in_flight_for_bucket.
+    // Atomically claim the prefix slot so overlapping syncs (FE double-invoke)
+    // don't corrupt each other's sweep.
     if !state.claim_prefix_sync(&account_id, &bucket, &prefix) {
         return Err(AppError::Conflict(format!(
             "a sync is already running for this prefix in {bucket}"
@@ -100,9 +96,8 @@ pub async fn enable_bucket_index(
     // can't leak the slot on the `?`.
     let store = state.store_for(&account_id).await?;
 
-    // Atomically claim the scan slot. `None` means a scan is already in flight
-    // (another enable call, a reindex, or the scheduler) so we must not start a
-    // second one that would corrupt the shared seen markers.
+    // Atomically claim the scan slot: `None` means a scan is already in flight
+    // and a second walk would corrupt the shared seen markers.
     let cancel = state.try_register_scan(&account_id, &bucket).ok_or_else(|| {
         AppError::Conflict(format!("an index scan is already running for {bucket}"))
     })?;
@@ -132,9 +127,8 @@ pub async fn enable_bucket_index(
     result
 }
 
-/// Cancel an in-flight bucket scan. Idempotent — succeeds when no scan is
-/// running. The current page completes, the continuation token is persisted,
-/// and the scan can be resumed by calling [`enable_bucket_index`] again.
+/// Cancels an in-flight bucket scan (idempotent). The current page completes,
+/// the continuation token is persisted, and `enable_bucket_index` can resume.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn cancel_bucket_scan(
@@ -146,8 +140,8 @@ pub async fn cancel_bucket_scan(
     Ok(())
 }
 
-/// Force a fresh full-bucket scan, discarding any in-progress continuation
-/// token so it starts from page 1 rather than resuming where it left off.
+/// Forces a fresh full-bucket scan, discarding any in-progress continuation
+/// token so it starts from page 1.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn reindex_bucket(
@@ -169,8 +163,8 @@ pub async fn reindex_bucket(
     // can't leak the slot on the `?`.
     let store = state.store_for(&account_id).await?;
 
-    // Signal any in-flight scan to stop. It unwinds on its next page and frees
-    // the scan slot; until then we can't safely start a fresh walk.
+    // Signal any in-flight scan to stop; it unwinds on its next page and
+    // frees the scan slot.
     state.cancel_scan(&account_id, &bucket);
     let cancel = state.try_register_scan(&account_id, &bucket).ok_or_else(|| {
         AppError::Conflict(format!(
@@ -179,8 +173,7 @@ pub async fn reindex_bucket(
     })?;
 
     // From here the slot is held: unregister on any early-return error path.
-    // Wipe the continuation token so full_bucket_scan starts fresh instead of
-    // resuming mid-walk.
+    // Wipe the continuation token so the scan starts fresh instead of resuming.
     if let Err(e) = state.db.bucket_scan_clear(&account_id, &bucket).await {
         state.unregister_scan(&account_id, &bucket);
         return Err(e);
@@ -212,10 +205,8 @@ pub async fn disable_bucket_index(
     state.db.cache_clear_bucket(&account_id, &bucket).await
 }
 
-/// Enable or disable automatic periodic re-indexing for a bucket. Pass
-/// `None` for `secs` to disable; pass `Some(N)` to re-scan whenever the
-/// last full sync is older than N seconds. The scheduler polls once per
-/// minute, so the effective resolution is ~60s.
+/// Sets automatic periodic re-indexing: `None` disables; `Some(N)` re-scans
+/// when the last full sync is older than N secs (scheduler polls ~60s).
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn set_bucket_auto_reindex(
@@ -230,8 +221,7 @@ pub async fn set_bucket_auto_reindex(
         .await
 }
 
-/// Aggregated stats over whatever is currently cached for a bucket. Accurate
-/// only after a full bucket scan; otherwise reflects the partial index.
+/// Stats over whatever is currently cached; accurate only after a full scan.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn bucket_stats(

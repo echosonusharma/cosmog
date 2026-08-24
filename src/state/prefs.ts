@@ -1,12 +1,11 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
-// Frontend-only UI prefs: view mode, last-viewed location, etc.
-// Backend-relevant config stays in the Rust settings DB.
+// Frontend-only UI prefs; backend config stays in the Rust settings DB.
 // Async store, sync cache so Solid signals can read at creation time.
 let store: Store | null = null;
 const cache = new Map<string, unknown>();
 
-// Load once at boot before render. Populates the cache for sync reads.
+// Load once at boot before render; populates the cache for sync reads.
 export async function initPrefs() {
   try {
     store = await load("prefs.json", { autoSave: true });

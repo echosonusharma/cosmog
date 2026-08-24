@@ -32,18 +32,16 @@ pub async fn delete_bucket(
     account_id: String,
     name: String,
 ) -> AppResult<()> {
-    // Stop any work targeting the bucket before remote delete: scans would
-    // start failing with 404s and active transfers would write to soon-purged
-    // cache rows.
+    // Stop scans/transfers targeting the bucket before remote delete: scans
+    // would 404-loop and transfers would write to soon-purged cache rows.
     state.cancel_scan(&account_id, &name);
     if let Err(e) = state.transfers.cancel_for_bucket(&account_id, &name).await {
         tracing::warn!(account_id = %account_id, bucket = %name, "cancel_for_bucket failed: {e}");
     }
     let store = state.store_for(&account_id).await?;
     if let Err(e) = store.delete_bucket(&name).await {
-        // BucketNotEmpty surfaces as Conflict — that's a routine signal to the
-        // frontend (it prompts "Empty + delete"), not a server error. Keep it
-        // at debug so logs stay quiet during normal usage.
+        // BucketNotEmpty surfaces as Conflict — a routine FE signal ("Empty +
+        // delete"), kept at debug so normal usage stays quiet.
         if e.code() == "conflict" {
             tracing::debug!(account_id = %account_id, bucket = %name, "delete_bucket: not empty");
         } else {
@@ -51,8 +49,7 @@ pub async fn delete_bucket(
         }
         return Err(e);
     }
-    // Purge SQL cache after remote delete succeeds. If the remote delete
-    // failed we keep the cache intact so the user can retry.
+    // Purge the SQL cache only after remote success, so failed deletes stay retryable.
     if let Err(e) = state.db.bucket_purge_all(&account_id, &name).await {
         tracing::warn!(account_id = %account_id, bucket = %name, "bucket_purge_all failed: {e}");
     }
@@ -138,9 +135,8 @@ pub async fn list_multipart_uploads(
     })
 }
 
-/// Abort every in-progress multipart upload in `bucket` older than
-/// `older_than_secs`. Walks the list_multipart_uploads pages, aborts each
-/// match individually. Returns the count of aborted uploads.
+/// Aborts every multipart upload in `bucket` older than `older_than_secs`,
+/// walking list pages and aborting each match; returns the count aborted.
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn cleanup_stale_multiparts(
@@ -149,10 +145,8 @@ pub async fn cleanup_stale_multiparts(
     bucket: String,
     older_than_secs: i64,
 ) -> AppResult<usize> {
-    // Floor the age threshold at 1 hour. A negative or tiny value would put
-    // the cutoff in the future and abort LIVE multipart uploads (including
-    // this user's own active transfers); clamping keeps the operation
-    // strictly "clean up old junk".
+    // Floor the age threshold at 1 hour: a tiny/negative value would abort
+    // LIVE uploads, including this user's own active transfers.
     const MIN_STALE_SECS: i64 = 3600;
     let older_than_secs = older_than_secs.max(MIN_STALE_SECS);
     let now = chrono::Utc::now().timestamp();
@@ -173,9 +167,8 @@ pub async fn cleanup_stale_multiparts(
                 aborted += 1;
             }
         }
-        // Guard: some non-AWS providers return is_truncated=true with no
-        // next_key_marker, which would otherwise spin this loop forever.
-        // Break if the continuation didn't advance.
+        // Some non-AWS providers return is_truncated=true with no next marker;
+        // break if the continuation didn't advance to avoid spinning forever.
         match next {
             None => break,
             Some(ref t) if Some(t) == prev.as_ref() => break,

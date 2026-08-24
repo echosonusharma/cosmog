@@ -1,12 +1,5 @@
-//! Folder-scoped bulk operations: recursive delete, recursive upload,
-//! recursive download.
-//!
-//! These compose the trait-level primitives ([`ObjectStore::list_objects`],
-//! [`ObjectStore::delete_objects`], [`TransferManager::enqueue_upload`],
-//! [`TransferManager::enqueue_download`]) into single user-facing actions.
-//! Each emits [`TransferEvent`]s through a [`ProgressSink`] so the front-end
-//! can show one progress bar for the whole job, and each respects a
-//! [`CancellationToken`] for mid-flight stop.
+//! Folder-scoped bulk ops (recursive delete/upload/download) composing store/transfer
+//! primitives into single actions, with ProgressSink reporting and cancellation support.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,11 +19,8 @@ pub struct BulkDeleteResult {
     pub errors: Vec<String>,
 }
 
-/// Recursively delete every object under `prefix` using batched
-/// `DeleteObjects` requests (1000 keys per call). Mirrors the deletions into
-/// the local cache. Progress events use `bytes_done = deleted count`,
-/// `bytes_total = None` (unknown until LIST completes — we delete in batches
-/// as we scan).
+/// Recursively delete under `prefix` via batched DeleteObjects (1000 keys/call),
+/// mirroring deletions into the local cache; `bytes_done` reports the deleted count.
 pub async fn delete_folder(
     db: &Db,
     store: Arc<dyn ObjectStore>,
@@ -163,27 +153,14 @@ async fn flush(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Recursive upload / download — delegate to TransferManager so each file flows
-// through the same queue (concurrency, cancel-per-file, cache write-through).
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize)]
 pub struct BulkTransferResult {
     pub enqueued: Vec<String>,
     pub skipped: Vec<String>,
 }
 
-/// Walk a local directory and enqueue every file as an individual upload.
-/// Returns the list of transfer ids created. The FE listens on those.
-/// Subdirectories are joined onto `prefix` using `/`.
-///
-/// Encryption parity with the single-file path: when the bucket has client-
-/// side encryption configured, every file is stream-encrypted to an `enc_tmp`
-/// temp file before enqueueing and `PutOptions.cleanup_path` points at the
-/// ciphertext so the transfer worker deletes it after settle (success or
-/// failure). The bucket's encryption config + age recipient are resolved ONCE
-/// per bulk op, not per file — per-file work is only the encrypt step itself.
+/// Walk a local dir, enqueueing each file as an individual upload (subdirs joined onto
+/// `prefix`); encrypted buckets get per-file stream-encryption to enc_tmp, config once/op.
 pub async fn upload_directory(
     transfers: &crate::transfer::TransferManager,
     db: &crate::db::Db,
@@ -208,9 +185,8 @@ pub async fn upload_directory(
     };
     let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
 
-    // Resolve encryption once for the whole operation (mirrors
-    // `transfer::encrypt::encrypt_for_bucket_if_needed_with`, hoisted out of
-    // the loop). `None` => plaintext uploads, identical to unencrypted buckets.
+    // Resolve encryption once per op (mirrors encrypt_for_bucket_if_needed_with,
+    // hoisted out of the loop); None => plaintext.
     let enc_cfg = db.get_encryption_config(account_id, bucket).await?;
     let enc = match &enc_cfg {
         Some(cfg) => {
@@ -249,15 +225,8 @@ pub async fn upload_directory(
                 return Err(AppError::Canceled("upload_directory canceled".into()));
             }
 
-            // Encrypt BEFORE enqueue so plaintext never reaches the worker for
-            // an encrypted bucket. Same helper as the single-file path
-            // (`crypto::encrypt_file`, streaming, constant-memory). On failure
-            // we abort the whole op — matching the single-file command's error
-            // semantics — rather than silently uploading plaintext. Any temp
-            // ciphertext already staged for *earlier* files is owned by their
-            // transfer rows via cleanup_path; a partial `.age` from THIS file
-            // is removed below, and leftovers from a hard cancel are reaped by
-            // the boot-time enc_tmp sweep.
+            // Encrypt BEFORE enqueue so plaintext never reaches the worker; failure aborts
+            // the op rather than uploading plaintext (staged temps owned via cleanup_path).
             let mut opts = crate::store::PutOptions::default();
             let mut upload_path = path.clone();
             if let Some((recipient, tmp_dir)) = &enc {
@@ -302,11 +271,8 @@ pub async fn upload_directory(
     Ok(out)
 }
 
-/// Walk a remote prefix (recursive LIST) and enqueue every object as an
-/// individual download into `local_root`, preserving subpath structure.
-/// Cancellable mid-flight via `cancel` (same contract as `upload_directory`
-/// and `delete_folder`) so a stuck LIST page or huge listing can be aborted
-/// through the bulk-op registry.
+/// Recursively LIST a remote prefix, enqueuing each object as a download into
+/// `local_root` (subpaths preserved). Mid-flight cancellable like the other bulk ops.
 pub async fn download_directory(
     transfers: &crate::transfer::TransferManager,
     store: Arc<dyn ObjectStore>,
@@ -323,17 +289,14 @@ pub async fn download_directory(
         skipped: Vec::new(),
     };
 
-    // Canonicalize the root once so we can verify every destination is
-    // contained within it. This is the path-traversal guard: a server-
-    // controlled key like "a/../../etc/x" would otherwise write outside
-    // local_root.
+    // Canonicalize root once: path-traversal guard so server-controlled keys like
+    // "a/../../etc/x" can't write outside local_root.
     let root_canonical = tokio::fs::canonicalize(local_root)
         .await
         .map_err(|e| AppError::Io(format!("canonicalize local_root: {e}")))?;
 
-    // Parents already created + escape-checked this run. Thousands of objects
-    // typically share a handful of dirs, so this skips repeated mkdir +
-    // canonicalize syscalls for the same parent.
+    // Parents already mkdir'd + escape-checked this run; skips repeated syscalls
+    // since thousands of objects often share few dirs.
     let mut validated_parents: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
     let mut continuation: Option<String> = None;
@@ -360,7 +323,6 @@ pub async fn download_directory(
             if cancel.is_cancelled() {
                 return Err(AppError::Canceled(format!("download_directory {prefix}")));
             }
-            // Strip the leading prefix so the local layout starts at root.
             let suffix = obj.key.strip_prefix(prefix).unwrap_or(&obj.key);
             let suffix = suffix.trim_start_matches('/');
             if suffix.is_empty() {
@@ -368,16 +330,14 @@ pub async fn download_directory(
                 out.skipped.push(obj.key.clone());
                 continue;
             }
-            // Reject any key component that would escape local_root. We check
-            // before joining so we can refuse without touching the FS.
+            // Reject components that would escape local_root, before touching the FS.
             if !is_safe_relative_suffix(suffix) {
                 out.skipped.push(obj.key.clone());
                 continue;
             }
             let dest = local_root.join(suffix);
-            // Defense in depth: even if is_safe_relative_suffix missed
-            // something (symlink, OS-specific quirk), check the resolved
-            // parent escape after mkdir.
+            // Defense in depth: if is_safe_relative_suffix missed something (symlink, OS
+            // quirk), the resolved-parent check after mkdir catches it.
             if let Some(parent) = dest.parent() {
                 if !validated_parents.contains(parent) {
                     tokio::fs::create_dir_all(parent).await?;
@@ -415,25 +375,17 @@ pub async fn download_directory(
     Ok(out)
 }
 
-/// Return `true` when an object-key suffix can be safely joined onto a
-/// download root without escaping it. Rejects:
-///
-/// - Empty segments
-/// - `.` or `..`
-/// - Absolute path prefixes (Unix `/`, Windows drive letter)
-/// - Windows reserved chars and backslash separators that would alter the
-///   directory structure on translation
+/// True when a key suffix can safely join a download root: rejects empty segments,
+/// `.`/`..`, absolute or drive-letter prefixes, and backslash separators.
 fn is_safe_relative_suffix(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-    // Drive letters like "C:\..." or "C:..." — refuse on every platform so
-    // backups generated on Windows can't escape on macOS or Linux either.
+    // Refuse drive letters on every platform so Windows-made backups can't escape elsewhere.
     if s.chars().nth(1) == Some(':') {
         return false;
     }
-    // Backslashes are treated as separators on Windows; treat them as keys
-    // for cross-platform safety so a suffix can't smuggle path separators.
+    // Treat backslashes as smuggled path separators cross-platform.
     for raw in s.split(|c| c == '/' || c == '\\') {
         if raw.is_empty() {
             return false;

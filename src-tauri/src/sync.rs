@@ -1,15 +1,5 @@
-//! Cache synchronisation: replicate remote object listings into the local
-//! [`crate::db::cache`] tables.
-//!
-//! Two flavours:
-//!
-//! - **Prefix sync** — single LIST traversal (delimiter `/` for direct
-//!   children, omitted for recursive). Cheap. Used on navigation + manual
-//!   refresh. Atomic mark-unseen → upsert → sweep-unseen.
-//! - **Full-bucket scan** — recursive LIST through every page. Cancellable
-//!   and resumable: the continuation token is persisted to `bucket_index`
-//!   after every page, so a cancel (or app crash) can resume from the last
-//!   completed page on the next call.
+//! Cache sync: replicate remote listings into local cache tables. Prefix sync is one
+//! atomic LIST traversal; full-bucket scans are cancellable/resumable via saved tokens.
 
 use std::sync::Arc;
 
@@ -102,9 +92,8 @@ async fn sync_prefix_impl(
         stats.pages += 1;
 
         if delimited {
-            // Empty folder markers often appear only in Contents (not
-            // CommonPrefixes). Keep those keys so reconcile doesn't delete
-            // matching synthetic rows we may have inserted earlier.
+            // Empty folder markers often appear only in Contents, not CommonPrefixes;
+            // keep those keys so reconcile won't delete our synthetic rows.
             let mut content_markers = std::collections::HashSet::new();
             for obj in &page.objects {
                 if obj.key.ends_with('/') {
@@ -156,17 +145,8 @@ async fn sync_prefix_impl(
     Ok(stats)
 }
 
-/// Full bucket scan. Cancellable, resumable.
-///
-/// If a previous scan was interrupted, `scan_continuation` in `bucket_index`
-/// is non-null and the scan resumes from that token (without re-marking
-/// already-seen rows). On fresh starts, marks every cached row in the bucket
-/// as unseen before walking; rows still unseen at the end represent remote
-/// deletions and get swept.
-///
-/// Progress events use `bytes_done = number of objects observed since the
-/// scan started`. `bytes_total` is always `None` because S3 LIST does not
-/// surface a total up-front.
+/// Full-bucket scan; cancellable and resumable via `scan_continuation` persisted in
+/// `bucket_index` after every page. Fresh starts mark rows unseen, then sweep survivors.
 pub async fn full_bucket_scan(
     db: &Db,
     store: Arc<dyn ObjectStore>,
@@ -181,8 +161,7 @@ pub async fn full_bucket_scan(
         bytes_total: None,
     });
 
-    // Detect resume: existing scan_continuation means we crashed or canceled
-    // mid-walk. Pick up from there without re-marking rows.
+    // Existing scan_continuation => crashed/canceled mid-walk; resume without re-marking.
     let status = db.bucket_index_get(account_id, bucket).await?;
     let mut continuation = status.scan_continuation.clone();
     let resuming = continuation.is_some();

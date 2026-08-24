@@ -1,12 +1,5 @@
-//! Transfer queue types and lifecycle.
-//!
-//! - [`TransferEvent`]: wire-format progress/lifecycle event emitted by workers
-//! - [`ProgressSink`]: type-erased event consumer (FE channel, DB persistence,
-//!   or any fan-out combination)
-//! - [`TransferCtx`]: per-transfer config + cooperative cancellation token +
-//!   progress sink, threaded through [`crate::store::ObjectStore::put_object`]
-//!   and [`crate::store::ObjectStore::get_object`]
-//! - [`TransferManager`]: see [`manager`]
+//! Transfer queue types: worker-emitted [`TransferEvent`], type-erased [`ProgressSink`],
+//! and per-transfer [`TransferCtx`] threaded through ObjectStore put/get.
 
 pub mod encrypt;
 pub mod manager;
@@ -81,13 +74,11 @@ impl std::fmt::Debug for ProgressSink {
     }
 }
 
-/// Fingerprint of an upload source file captured when a transfer is enqueued.
-/// Multipart resume state recorded against one version of the file must never
-/// be applied to a different version — part boundaries are byte offsets.
+/// Fingerprint of an upload source file captured at enqueue; multipart resume state
+/// from one file version must never apply to another (part boundaries are byte offsets).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SourceStat {
     pub len: u64,
-    /// File modification time in seconds since the UNIX epoch.
     pub mtime_secs: i64,
 }
 
@@ -102,13 +93,11 @@ pub struct CompletedPart {
 pub struct ResumeState {
     pub upload_id: String,
     pub completed_parts: Vec<CompletedPart>,
-    /// Size of the source file when the saved parts were uploaded. Parts were
-    /// cut from these bytes; a mismatch means the file changed and every
-    /// saved part boundary is wrong.
+    /// Source size when the saved parts were cut; a mismatch means the file
+    /// changed and every saved part boundary is wrong.
     #[serde(default)]
     pub source_len: Option<u64>,
-    /// Source-file mtime (secs since epoch) captured alongside
-    /// [`ResumeState::source_len`]. Older persisted rows without these fields
+    /// Captured alongside `source_len`; older persisted rows without these fields
     /// deserialize as `None` and skip staleness validation.
     #[serde(default)]
     pub source_mtime_secs: Option<i64>,
@@ -123,10 +112,8 @@ pub struct TransferCtx {
     pub parallelism: usize,
     pub multipart_threshold: u64,
     pub resume: Option<ResumeState>,
-    /// Current fingerprint of an upload's source file (uploads only),
-    /// captured at enqueue time. Compared against [`ResumeState`] fingerprints
-    /// so a multipart resume after the file changed aborts instead of
-    /// assembling a corrupted object.
+    /// Current upload-source fingerprint (uploads only), compared against [`ResumeState`]
+    /// so a resume after the file changed aborts instead of assembling a corrupted object.
     pub source_stat: Option<SourceStat>,
 }
 

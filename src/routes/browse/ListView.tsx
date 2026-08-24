@@ -14,12 +14,8 @@ export type ListItem =
   | { kind: "folder"; sub: string }
   | { kind: "file"; obj: CachedObjectMeta };
 
-// Row height must match the rendered row exactly, or the virtualizer's slot
-// spacing (estimateSize + translateY) drifts from the real rows and they
-// overlap. Mobile uses taller touch rows than desktop. Portrait-locked, so a
-// one-shot read at mount is enough — no need to react to viewport changes.
-// Compact 30px rows on every platform, matching the miller column pane so item
-// spacing is identical across all views.
+// Row height must match rendered rows exactly or the virtualizer's slot spacing
+// drifts and rows overlap. Compact 30px everywhere, matching the column pane.
 const LIST_ROW_H = 30;
 
 export function ListView(props: {
@@ -50,10 +46,9 @@ export function ListView(props: {
   });
 
   // The virtualizer reads the scroll element's viewport height only when the
-  // element reference *changes* (via observeElementRect). measure() alone never
-  // re-reads it. On mount/first-show the element is laid out after the initial
-  // read, so the cached rect is 0 and no rows render. Toggle the element signal
-  // (null -> element) to force a fresh viewport read after layout settles.
+  // element ref changes; measure() alone never re-reads it. On mount/first-show
+  // the cached rect is 0 and no rows render, so toggle the ref (null -> el) to
+  // force a fresh read after layout settles.
   let scrollDiv: HTMLDivElement | undefined;
   const [virtScrollEl, setVirtScrollEl] = createSignal<HTMLDivElement | null>(null);
   const listVirtualizer = createVirtualizer({
@@ -70,8 +65,8 @@ export function ListView(props: {
       listVirtualizer.measure();
       return;
     }
-    // Items exist but none render: viewport rect is stale (0). Toggle the
-    // element ref to force virtual-core to re-observe and re-read the height.
+    // Items exist but none render: viewport rect is stale (0) — toggle the
+    // element ref to force virtual-core to re-observe the height.
     setVirtScrollEl(null);
     requestAnimationFrame(() => { if (scrollDiv) setVirtScrollEl(scrollDiv); });
   };

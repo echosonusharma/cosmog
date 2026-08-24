@@ -1,14 +1,5 @@
-//! Application-wide user preferences.
-//!
-//! Stored as a typed key-value table so new settings can be added without a
-//! schema migration — just extend [`AppSettings`] and the (de)serialization
-//! helpers below. The on-disk format is one row per `key`, with `value`
-//! holding a JSON-encoded scalar (string, integer, boolean).
-//!
-//! [`AppSettings::load`] reads every known key, falling back to compile-time
-//! defaults when a row is missing; [`AppSettings::save`] writes every field
-//! back. Consumers should treat the struct as the canonical source of truth
-//! and not poke at the raw table directly.
+//! Typed key-value settings: one row per key, JSON scalar value. New fields
+//! need no migration — extend [`AppSettings`] plus the (de)serialization halves below.
 
 use chrono::Utc;
 use rusqlite::params;
@@ -19,99 +10,75 @@ use crate::error::{AppError, AppResult};
 
 use super::Db;
 
-/// User preferences and tunables.
-///
-/// Defaults are baked into [`AppSettings::default`]; the FE can override any
-/// subset by sending a partial patch through the `update_settings` command.
+/// Defaults baked into [`AppSettings::default`]; the FE patches via `update_settings`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
-    /// Filesystem directory pre-selected in download dialogs. `None` = OS
-    /// default ("Downloads"). Must be absolute when set.
+    /// Download-dialog default dir; `None` = OS default. Absolute when set.
     pub default_download_dir: Option<String>,
 
-    /// Maximum number of concurrent uploads + downloads. Higher = faster
-    /// throughput, more memory + bandwidth. Range enforced 1..=16.
+    /// Max concurrent uploads + downloads; enforced 1..=16.
     pub transfer_concurrency: u32,
 
-    /// How many parts of a single multipart upload to send in parallel.
-    /// Range 1..=16.
+    /// Parts of one multipart upload sent in parallel; 1..=16.
     pub multipart_parallelism: u32,
 
-    /// Files above this size use multipart upload. Below uses single PUT.
-    /// In bytes; minimum is the S3 floor (5 MiB) for non-final parts.
+    /// Files above this size use multipart upload (bytes).
     pub multipart_threshold_bytes: u64,
 
-    /// Size of each multipart chunk. Minimum 5 MiB per S3 spec.
+    /// Multipart chunk size; min 5 MiB per S3 spec.
     pub part_size_bytes: u64,
 
-    /// How long a cached prefix listing is considered fresh. The UI shows a
-    /// "stale" badge after this elapses and may auto-refresh.
+    /// Cached listing TTL; UI shows a stale badge after this elapses.
     pub prefix_sync_ttl_secs: u64,
 
-    /// Default expiry for presigned URLs in seconds. Capped at 7 days
-    /// (604800) by the SDK signature spec.
+    /// Presigned URL expiry in seconds; capped at 7 days by the SDK spec.
     pub presign_default_expires_secs: u64,
 
     /// UI theme. "light" | "dark" | "system".
     pub theme: String,
 
-    /// Whether the FE should show objects whose key starts with `.`
-    /// (hidden-file convention). Backend doesn't filter — it's a UI hint.
+    /// FE hint to show dot-files; the backend never filters.
     pub show_hidden: bool,
 
-    /// Show a confirmation dialog before destructive ops (delete, overwrite).
     pub confirm_destructive: bool,
 
-    /// Outbound HTTP/HTTPS proxy URL. Honoured by setting `HTTPS_PROXY` /
-    /// `HTTP_PROXY` env vars before constructing the SDK client. Empty / None
-    /// = no proxy. Reverted on settings change requires app restart because
-    /// the AWS SDK reads env once at client build.
+    /// Outbound proxy URL, set as HTTPS_PROXY/HTTP_PROXY before SDK client
+    /// build. Changes require app restart (SDK reads env once).
     pub http_proxy: Option<String>,
 
-    /// Filesystem path to a custom CA-bundle PEM. Honoured by setting
-    /// `SSL_CERT_FILE` env var. Reverted requires app restart.
+    /// Custom CA-bundle PEM path, set as SSL_CERT_FILE. Restart required.
     pub custom_ca_path: Option<String>,
 
-    /// How many days to retain API request log entries. Older rows are
-    /// deleted on startup. Range enforced 1..=365.
+    /// Days to retain request-log rows; pruned on startup. 1..=365.
     pub request_log_ttl_days: u32,
 
-    /// MCP server master switch. When true a local Streamable HTTP endpoint is
-    /// served so a local AI client can drive S3 ops. Desktop only.
+    /// Master switch for the local MCP endpoint. Desktop only.
     pub mcp_enabled: bool,
 
-    /// Localhost port for the MCP endpoint. Bound on 127.0.0.1 only.
+    /// MCP port, bound on 127.0.0.1 only.
     pub mcp_port: u16,
 
-    /// Enables the upload/download MCP tools. Off = those tools are not
-    /// advertised at all.
+    /// Enables upload/download MCP tools; off = not advertised at all.
     pub mcp_allow_write: bool,
 
-    /// Enables the delete MCP tool. Off = the delete tool is not advertised.
+    /// Enables the delete MCP tool; off = not advertised.
     pub mcp_allow_delete: bool,
 
-    /// Whether all accounts are reachable through MCP. Reserved for a future
-    /// per-account allowlist; currently always true.
+    /// Reserved for a future per-account allowlist; currently always true.
     pub mcp_bind_all_accounts: bool,
 
-    /// User acknowledged the MCP risk warning. Gates the settings UI; once true
-    /// the warning is not shown again.
+    /// User acknowledged the MCP risk warning; gates the settings UI.
     pub mcp_acknowledged: bool,
 
-    /// Tool names the user turned off individually. Disabled tools are neither
-    /// advertised nor dispatched, on top of the write/delete gates.
+    /// Tools turned off individually; not advertised nor dispatched.
     pub mcp_disabled_tools: Vec<String>,
 
-    /// Account ids the user turned off for MCP. Disabled accounts are hidden
-    /// from s3_accounts_list and rejected by any tool that targets them.
+    /// Accounts turned off for MCP; hidden and rejected by tools.
     pub mcp_disabled_accounts: Vec<String>,
 
-    /// Filesystem folder the MCP upload/download tools are confined to. A file
-    /// transfer is refused unless its local path resolves to inside this dir.
-    /// `None` / empty = write tools refuse all transfers (safe default), since
-    /// object keys are untrusted and could otherwise steer reads/writes
-    /// anywhere on disk. Must be absolute when set.
+    /// MCP transfers are refused unless the local path resolves inside this
+    /// dir (object keys are untrusted). None/empty = write tools refuse all.
     pub mcp_fs_root: Option<String>,
 }
 
@@ -145,12 +112,10 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    /// Clamp numeric fields and trim string fields into legal ranges. Called
-    /// before any save so an out-of-range FE value can't poison the DB.
+    /// Clamp numeric fields and trim strings into legal ranges before save.
     fn normalize(&mut self) {
         self.transfer_concurrency = self.transfer_concurrency.clamp(1, 16);
         self.multipart_parallelism = self.multipart_parallelism.clamp(1, 16);
-        // 10s floor so the app never hammers the server; 24h ceiling is generous.
         self.prefix_sync_ttl_secs = self.prefix_sync_ttl_secs.clamp(10, 86400);
         // 5 MiB floor for non-final multipart parts per S3 spec.
         let s3_floor: u64 = 5 * 1024 * 1024;
@@ -159,7 +124,6 @@ impl AppSettings {
         // 7-day signature ceiling for presigned URLs.
         self.presign_default_expires_secs = self.presign_default_expires_secs.min(7 * 24 * 3600);
         self.request_log_ttl_days = self.request_log_ttl_days.clamp(1, 365);
-        // Keep the MCP port in the unprivileged user range.
         self.mcp_port = self.mcp_port.clamp(1024, 65535);
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = "system".into();
@@ -178,8 +142,7 @@ impl AppSettings {
 }
 
 impl Db {
-    /// Load all known settings. Missing keys fall back to defaults; the
-    /// caller never has to handle absence.
+    /// Load settings; missing rows fall back to compile-time defaults.
     pub async fn settings_load(&self) -> AppResult<AppSettings> {
         let rows = self
             .conn
@@ -203,10 +166,8 @@ impl Db {
         Ok(s)
     }
 
-    /// Replace the full settings row-set with the values in `incoming`. Any
-    /// key absent from `incoming` is left untouched in the DB; combining with
-    /// [`Self::settings_load`] in the command layer gives partial-patch
-    /// semantics safely.
+    /// Replace the full row-set from `incoming`; keys absent from it stay
+    /// untouched. Pair with [`Self::settings_load`] for partial-patch semantics.
     pub async fn settings_save(&self, mut incoming: AppSettings) -> AppResult<AppSettings> {
         incoming.normalize();
         let pairs = serialize_settings(&incoming);
@@ -229,8 +190,7 @@ impl Db {
         Ok(incoming)
     }
 
-    /// Reset every known key by deleting all setting rows. Subsequent loads
-    /// return [`AppSettings::default`].
+    /// Reset every known key by deleting all rows.
     pub async fn settings_reset(&self) -> AppResult<AppSettings> {
         self.conn
             .call(|conn| {
@@ -242,9 +202,8 @@ impl Db {
     }
 }
 
-// Internal (de)serialization. Each known field has a stable string key + a
-// JSON-encoded scalar for the value. Adding a new field = extend both halves
-// in lock-step; no DB migration needed.
+// (De)serialization: stable string keys + JSON scalars. Adding a field =
+// extend both halves in lock-step; no DB migration needed.
 
 fn serialize_settings(s: &AppSettings) -> Vec<(&'static str, String)> {
     fn enc<T: serde::Serialize>(v: &T) -> String {
@@ -391,21 +350,14 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
                 s.mcp_fs_root = v;
             }
         }
-        // Unknown key — silently ignored so older binaries don't corrupt
-        // settings rows written by newer ones.
+        // Unknown keys silently ignored so older binaries tolerate newer rows.
         _ => {}
     }
 }
 
 
-/// Apply network-related settings to the process environment: proxy and custom
-/// CA. The AWS SDK / rustls read these env vars at client-build time, so this
-/// must run before any store is constructed. Called once at main-process boot
-/// and once when the Android headless service builds its context.
-///
-/// SAFETY: `set_var` is process-global and `unsafe` on Rust 1.80+ because it can
-/// race a concurrent `getenv`. Both call sites run this before any SDK client
-/// (or other reader) exists, so the race window is zero in practice.
+/// Applies proxy/CA env vars; must run before any SDK client is built.
+/// SAFETY: `set_var` races `getenv`, but both call sites run before any reader exists.
 pub fn apply_network_env(settings: &AppSettings) {
     if let Some(proxy) = settings.http_proxy.as_deref() {
         if !proxy.trim().is_empty() {

@@ -52,15 +52,13 @@ export function EncryptionModal(props: {
   const [err, setErr] = createSignal("");
   const [savedPath, setSavedPath] = createSignal<string | null>(null);
   const [showGuide, setShowGuide] = createSignal(false);
-  // After a fresh Enable, the backend returns the generated secret identity
-  // once. We surface it here so the user can immediately export a backup file
-  // before the modal is closed. Never persisted.
+  // After a fresh Enable the backend returns the generated secret identity once;
+  // surface it so the user can export a backup before closing. Never persisted.
   const [freshSecret, setFreshSecret] = createSignal<string | null>(null);
   const [freshRecipient, setFreshRecipient] = createSignal<string | null>(null);
 
-  // Best-effort scrub of the secret string on any close path. JS strings are
-  // immutable and GC'd non-deterministically, but clearing the signal at least
-  // drops our own reference so the value can be collected.
+  // Best-effort scrub of the secret on any close path: JS strings are immutable
+  // and GC'd non-deterministically, but clearing the signal drops our reference.
   function closeAndScrub() {
     setFreshSecret(null);
     setFreshRecipient(null);

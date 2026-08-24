@@ -43,9 +43,8 @@ const EMPTY_FORM: AddForm = {
 };
 
 export default function NightWatcher() {
-  // Watches + status poll every 2.5s. Kept in reconciled stores (keyed by id)
-  // so unchanged rows keep their identity: the <For> below never recreates DOM
-  // on a poll, which is what caused the periodic loader/flicker.
+  // Watches + status poll every 2.5s. Reconciled stores keyed by id keep unchanged rows'
+  // identity, so <For> never recreates DOM on a poll (which caused periodic loader/flicker).
   const [watches, setWatches] = createStore<{ list: NightWatch[]; loaded: boolean }>({ list: [], loaded: false });
   const [status, setStatus] = createStore<{ list: WatchStatus[] }>({ list: [] });
   const [accounts] = createResource(listAccounts);
@@ -62,7 +61,7 @@ export default function NightWatcher() {
     try {
       const s = await nwGetStatus();
       setStatus("list", reconcile(s, { key: "id" }));
-    } catch { /* keep previous status */ }
+    } catch { }
   }
 
   const [form, setForm] = createSignal<AddForm>({ ...EMPTY_FORM });
@@ -74,16 +73,14 @@ export default function NightWatcher() {
     setForm((p) => ({ ...p, [key]: val }));
   }
 
-  // Buckets for the account picked in the add form. Refetches when the
-  // selected account changes; errors swallowed so a hiccup never breaks the form.
+  // Errors swallowed so a hiccup never breaks the add form.
   const [buckets] = createResource(
     () => field("account_id") || null,
     async (id: string) => (id ? await listBuckets(id).catch(() => []) : []),
   );
 
-  // The view stays mounted (hidden via CSS), so poll status/watches while it
-  // is the active view. Scans + uploads happen in the background; without this
-  // the initial "0 files / never" never refreshes.
+  // The view stays mounted (hidden via CSS), so poll only while it is the active view;
+  // without this the initial "0 files / never" never refreshes after background scans.
   createEffect(() => {
     if (currentView() !== "night-watcher") return;
     refetchWatches();

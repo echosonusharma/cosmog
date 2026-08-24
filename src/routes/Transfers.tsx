@@ -20,10 +20,8 @@ export default function Transfers() {
   const [loading, setLoading] = createSignal(true);
   const [err, setErr] = createSignal("");
   const [filter, setFilter] = createSignal<Filter>("all");
-  // Load-key flow: opened from a failed transfer row whose error indicates
-  // the encryption key is not present locally. We fetch enable status +
-  // identity presence for the target bucket before rendering the modal so
-  // it lands directly in the import branch.
+  // Load-key flow: opened from a failed transfer row whose error indicates the encryption key
+  // isn't present locally; fetch status first so the modal lands directly in the import branch.
   const [keyModal, setKeyModal] = createSignal<
     { accountId: string; bucket: string; enabled: boolean; identityPresent: boolean } | null
   >(null);
@@ -75,15 +73,13 @@ export default function Transfers() {
     onCleanup(() => { clearInterval(timer); clearInterval(rateTimer); });
   });
 
-  // No toast on success: the MainApp transfer poll posts a proper native
-  // notification (filename + account + bucket) when the status flips.
+  // No toast: the MainApp poll posts a proper native notification when the status flips.
   async function cancel(id: string) {
     try { await cancelTransfer(id); await load(); }
     catch (e) { toast.err(e); }
   }
   async function clearOne(id: string) {
-    // Clearing a failed download abandons its retry path; drop the pending
-    // SAF entry and the 0-byte placeholder at the picked location with it.
+    // Clearing a failed download abandons its retry path; drop its pending SAF entry + placeholder.
     discardSafDownload(id);
     try { await clearTransfer(id); }
     catch (e) { toast.err(e); return; }
@@ -92,8 +88,8 @@ export default function Transfers() {
   async function retry(id: string) {
     try {
       const res = await retryTransfer(id);
-      // Retry re-enqueues under a fresh id; carry the pending SAF finalize
-      // over so the retried download still lands at the picked location.
+      // Retry re-enqueues under a fresh id; carry the pending SAF finalize over so the
+      // retried download still lands at the picked location.
       if (res?.transfer_id) moveSafFinalize(id, res.transfer_id);
       await load();
     }

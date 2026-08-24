@@ -10,7 +10,6 @@ export function LogRow(props: {
   const fieldEntries = () => Object.entries(props.line.fields);
   const hasFields = () => fieldEntries().length > 0;
   const hasJson = () => props.line.json !== null;
-  // source is precomputed at parse time; no per-render recompute.
   const source = () => props.line.source;
   const isActive = () => props.activeSource === source().key;
   return (

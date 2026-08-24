@@ -15,8 +15,6 @@ const METHODS = ["GET", "PUT", "POST", "DELETE", "HEAD"] as const;
 // deserialize at the Tauri boundary with an opaque error. Guard it up front.
 const MAX_AGE_LIMIT = 2147483647;
 
-// Editable rule shape: origins/headers held as raw text for the textareas,
-// methods as a string[] toggle set. Serialized back to CorsRule on save.
 interface DraftRule {
   id: string;
   origins: string;
@@ -86,14 +84,12 @@ export function CorsTab(props: {
   );
 
   const [rules, setRules] = createStore<DraftRule[]>([]);
-  // Bumped to force a re-seed from the last-loaded server config (Reset).
   const [seedTick, setSeedTick] = createSignal(0);
   const [busy, setBusy] = createSignal(false);
   const [err, setErr] = createSignal("");
 
-  // Seed the editable store from the loaded config. createResource hands back a
-  // fresh object on every (re)fetch, so tracking loaded() re-seeds after a
-  // save/refetch; seedTick re-seeds on an explicit Reset.
+  // Seed the editable store from the loaded config; loaded() re-seeds after a
+  // save/refetch (fresh object each fetch), seedTick re-seeds on explicit Reset.
   createEffect(() => {
     seedTick();
     const l = loaded();
@@ -116,7 +112,6 @@ export function CorsTab(props: {
     );
   }
 
-  // Themed stepper for max-age. Steps by a minute; clamps to [0, i32 max].
   function stepMaxAge(i: number, delta: number) {
     const cur = parseInt(rules[i].maxAge, 10);
     const base = Number.isFinite(cur) ? cur : 0;

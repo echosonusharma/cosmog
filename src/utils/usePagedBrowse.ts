@@ -39,11 +39,8 @@ export function createPagedBrowse(getKey: () => {
   let lastAccountId = "";
   let lastBucket = "";
 
-  // Refetch first page whenever the identity (account/bucket/prefix/refresh)
-  // changes. Stale-while-revalidate within a bucket (keep rows, dim via CSS
-  // loading). On bucket/account switch: clear rows immediately so the wrong
-  // bucket never flashes, but keep `initialLoaded` so we don't remount panes
-  // / slam the opaque full-view overlay (that looked like a hard refresh).
+  // Refetch on identity change; stale-while-revalidate within a bucket, but clear rows immediately
+  // on bucket/account switch so the wrong bucket never flashes (keep initialLoaded to avoid a remount overlay).
   createEffect(() => {
     const key = getKey();
     void key.prefix; void key.refresh;

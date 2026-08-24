@@ -1,16 +1,11 @@
-//! Response formatting helpers for MCP tools.
-//!
-//! Listings render as compact CSV (about half the tokens of a JSON array) and
-//! are capped by a rough token budget so a huge bucket never blows the client
-//! context. Errors come back as `isError` results the model can act on.
+//! Response formatting: listings as compact CSV under a rough token budget so
+//! huge listings can't blow the client context; errors as actionable `isError`.
 
 use serde_json::{json, Value};
 
-/// Rough token budget for a single tool response body. We approximate 4 chars
-/// per token and cut CSV rows once the rendered text passes this many chars.
+/// Rough response budget (~4 chars/token); CSV rows cut past this many chars.
 const MAX_RESPONSE_CHARS: usize = 100_000;
 
-/// A successful text result.
 pub fn text(body: impl Into<String>) -> Value {
     json!({
         "content": [{ "type": "text", "text": body.into() }],
@@ -37,8 +32,8 @@ pub fn csv_field(s: &str) -> String {
     }
 }
 
-/// Build a CSV block from a header and rows, cutting rows once the token budget
-/// is hit. Returns `(csv, rendered_row_count, truncated_by_budget)`.
+/// Builds CSV from a header and rows, cutting rows at the token budget;
+/// returns `(csv, rendered_row_count, truncated_by_budget)`.
 pub fn csv_table(header: &[&str], rows: &[Vec<String>]) -> (String, usize, bool) {
     let mut out = String::new();
     out.push_str(&header.join(","));
@@ -58,8 +53,7 @@ pub fn csv_table(header: &[&str], rows: &[Vec<String>]) -> (String, usize, bool)
     (out, rendered, truncated)
 }
 
-/// Compose the final listing text with a small metadata footer so the model
-/// knows whether to page or narrow its query.
+/// Composes listing text with a footer so the model knows to page or narrow.
 pub fn listing(
     csv: String,
     rendered: usize,
@@ -67,9 +61,8 @@ pub fn listing(
     next_cursor: Option<String>,
     budget_truncated: bool,
 ) -> Value {
-    // A budget cut drops rows mid-page. The opaque store cursor resumes after
-    // the full page, so returning it would silently skip the dropped rows.
-    // Suppress the cursor and flag more, telling the client to narrow instead.
+    // A budget cut drops rows mid-page; the store cursor resumes after the
+    // full page and would silently skip rows, so suppress it and flag more.
     let has_more = has_more || budget_truncated;
     let next_cursor = if budget_truncated { None } else { next_cursor };
     let mut footer = format!("\nrows: {rendered}\nhas_more: {has_more}");
