@@ -16,12 +16,13 @@
 }
 .bucket-grid.loading { opacity: 0.55; transition: opacity 0.15s ease; }
 .bucket-card {
-  display: flex; align-items: center;
+  display: flex; align-items: center; gap: 6px;
   background: var(--bg-elev-1);
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   transition: border-color 0.15s, background 0.15s;
+  padding-right: 8px;
 }
 .bucket-card:hover { border-color: var(--accent); background: var(--bg-elev-2); }
 .bucket-card .bucket-icon:not(.encrypted) { color: var(--c-folder); }
@@ -37,7 +38,7 @@
 }
 .bucket-icon { flex-shrink: 0; display: inline-flex; }
 .bucket-icon.encrypted { color: var(--accent); }
-.bucket-del { flex-shrink: 0; margin-right: 8px; }
+.bucket-del { flex-shrink: 0; }
 
 .bucket-grid-body {
   padding: 16px 0 20px;
