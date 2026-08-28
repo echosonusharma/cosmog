@@ -111,9 +111,37 @@
 .search-results-list .obj-row {
   cursor: pointer;
   grid-template-columns: minmax(280px, 1fr) 100px 100px 160px auto;
+  padding: 6px 16px;
+  /* override base 30px fixed height so vertical padding is not collapsed by border-box */
+  height: auto;
+  min-height: 32px;
 }
 .search-results-list .obj-row.kb-active { background: var(--bg-hover); }
 .search-results-list .obj-row.kb-active .obj-actions { opacity: 1; }
+.search-results-list .obj-actions .icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+@media (max-width: 768px) {
+  .search-results-list .obj-row {
+    /* align with mobile-browse.css:373 header 8px 10px; 44px = mobile LIST_ROW_H */
+    grid-template-columns: 1fr 90px;
+    gap: 10px;
+    padding: 8px 10px;
+    min-height: 44px;
+  }
+  /* match mobile list: hide type/date/actions, keep size right-aligned */
+  .search-results-list .obj-type,
+  .search-results-list .obj-date,
+  .search-results-list .obj-actions {
+    display: none;
+  }
+  .search-results-list .obj-size {
+    display: block;
+    text-align: right;
+  }
+}
 .search-load-more {
   display: flex;
   justify-content: center;

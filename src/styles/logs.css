@@ -14,7 +14,24 @@
   position: absolute; left: 9px; pointer-events: none; color: var(--faint);
 }
 .logs-search-input {
-  padding-left: 30px; height: 38px; font-size: 12.5px; width: 100%;
+  padding-left: 30px; padding-right: 30px; height: 38px; font-size: 12.5px; width: 100%;
+}
+.logs-search-clear {
+  position: absolute; right: 6px;
+  background: none; border: none; color: var(--faint);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  padding: 6px; border-radius: 4px; flex-shrink: 0;
+  min-width: 28px; min-height: 28px;
+}
+.logs-search-clear:hover { color: var(--text-muted); background: var(--bg-hover); }
+.logs-search-clear:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+
+/* decoupled from search.css — logs reuse same mark style so highlight works even if search.css load order changes */
+.search-highlight {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .logs-select {
@@ -130,6 +147,7 @@
   border-bottom: 1px solid transparent;
 }
 .log-line:hover { background: var(--bg-hover); }
+.log-line.kb-active { background: var(--bg-hover); outline: 1px solid var(--border-strong); outline-offset: -1px; }
 .log-ts { color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
 .log-level {
   font-size: 10px; font-weight: 700;
@@ -220,6 +238,8 @@
   transition: background 0.1s;
 }
 .req-log-row:hover { background: color-mix(in srgb, var(--row-color) 10%, var(--bg-hover)); }
+.req-log-row.kb-active { background: color-mix(in srgb, var(--row-color) 10%, var(--bg-hover)); outline: 1px solid color-mix(in srgb, var(--row-color) 40%, transparent); outline-offset: -1px; }
+.req-log-row.req-log-error.kb-active { background: rgba(239,68,68,0.14); outline-color: rgba(239,68,68,0.4); }
 .req-log-row.req-log-error { background: rgba(239,68,68,0.06); }
 .req-log-row.req-log-error:hover { background: rgba(239,68,68,0.12); }
 .req-log-row.req-log-open { background: color-mix(in srgb, var(--row-color) 14%, var(--bg-active)); }
@@ -309,6 +329,7 @@
   font-weight: 600;
   white-space: nowrap; flex-shrink: 0;
   min-width: 52px; text-align: right;
+  margin-left: auto; /* push right even when target absent */
   transition: color 0.2s;
 }
 

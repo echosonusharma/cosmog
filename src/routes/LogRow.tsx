@@ -1,10 +1,14 @@
 import { createSignal, For, Show } from "solid-js";
 import { levelClass, type ParsedLine } from "../utils/parseLine";
+import { highlightText } from "../utils/highlight";
 
 export function LogRow(props: {
   line: ParsedLine;
   activeSource: string;
   onSourceClick: (key: string) => void;
+  searchQuery?: string;
+  focused?: boolean;
+  onHover?: () => void;
 }) {
   const [open, setOpen] = createSignal(false);
   const fieldEntries = () => Object.entries(props.line.fields);
@@ -13,7 +17,7 @@ export function LogRow(props: {
   const source = () => props.line.source;
   const isActive = () => props.activeSource === source().key;
   return (
-    <div class="log-line">
+    <div class="log-line" classList={{ "kb-active": !!props.focused }} onMouseMove={props.onHover}>
       <span class="log-ts">{props.line.ts}</span>
       <span class={`log-level ${levelClass(props.line.level)}`}>{props.line.level}</span>
       <button
@@ -26,15 +30,20 @@ export function LogRow(props: {
       </button>
       <div class="log-main">
         <div class="log-headline">
-          <Show when={props.line.span}><span class="log-span">{props.line.span}</span></Show>
+          <Show when={props.line.span}><span class="log-span">{highlightText(props.line.span!, props.searchQuery ?? "")}</span></Show>
           <Show when={hasFields()}>
             <span class="log-fields">
               <For each={fieldEntries()}>
-                {([k, v]) => <span class="log-kv"><span class="log-k">{k}</span><span class="log-v">{v}</span></span>}
+                {([k, v]) => (
+                  <span class="log-kv">
+                    <span class="log-k">{highlightText(k, props.searchQuery ?? "")}</span>
+                    <span class="log-v">{highlightText(v, props.searchQuery ?? "")}</span>
+                  </span>
+                )}
               </For>
             </span>
           </Show>
-          <span class="log-msg">{props.line.msg}</span>
+          <span class="log-msg">{highlightText(props.line.msg, props.searchQuery ?? "")}</span>
           <Show when={hasJson()}>
             <button class="log-json-toggle" onClick={() => setOpen(!open())}>{open() ? "−" : "+"} json</button>
           </Show>

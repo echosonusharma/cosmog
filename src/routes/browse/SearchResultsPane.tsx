@@ -6,27 +6,8 @@ import {
 } from "../../utils/icons";
 import { formatBytes, formatDate } from "../../utils/fmt";
 import { navigateToPrefix } from "../../state/app";
+import { highlightText } from "../../utils/highlight";
 import type { CachedObjectMeta, BucketIndexStatus } from "../../types";
-
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function highlightText(text: string, query: string) {
-  const terms = query.trim().split(/\s+/).filter(t => t.length >= 3);
-  if (!terms.length) return <>{text}</>;
-  const pattern = terms.map(escapeRegex).join("|");
-  const re = new RegExp(`(${pattern})`, "gi");
-  const parts = text.split(re);
-  const matchRe = new RegExp(`^(?:${pattern})$`, "i");
-  return (
-    <>
-      {parts.map((part) =>
-        matchRe.test(part) ? <mark class="search-highlight">{part}</mark> : part
-      )}
-    </>
-  );
-}
 
 export function SearchResultsPane(props: {
   searchQuery: string;
@@ -46,16 +27,28 @@ export function SearchResultsPane(props: {
   onClearSearch: () => void;
 }) {
   const [focusIdx, setFocusIdx] = createSignal(0);
+  const [hoverLocked, setHoverLocked] = createSignal(false);
+  let hoverLockTimer: ReturnType<typeof setTimeout> | undefined;
   let listEl: HTMLDivElement | undefined;
+  const setListEl = (el: HTMLDivElement) => { listEl = el; };
+  onCleanup(() => clearTimeout(hoverLockTimer));
+  function lockHover(ms = 450) {
+    setHoverLocked(true);
+    clearTimeout(hoverLockTimer);
+    hoverLockTimer = setTimeout(() => setHoverLocked(false), ms);
+  }
 
-  // Query change → jump to first row. Objects length change (load-more /
-  // first fetch) only clamps so the highlight doesn't jump or go stale.
+  // Query change → jump to first row. Objects identity change (not just length)
+  // also clamps, so a new 4-item result doesn't keep stale hover =1.
   createEffect(() => {
     props.searchQuery;
+    lockHover(600);
     setFocusIdx(0);
   });
   createEffect(() => {
-    const n = props.objects.length;
+    const objs = props.objects;
+    if (hoverLocked()) lockHover(250);
+    const n = objs.length;
     setFocusIdx((i) => (n === 0 ? -1 : Math.max(0, Math.min(i, n - 1))));
   });
 
@@ -93,9 +86,11 @@ export function SearchResultsPane(props: {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setFocusIdx((i) => Math.min(n - 1, Math.max(0, i) + 1));
+        lockHover(300);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setFocusIdx((i) => Math.max(0, (i < 0 ? 0 : i) - 1));
+        lockHover(300);
       } else if (e.key === "Enter") {
         const i = focusIdx();
         if (i < 0 || i >= n) return;
@@ -141,13 +136,16 @@ export function SearchResultsPane(props: {
                 </Show>
               }>
           <div class="results-header">{props.total.toLocaleString()} matches</div>
-          <div class="object-list search-results-list" ref={listEl}>
+          <div class="object-list search-results-list" ref={setListEl}>
             <For each={props.objects}>
               {(obj, i) => (
                 <div
                   class="obj-row"
                   classList={{ "kb-active": focusIdx() === i() }}
-                  onMouseEnter={() => setFocusIdx(i())}
+                  onMouseMove={() => {
+                    if (hoverLocked()) return;
+                    setFocusIdx(i());
+                  }}
                   onClick={() => activate(obj)}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); props.onCtxResult(e, obj); }}
                 >

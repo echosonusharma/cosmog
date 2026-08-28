@@ -11,6 +11,7 @@ import { isMobile } from "../utils/breakpoint";
 import { useBackHandler } from "../utils/androidBack";
 
 import { OP_LABELS, opLabel, opColor } from "../utils/requestLogMeta";
+import { highlightText } from "../utils/highlight";
 
 // Fixed row height — must match CSS. Detail lives outside the list (right pane
 // / bottom sheet), so the virtualizer never measures variable heights.
@@ -41,7 +42,7 @@ function fmtDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function truncateKey(key: string | null, max = 48): string {
+function truncateKey(key: string | null, max = 120): string {
   if (!key) return "";
   if (key.length <= max) return key;
   const half = Math.floor((max - 3) / 2);
@@ -168,8 +169,17 @@ export function RequestLogs(props: { active?: boolean }) {
   const [statusFilter, setStatusFilter] = createSignal("");
   const [opFilter, setOpFilter] = createSignal("");
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const [focusIdx, setFocusIdx] = createSignal(0);
+  const [hoverLocked, setHoverLocked] = createSignal(false);
+  let hoverLockTimer: ReturnType<typeof setTimeout> | undefined;
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
   let eventTimeout: ReturnType<typeof setTimeout> | undefined;
+  function lockHover(ms = 450) {
+    setHoverLocked(true);
+    clearTimeout(hoverLockTimer);
+    hoverLockTimer = setTimeout(() => setHoverLocked(false), ms);
+  }
+  onCleanup(() => clearTimeout(hoverLockTimer));
 
   const selected = createMemo(() => {
     const id = selectedId();
@@ -180,6 +190,34 @@ export function RequestLogs(props: { active?: boolean }) {
   createEffect(() => {
     const id = selectedId();
     if (id && !logs().some((r) => r.id === id)) setSelectedId(null);
+  });
+
+  // keyboard focus: reset on search/filter change, clamp on logs length
+  createEffect(() => {
+    search();
+    statusFilter();
+    opFilter();
+    lockHover(600);
+    setFocusIdx(0);
+  });
+  createEffect(() => {
+    const n = logs().length;
+    if (hoverLocked()) lockHover(250);
+    setFocusIdx((i) => (n === 0 ? -1 : Math.max(0, Math.min(i, n - 1))));
+  });
+  createEffect(() => {
+    const i = focusIdx();
+    if (i < 0) return;
+    // virtualizer scroll + DOM fallback
+    try {
+      (rowVirtualizer as any).scrollToIndex?.(i, { align: "auto" as const });
+    } catch {}
+    if (scrollDiv) {
+      const row = scrollDiv.querySelectorAll<HTMLElement>(".req-log-row")[i];
+      row?.scrollIntoView({ block: "nearest" });
+    }
+    // keep detail pane in sync when navigating via keyboard (optional: auto-open)
+    // we keep hoverLocked check so mouse under stationary cursor doesn't steal
   });
 
   useBackHandler(() => selectedId() !== null, () => {
@@ -304,12 +342,53 @@ export function RequestLogs(props: { active?: boolean }) {
       if (disposed) unlisten();
       else unlistenFn = unlisten;
     });
+
+    const onKey = (e: KeyboardEvent) => {
+      const n = logs().length;
+      if (!n) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.isComposing || (e as any).keyCode === 229) return;
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const inSearchInput = t.tagName === "INPUT" && t.classList.contains("logs-search-input");
+      const inLogs = !!t.closest(".req-log-layout, .logs-body, .logs-header");
+      if (!inSearchInput && !inLogs) return;
+      if (t.closest(".modal, .context-menu, [role='dialog']")) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusIdx((i) => Math.min(n - 1, Math.max(0, i) + 1));
+        lockHover(300);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusIdx((i) => Math.max(0, (i < 0 ? 0 : i) - 1));
+        lockHover(300);
+      } else if (e.key === "Enter") {
+        const i = focusIdx();
+        if (i < 0 || i >= n) return;
+        if ((t as HTMLElement).closest?.(".logs-search-wrap button, .logs-select, .btn-ghost")) return;
+        e.preventDefault();
+        const id = logs()[i]?.id;
+        if (id) setSelectedId((cur) => (cur === id ? null : id));
+      } else if (e.key === "Escape") {
+        if (selectedId()) {
+          e.preventDefault();
+          setSelectedId(null);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
   });
 
   function onSearch(q: string) {
     setSearch(q);
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(load, 300);
+  }
+  function clearSearch() {
+    setSearch("");
+    clearTimeout(searchTimeout);
+    load();
   }
 
   async function doClear() {
@@ -358,6 +437,11 @@ export function RequestLogs(props: { active?: boolean }) {
             value={search()}
             onInput={(e) => onSearch(e.currentTarget.value)}
           />
+          <Show when={search()}>
+            <button class="logs-search-clear" aria-label="Clear search" onClick={clearSearch}>
+              <IconX size={12} />
+            </button>
+          </Show>
         </div>
 
         <Select
@@ -423,9 +507,10 @@ export function RequestLogs(props: { active?: boolean }) {
                           const color = () => opColor(log()!.operation);
                           const isErr = () => log()!.status === "error";
                           const isSelected = () => selectedId() === log()!.id;
+                          const isFocused = () => focusIdx() === vrow().index;
                           return (
                             <div
-                              class={`req-log-row${isErr() ? " req-log-error" : ""}${isSelected() ? " req-log-open" : ""}`}
+                              class={`req-log-row${isErr() ? " req-log-error" : ""}${isSelected() ? " req-log-open" : ""}${isFocused() ? " kb-active" : ""}`}
                               style={{
                                 position: "absolute", top: 0, left: 0, width: "100%",
                                 height: `${ROW_H}px`,
@@ -433,6 +518,10 @@ export function RequestLogs(props: { active?: boolean }) {
                                 "--row-color": isErr() ? "#ef4444" : color(),
                               }}
                               onClick={() => selectRow(log()!.id)}
+                              onMouseMove={() => {
+                                if (hoverLocked()) return;
+                                setFocusIdx(vrow().index);
+                              }}
                             >
                               <div class="req-log-main">
                                 <span class="req-log-dot" style={{ background: isErr() ? "#ef4444" : "#22c55e" }} />
@@ -445,26 +534,24 @@ export function RequestLogs(props: { active?: boolean }) {
                                 </span>
 
                                 <span class="req-log-op" style={{ "--op-color": color() }}>
-                                  {opLabel(log()!.operation)}
+                                  {highlightText(opLabel(log()!.operation), search())}
                                 </span>
 
                                 <Show when={log()!.account_name}>
-                                  <span class="req-log-account">{log()!.account_name}</span>
+                                  <span class="req-log-account">{highlightText(log()!.account_name!, search())}</span>
                                 </Show>
 
                                 <Show when={log()!.bucket || log()!.key}>
                                   <span class="req-log-target">
                                     <Show when={log()!.bucket}>
-                                      <span class="req-log-bucket">{log()!.bucket}</span>
+                                      <span class="req-log-bucket">{highlightText(log()!.bucket!, search())}</span>
                                     </Show>
                                     <Show when={log()!.key}>
                                       <span class="req-log-sep">/</span>
-                                      <span class="req-log-key">{truncateKey(log()!.key)}</span>
+                                      <span class="req-log-key">{highlightText(truncateKey(log()!.key), search())}</span>
                                     </Show>
                                   </span>
                                 </Show>
-
-                                <div class="flex-1" />
 
                                 <span class={`req-log-duration ${durationClass(log()!.duration_ms)}`}>
                                   {fmtDuration(log()!.duration_ms)}
