@@ -11,6 +11,7 @@ import {
   setAccounts, accounts, browseState, setBrowseState, selectAccount,
   setSidebarBuckets, bucketsRefreshTick, accountsRefreshTick,
   bumpBucketsRefresh, bumpAccountsRefresh, setActiveTransfers, goUpPrefix,
+  takeBootBuckets, setSidebarBucketsError,
 } from "../state/app";
 import { useBackHandler } from "../utils/androidBack";
 import { listAccounts } from "../api/accounts";
@@ -60,7 +61,9 @@ export default function MainApp() {
     return false;
   });
 
-  const [accountsData] = createResource(accountsRefreshTick, listAccounts);
+  // Tick 0 reuses the boot() seed; later ticks (resume/refresh) refetch.
+  const [accountsData] = createResource(accountsRefreshTick, (tick) =>
+    tick === 0 ? accounts() : listAccounts());
   const [settings] = createResource(getSettings);
 
   createEffect(() => {
@@ -89,13 +92,21 @@ export default function MainApp() {
     bucketsRefreshTick();
     if (id !== sidebarAccountId) {
       sidebarAccountId = id ?? "";
+      // Launch seed from boot(); consumed once, then the normal fetch path.
+      const seeded = id ? takeBootBuckets(id) : null;
+      if (seeded) {
+        setSidebarBuckets(seeded);
+        setSidebarBucketsError(null);
+        return;
+      }
       setSidebarBuckets([]);
+      setSidebarBucketsError(null);
     }
     if (!id) return;
     const reqId = id;
     listBuckets(id)
-      .then((b) => { if (browseState.accountId === reqId) setSidebarBuckets(b); })
-      .catch(() => {});
+      .then((b) => { if (browseState.accountId === reqId) { setSidebarBuckets(b); setSidebarBucketsError(null); } })
+      .catch((e) => { if (browseState.accountId === reqId) setSidebarBucketsError(errMsg(e)); });
   });
 
   // Poll drives active count + system notifications: "Uploading…" on start, completion notice

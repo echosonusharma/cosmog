@@ -3,6 +3,7 @@
 
 @import "./tokens.css";
 @import "./layout.css";
+@import "./boot.css";
 @import "./titlebar.css";
 @import "./icons.css";
 @import "./utils.css";

@@ -6,7 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   currentView, setCurrentView,
   accounts, browseState, selectAccount, navigateToBucket,
-  sidebarBuckets,
+  sidebarBuckets, sidebarBucketsError,
   setOpenAddAccount,
 } from "../../state/app";
 import { providerLabel } from "../../providers";
@@ -20,6 +20,7 @@ import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
 import { ProviderTile } from "./ProviderTile";
+import Spinner from "../../utils/Spinner";
 
 const GITHUB_ISSUES_URL = "https://github.com/echosonusharma/cosmog/issues";
 
@@ -128,7 +129,7 @@ function BugReportModal(props: { onClose: () => void }) {
             </Show>
             <Show when={showLoader() && !info.error}>
               <div class="bug-info-loading" aria-busy="true">
-                <span class="spinner spinner-lg" />
+                <Spinner size={50} />
                 <span>Loading system info…</span>
               </div>
             </Show>
@@ -300,6 +301,11 @@ export function Sidebar(props: {
                 )}
               </For>
             </div>
+          </div>
+        </Show>
+        <Show when={!props.collapsed && sidebarBucketsError()}>
+          <div class="sidebar-buckets-error" title={sidebarBucketsError() ?? ""}>
+            Couldn't load buckets. {sidebarBucketsError()}
           </div>
         </Show>
       </div>

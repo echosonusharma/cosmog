@@ -122,6 +122,12 @@
   letter-spacing: 0;
   text-transform: none;
 }
+.sidebar-buckets-error {
+  padding: 2px 9px 0;
+  font-size: 12px;
+  color: var(--err);
+  overflow-wrap: anywhere;
+}
 
 .sidebar-item {
   display: flex; align-items: center;

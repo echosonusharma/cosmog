@@ -1,20 +1,32 @@
-import { batch, createResource, Show, Suspense, ErrorBoundary } from "solid-js";
+import { batch, createSignal, Show, ErrorBoundary } from "solid-js";
 import { listAccounts } from "./api/accounts";
 import Onboarding from "./routes/Onboarding";
 import MainApp from "./routes/MainApp";
 import Titlebar from "./routes/Titlebar";
 import { ConfirmHost } from "./state/confirm";
-import { setBrowseState, setCurrentView, type View } from "./state/app";
+import { accounts, setAccounts, setBrowseState, setCurrentView, type View } from "./state/app";
 import { parseWireError, isCredentialError, isNetworkError } from "./utils/errors";
 
-export default function App() {
-  const [accounts, { refetch }] = createResource(listAccounts);
+// Boot seeds data; reload failures rethrow to the boundary below.
+export default function App(props: { bootError: unknown }) {
+  if (props.bootError) throw props.bootError;
+  const [loadError, setLoadError] = createSignal<unknown>(null);
+  const pendingErr = loadError();
+  if (pendingErr) throw pendingErr;
+
+  async function reloadAccounts() {
+    try {
+      setAccounts(await listAccounts());
+    } catch (e) {
+      setLoadError(e);
+    }
+  }
 
   function recoverFromError(reset: () => void, targetView: View = "browse") {
-    const accs = accounts() ?? [];
+    const accs = accounts();
     if (accs.length === 0) {
       reset();
-      refetch();
+      void reloadAccounts();
     } else {
       // batch() flushes signal writes atomically with reset(), so when the ErrorBoundary re-renders,
       // browseState.bucket is already null — Browse never remounts with a stale bucket and re-throw.
@@ -44,7 +56,7 @@ export default function App() {
                 <p class="err-popup-msg">{message}</p>
                 {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
                 <div class="err-popup-actions">
-                  <Show when={(accounts() ?? []).length > 0}
+                  <Show when={accounts().length > 0}
                         fallback={
                           <button class="btn-primary text-xs"
                                   onClick={() => recoverFromError(reset)}>
@@ -65,16 +77,10 @@ export default function App() {
             </div>
           );
         }}>
-          <Suspense fallback={<div class="center-fill"><span class="spinner spinner-lg" /></div>}>
-            <Show when={!accounts.loading}>
-              <Show
-                when={(accounts() ?? []).length > 0}
-                fallback={<Onboarding onDone={() => refetch()} />}
-              >
-                <MainApp />
-              </Show>
-            </Show>
-          </Suspense>
+          <Show when={accounts().length > 0}
+                fallback={<Onboarding onDone={reloadAccounts} />}>
+            <MainApp />
+          </Show>
         </ErrorBoundary>
       </div>
       <ConfirmHost />

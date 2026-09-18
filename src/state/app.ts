@@ -36,6 +36,19 @@ export function restoreBrowseState() {
 
 export const [accounts, setAccounts] = createSignal<Account[]>([]);
 export const [sidebarBuckets, setSidebarBuckets] = createSignal<Bucket[]>([]);
+// Last bucket-load failure; null when healthy. Shown inline in the sidebar.
+export const [sidebarBucketsError, setSidebarBucketsError] = createSignal<string | null>(null);
+
+// One-shot bucket seed from boot(); MainApp consumes it once.
+let bootBucketSeed: { accountId: string; buckets: Bucket[] } | null = null;
+export function seedBootBuckets(accountId: string, buckets: Bucket[]) {
+  bootBucketSeed = { accountId, buckets };
+}
+export function takeBootBuckets(accountId: string): Bucket[] | null {
+  const seed = bootBucketSeed;
+  bootBucketSeed = null;
+  return seed && seed.accountId === accountId ? seed.buckets : null;
+}
 
 const [bucketsRefreshTick, setBucketsRefreshTick] = createSignal(0);
 export { bucketsRefreshTick };
