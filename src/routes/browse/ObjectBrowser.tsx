@@ -30,6 +30,7 @@ import { BulkBar } from "./BulkBar";
 import { SearchResultsPane } from "./SearchResultsPane";
 import { ContextMenu, type CtxMenu } from "./ContextMenu";
 import { ListView } from "./ListView";
+import Spinner from "../../utils/Spinner";
 
 export function ObjectBrowser(props: {
   accountId: string;
@@ -462,7 +463,7 @@ export function ObjectBrowser(props: {
 
       <Show when={!browseData.initialLoaded && !browseData.error}>
         <div class="browse-loading-overlay">
-          <span class="spinner spinner-lg" />
+          <Spinner size={50} />
         </div>
       </Show>
 

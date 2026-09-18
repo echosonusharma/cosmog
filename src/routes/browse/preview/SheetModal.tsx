@@ -8,6 +8,7 @@ import { formatBytes } from "../../../utils/fmt";
 import { IconEye, IconX } from "../../../utils/icons";
 import type { CachedObjectMeta } from "../../../types";
 import { extOf, parseCsvIntoSheet, worksheetToCsv } from "../helpers";
+import Spinner from "../../../utils/Spinner";
 
 const SHEET_CAP = 10 * 1024 * 1024;
 
@@ -199,7 +200,7 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
             </div>
             <Show when={sheetLoading()}>
               <div class="preview-loader sheet-modal-loading">
-                <span class="spinner spinner-lg" />
+                <Spinner size={50} />
                 <span>Loading spreadsheet…</span>
               </div>
             </Show>

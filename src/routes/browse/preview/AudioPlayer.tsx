@@ -4,6 +4,7 @@ import { formatBytes } from "../../../utils/fmt";
 import { IconEye, IconPlay, IconPause, IconVolume, IconMute } from "../../../utils/icons";
 import { extOf } from "../helpers";
 import type { CachedObjectMeta } from "../../../types";
+import Spinner from "../../../utils/Spinner";
 
 // Android WebView refuses to decode a Blob with an invalid/wildcard type
 // (e.g. "audio/*"), so encrypted playback needs a concrete MIME per extension.
@@ -233,7 +234,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
       </Show>
       <Show when={src.loading && !displaySrc()}>
         <div class="preview-loader">
-          <span class="spinner spinner-lg" />
+          <Spinner size={50} />
           <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
         </div>
       </Show>
@@ -283,7 +284,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
             </div>
           </div>
           <Show when={src.loading}>
-            <div class="aplayer-switch-overlay"><span class="spinner" /></div>
+            <div class="aplayer-switch-overlay"><Spinner /></div>
           </Show>
           <Show when={playErr()}>
             <div class="aplayer-err">{playErr()}</div>

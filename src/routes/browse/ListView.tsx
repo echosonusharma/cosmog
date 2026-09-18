@@ -9,6 +9,7 @@ import {
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
+import Spinner from "../../utils/Spinner";
 
 export type ListItem =
   | { kind: "folder"; sub: string }
@@ -106,7 +107,7 @@ export function ListView(props: {
           </Show>
 
           <Show when={props.browseData.loading && listItems().length === 0}>
-            <div class="loading-row"><span class="spinner" /> Loading…</div>
+            <div class="loading-row"><Spinner /> Loading…</div>
           </Show>
 
           {/* ".." back row — outside virtual list so it's always at top */}

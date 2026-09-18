@@ -16,6 +16,7 @@ import {
 } from "../api/nightWatcher";
 import type { NightWatch, WatchStatus } from "../types";
 import { nightWatchAddSchema, parseSchema } from "../validation";
+import Spinner from "../utils/Spinner";
 
 const DEFAULT_FULL_SCAN_SECS = 300;
 
@@ -204,7 +205,7 @@ export default function NightWatcher() {
           <div class="settings-section-title">Watched directories</div>
 
           <Show when={!watches.loaded}>
-            <div class="loading-row"><span class="spinner" /> Loading watches…</div>
+            <div class="loading-row"><Spinner /> Loading watches…</div>
           </Show>
 
           <Show when={watches.loaded && watches.list.length === 0}>

@@ -12,6 +12,7 @@ import type { Extension } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
+import Spinner from "../utils/Spinner";
 
 async function langExtension(ext: string): Promise<Extension> {
   switch (ext) {
@@ -235,7 +236,7 @@ export function CodeEditor(props: {
       <div ref={container} class="code-editor-host" />
       <Show when={showEditorLoader()}>
         <div class="preview-switching-overlay">
-          <span class="spinner spinner-lg" />
+          <Spinner size={50} />
         </div>
       </Show>
     </div>

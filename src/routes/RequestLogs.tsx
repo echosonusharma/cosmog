@@ -12,6 +12,7 @@ import { useBackHandler } from "../utils/androidBack";
 
 import { OP_LABELS, opLabel, opColor } from "../utils/requestLogMeta";
 import { highlightText } from "../utils/highlight";
+import Spinner from "../utils/Spinner";
 
 // Fixed row height — must match CSS. Detail lives outside the list (right pane
 // / bottom sheet), so the virtualizer never measures variable heights.
@@ -470,7 +471,7 @@ export function RequestLogs(props: { active?: boolean }) {
       </div>
 
       <Show when={loading()}>
-        <div class="loading-row logs-loading"><span class="spinner" /> Loading…</div>
+        <div class="loading-row logs-loading"><Spinner /> Loading…</div>
       </Show>
       <Show when={!loading()}>
         <Show when={fetchError()}>
@@ -566,7 +567,7 @@ export function RequestLogs(props: { active?: boolean }) {
                 </Index>
               </div>
               <Show when={loadingMore()}>
-                <div class="req-log-more"><span class="spinner" /> Loading more…</div>
+                <div class="req-log-more"><Spinner /> Loading more…</div>
               </Show>
             </div>
 

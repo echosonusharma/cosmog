@@ -5,6 +5,7 @@ import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
 import { ReauthPanel } from "./browse/ReauthPanel";
 import { isCredentialError, isNetworkError, parseWireError } from "../utils/errors";
+import Spinner from "../utils/Spinner";
 
 export default function Browse(props: { defaultDownloadDir: string }) {
   createEffect(() => {
@@ -78,7 +79,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                   </div>
                 );
               }}>
-                <Suspense fallback={<div class="browse-loading-overlay"><span class="spinner spinner-lg" /></div>}>
+                <Suspense fallback={<div class="browse-loading-overlay"><Spinner size={50} /></div>}>
                   <BucketGrid accountId={accountId} accountName={accountName()} />
                 </Suspense>
               </ErrorBoundary>
@@ -119,7 +120,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                 </div>
               );
             }}>
-              <Suspense fallback={<div class="browse-loading-overlay"><span class="spinner spinner-lg" /></div>}>
+              <Suspense fallback={<div class="browse-loading-overlay"><Spinner size={50} /></div>}>
                 <ObjectBrowser
                   accountId={stableAccountId()}
                   accountName={accountName()}

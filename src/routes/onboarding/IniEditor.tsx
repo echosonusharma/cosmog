@@ -8,6 +8,7 @@ import { editorHighlightTheme } from "../../state/editorTheme";
 import { resolvedTheme } from "../../state/theme";
 import { loadEditorTheme, editorShellTheme } from "../../utils/codemirrorThemes";
 import { validateAwsCredentialsIni } from "../../utils/parseAwsCredentialsIni";
+import Spinner from "../../utils/Spinner";
 
 function awsIniLinter() {
   return linter((view): Diagnostic[] => {
@@ -147,7 +148,7 @@ export function IniEditor(props: {
       <div ref={container} class="ini-editor-host" />
       <Show when={showEditorLoader()}>
         <div class="preview-switching-overlay">
-          <span class="spinner spinner-lg" />
+          <Spinner size={50} />
         </div>
       </Show>
     </div>

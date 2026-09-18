@@ -15,6 +15,7 @@ import type { Bucket } from "../../types";
 import { ErrorPopup } from "../../utils/ErrorPopup";
 import { NewBucketModal } from "./modals";
 import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
+import Spinner from "../../utils/Spinner";
 
 export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [refresh, setRefresh] = createSignal(0);
@@ -151,7 +152,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
 
       <div class="bucket-grid-body">
         <Show when={buckets.loading && buckets.latest == null}>
-          <div class="loading-row"><span class="spinner" /> Loading buckets…</div>
+          <div class="loading-row"><Spinner /> Loading buckets…</div>
         </Show>
         <Show when={buckets.error && !errDismissed()}>
           <ErrorPopup error={buckets.error} onClose={() => setErrDismissed(true)} />

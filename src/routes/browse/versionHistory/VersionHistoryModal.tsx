@@ -13,6 +13,7 @@ import { IconX } from "../../../utils/icons";
 import type { ObjectVersion } from "../../../types";
 import { pathFromDialog, resolveDownloadPath, registerSafFinalize, withTimestamp } from "../helpers";
 import { VersionRow } from "./VersionRow";
+import Spinner from "../../../utils/Spinner";
 
 const MAX_PAGES = 20;
 
@@ -151,7 +152,7 @@ export function VersionHistoryModal(props: {
         <div class="vh-body">
           <Show when={data.loading && data.latest == null}>
             <div class="vh-loading">
-              <span class="spinner" /> Loading versions…
+              <Spinner /> Loading versions…
             </div>
           </Show>
 

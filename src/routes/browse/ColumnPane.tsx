@@ -5,6 +5,7 @@ import { errMsg } from "../../state/toast";
 import { basename } from "../../utils/fmt";
 import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
+import Spinner from "../../utils/Spinner";
 
 export const COL_ITEM_H = 30; // px — must match .col-pane-item height in CSS
 
@@ -143,7 +144,7 @@ export function ColumnPane(props: {
     <Show when={hasData()} fallback={
       <div class={`col-pane col-pane-scroll ${props.active ? "col-pane-active" : ""}`}>
         <Show when={state.loading && !state.error}>
-          <div class="col-pane-inline-spinner"><span class="spinner" /></div>
+          <div class="col-pane-inline-spinner"><Spinner size={28} /></div>
         </Show>
         <Show when={state.error}>
           <div class="col-pane-inline-err">{errMsg(state.error)}</div>
@@ -153,7 +154,7 @@ export function ColumnPane(props: {
       <Show when={items().length > 0} fallback={
         <div class={`col-pane col-pane-empty ${props.active ? "col-pane-active" : ""}`}>
           <Show when={!state.loading} fallback={
-            <div class="col-pane-inline-spinner"><span class="spinner" /></div>
+            <div class="col-pane-inline-spinner"><Spinner size={28} /></div>
           }>
             <span class="col-pane-empty-text">Empty folder</span>
           </Show>

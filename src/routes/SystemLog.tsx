@@ -6,6 +6,7 @@ import { Select } from "../utils/Select";
 import { parseLine, type ParsedLine } from "../utils/parseLine";
 import { sourceByKey, sourceLabel } from "../utils/logSource";
 import { LogRow } from "./LogRow";
+import Spinner from "../utils/Spinner";
 
 export function SystemLog(props: { active?: boolean }) {
   const isActive = () => props.active !== false;
@@ -167,7 +168,7 @@ export function SystemLog(props: { active?: boolean }) {
         </Show>
       </div>
       <Show when={loading()}>
-        <div class="loading-row logs-loading"><span class="spinner" /> Loading logs…</div>
+        <div class="loading-row logs-loading"><Spinner /> Loading logs…</div>
       </Show>
       <Show when={!loading()}>
         <Show

@@ -7,6 +7,7 @@ import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import { parseSchema, settingsPatchSchema } from "../../validation";
 import type { AppSettings } from "../../types";
+import Spinner from "../../utils/Spinner";
 
 export function SettingsForm() {
   const [settings, { refetch }] = createResource(getSettings);
@@ -66,7 +67,7 @@ export function SettingsForm() {
     <div class="settings-section">
       <div class="settings-section-title">General</div>
       <Show when={settings.loading && !settings.latest}>
-        <div class="loading-row"><span class="spinner" /> Loading settings…</div>
+        <div class="loading-row"><Spinner /> Loading settings…</div>
       </Show>
       <Show when={settings.latest}>
         <div class="settings-grid">

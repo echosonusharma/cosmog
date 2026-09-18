@@ -6,6 +6,7 @@ import { IconEye, IconX } from "../../../utils/icons";
 import { useBackHandler } from "../../../utils/androidBack";
 import type { CachedObjectMeta } from "../../../types";
 import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
+import Spinner from "../../../utils/Spinner";
 
 // Lazy-loaded (heavy). Legacy build runs on the older WebKit Tauri ships
 // (WebKitGTK on Linux, macOS WKWebView) — no native PDF renderer there.
@@ -457,7 +458,7 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
             >
               <Show when={loading()}>
                 <div class="preview-loader pdf-modal-loading">
-                  <span class="spinner spinner-lg" />
+                  <Spinner size={50} />
                   <span>Loading PDF…</span>
                 </div>
               </Show>

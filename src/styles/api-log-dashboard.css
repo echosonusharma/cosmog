@@ -165,11 +165,6 @@
   cursor: progress;
 }
 
-.api-dash-refresh-spinner {
-  --loader-size: 12px;
-  --loader-border: 2px;
-}
-
 .api-dash-loading {
   flex: 1;
   justify-content: center;

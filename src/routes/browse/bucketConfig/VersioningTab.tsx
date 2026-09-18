@@ -4,6 +4,7 @@ import { toast } from "../../../state/toast";
 import { classifyBucketError, deniedMessage } from "./errors";
 import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
+import Spinner from "../../../utils/Spinner";
 
 export function VersioningTab(props: {
   accountId: string;
@@ -63,7 +64,7 @@ export function VersioningTab(props: {
 
   return (
     <div class="bcfg-tab">
-      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><span class="spinner spinner-lg" /><span>Loading versioning…</span></div>}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>Loading versioning…</span></div>}>
         <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
           <Show when={snap()!.unsupported}>
             <div class="status-msg warn">Not supported by this provider</div>

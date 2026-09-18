@@ -14,6 +14,7 @@ import {
   IconX, IconZoomIn, IconZoomOut, IconRotateCw, IconRotateCcw,
   IconFlipH, IconFlipV, IconCrop, IconSave, IconMaximize, IconDownload,
 } from "../../../utils/icons";
+import Spinner from "../../../utils/Spinner";
 
 // Editing decrypts + rasterizes the whole image in memory and ships the bytes
 // over IPC; cap it so a huge object can't OOM the webview.
@@ -267,7 +268,7 @@ export function ImageEditor(props: {
             </div>
           </Show>
           <Show when={!tooBig() && src.loading}>
-            <div class="preview-loader"><span class="spinner spinner-lg" /><span>{props.encrypted ? "Decrypting…" : "Loading…"}</span></div>
+            <div class="preview-loader"><Spinner size={50} /><span>{props.encrypted ? "Decrypting…" : "Loading…"}</span></div>
           </Show>
           <Show when={src.error}>
             <div class="preview-err-inline"><div class="preview-err-inline-title">Failed to load</div><div class="preview-err-inline-hint">{errMsg(src.error)}</div></div>

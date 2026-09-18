@@ -103,40 +103,16 @@
 }
 .mode-badge.live { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 
-@keyframes loader-reveal {
-  0%    { clip-path: polygon(50% 50%, 0 0, 50% 0%, 50% 0%, 50% 0%, 50% 0%, 50% 0%); }
-  12.5% { clip-path: polygon(50% 50%, 0 0, 50% 0%, 100% 0%, 100% 0%, 100% 0%, 100% 0%); }
-  25%   { clip-path: polygon(50% 50%, 0 0, 50% 0%, 100% 0%, 100% 100%, 100% 100%, 100% 100%); }
-  50%   { clip-path: polygon(50% 50%, 0 0, 50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%); }
-  62.5% { clip-path: polygon(50% 50%, 100% 0, 100% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%); }
-  75%   { clip-path: polygon(50% 50%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 50% 100%, 0% 100%); }
-  100%  { clip-path: polygon(50% 50%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 0% 100%); }
-}
-@keyframes loader-turn {
-  0%     { transform: scaleY(1) rotate(0deg); }
-  49.99% { transform: scaleY(1) rotate(135deg); }
-  50%    { transform: scaleY(-1) rotate(0deg); }
-  100%   { transform: scaleY(-1) rotate(-135deg); }
-}
-.loader,
-.spinner {
-  --loader-size: 13px;
-  --loader-border: 2px;
-  width: var(--loader-size);
-  height: var(--loader-size);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  border: var(--loader-border) solid var(--accent);
+/* Shared <Spinner/> (src/utils/Spinner.tsx). Only loader going forward. */
+.spinner-svg {
+  color: var(--accent);
   flex-shrink: 0;
   vertical-align: middle;
-  backface-visibility: hidden;
-  will-change: transform, clip-path;
-  animation:
-    loader-reveal 0.8s infinite linear alternate,
-    loader-turn 1.6s infinite linear;
+  animation: loader-spin 0.9s linear infinite;
 }
-.loader-lg,
-.spinner-lg { --loader-size: 50px; --loader-border: 8px; }
+@keyframes loader-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* ── browse view error boundary card ─────────────────────────────────────── */
 .browse-err-fallback {
@@ -162,5 +138,4 @@
   z-index: 10;
   pointer-events: none;
 }
-.browse-loading-overlay .spinner { --loader-size: 50px; --loader-border: 8px; }
 

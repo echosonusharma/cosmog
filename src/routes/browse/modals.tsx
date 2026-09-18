@@ -18,6 +18,7 @@ import {
   parseSchema,
   uploadKeyPrefixSchema,
 } from "../../validation";
+import Spinner from "../../utils/Spinner";
 
 function displayName(p: string): string {
   if (p.startsWith("content://") || p.startsWith("file://")) return displayNameFromUri(p, "file");
@@ -227,7 +228,7 @@ export function UploadModal(props: {
         </Show>
         <Show when={busy() && props.encrypted && files().length > 0}>
           <div class="upload-encrypting-progress">
-            <span class="spinner" />
+            <Spinner size={11} />
             <span class="upload-encrypting-progress-label">
               Encrypting <code>{displayName(files()[currentIdx()] ?? "")}</code>
             </span>

@@ -17,6 +17,7 @@ import {
   opColor,
   opLabel,
 } from "../utils/requestLogMeta";
+import Spinner from "../utils/Spinner";
 
 
 const TOP_ACCOUNTS = 7;
@@ -581,7 +582,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
           onClick={() => load()}
         >
           <Show when={refreshing()}>
-            <span class="spinner api-dash-refresh-spinner" aria-hidden="true" />
+            <Spinner size={12} />
           </Show>
           Refresh
         </button>
@@ -590,7 +591,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
       <div class="api-dash-main">
         <Show when={loading() && !stats()}>
           <div class="bcfg-loading api-dash-loading" aria-busy="true" aria-live="polite">
-            <span class="spinner spinner-lg" />
+            <Spinner size={50} />
             <span>Loading analytics…</span>
           </div>
         </Show>

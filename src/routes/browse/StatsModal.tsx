@@ -5,6 +5,7 @@ import { IconInfo } from "../../utils/icons";
 import { Donut } from "./charts/Donut";
 import { TimeSeriesChart } from "./charts/TimeSeriesChart";
 import type { BucketStats } from "../../types";
+import Spinner from "../../utils/Spinner";
 
 // Distinct hues for the donut / file-type legend. Last is the "Other" bucket.
 const PALETTE = ["#a45cf0", "#4f9dff", "#37c9a8", "#f0b429", "#ff7a5c", "#e05cc0", "#8a94a6"];
@@ -75,7 +76,7 @@ export function StatsModal(props: {
         </Show>
 
         <Show when={stats.loading}>
-          <div class="loading-row"><span class="spinner" /> Reading index…</div>
+          <div class="loading-row"><Spinner /> Reading index…</div>
         </Show>
 
         <Show when={stats()}>

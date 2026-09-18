@@ -98,10 +98,6 @@
   padding: 12px;
   display: flex; justify-content: center;
 }
-.col-pane-inline-spinner .spinner {
-  --loader-size: 28px;
-  --loader-border: 4.5px;
-}
 .col-pane-inline-err {
   padding: 8px; font-size: 11px; color: var(--red);
 }

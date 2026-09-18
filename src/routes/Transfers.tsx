@@ -12,6 +12,7 @@ import { moveSafFinalize, discardSafDownload } from "./browse/helpers";
 import { TransferRow } from "./transfers/TransferRow";
 import { EncryptionModal } from "./browse/EncryptionModal";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
+import Spinner from "../utils/Spinner";
 
 type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
@@ -167,7 +168,7 @@ export default function Transfers() {
 
       <Show when={err()}><div class="status-msg err transfer-err-msg">{err()}</div></Show>
       <Show when={loading()}>
-        <div class="loading-row"><span class="spinner" /> Loading…</div>
+        <div class="loading-row"><Spinner /> Loading…</div>
       </Show>
 
       <Show when={!loading()}>

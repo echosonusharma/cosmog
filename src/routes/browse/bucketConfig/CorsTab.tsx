@@ -8,6 +8,7 @@ import { classifyBucketError, deniedMessage } from "./errors";
 import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
 import { validateCorsRules } from "../../../validation";
+import Spinner from "../../../utils/Spinner";
 
 const METHODS = ["GET", "PUT", "POST", "DELETE", "HEAD"] as const;
 
@@ -173,7 +174,7 @@ export function CorsTab(props: {
 
   return (
     <div class="bcfg-tab">
-      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><span class="spinner spinner-lg" /><span>Loading CORS…</span></div>}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>Loading CORS…</span></div>}>
         <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
           <Show when={snap()!.unsupported}>
             <div class="status-msg warn">Not supported by this provider</div>

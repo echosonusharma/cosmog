@@ -8,6 +8,7 @@ import { formatBytes, formatDate } from "../../utils/fmt";
 import { navigateToPrefix } from "../../state/app";
 import { highlightText } from "../../utils/highlight";
 import type { CachedObjectMeta, BucketIndexStatus } from "../../types";
+import Spinner from "../../utils/Spinner";
 
 export function SearchResultsPane(props: {
   searchQuery: string;
@@ -109,10 +110,10 @@ export function SearchResultsPane(props: {
       {/* Latch: while a new query fetches, keep the previous results under a
           corner spinner instead of flashing "Searching…" on every keystroke. */}
       <Show when={props.loading && props.objects.length > 0}>
-        <span class="spinner corner-spinner" />
+        <Spinner class="corner-spinner" />
       </Show>
       <Show when={props.loading && props.objects.length === 0}>
-        <div class="loading-row"><span class="spinner" /> Searching…</div>
+        <div class="loading-row"><Spinner /> Searching…</div>
       </Show>
       <Show when={!props.loading || props.objects.length > 0}>
         <Show when={props.objects.length > 0}

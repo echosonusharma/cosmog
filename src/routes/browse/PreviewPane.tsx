@@ -21,11 +21,12 @@ const ImageEditor = lazy(() => import("./preview/ImageEditor").then((m) => ({ de
 const SheetPreview = lazy(() => import("./preview/SheetModal").then((m) => ({ default: m.SheetPreview })));
 
 const chunkSpinner = () => (
-  <div class="preview-loader"><span class="spinner spinner-lg" /></div>
+  <div class="preview-loader"><Spinner size={50} /></div>
 );
 import { AudioPreview } from "./preview/AudioPlayer";
 import { MetaList } from "./preview/MetaList";
 import { useBackHandler } from "../../utils/androidBack";
+import Spinner from "../../utils/Spinner";
 
 // Maps a Tauri IPC rejection to a short human-facing (title, hint) pair,
 // falling back to the raw wire message when the code isn't recognized.
@@ -281,7 +282,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
               </Show>
               <Show when={imgUrl.loading && !displayUrl()}>
                 <div class="preview-loader">
-                  <span class="spinner spinner-lg" />
+                  <Spinner size={50} />
                   <span>{props.encrypted ? "Decrypting…" : "Loading image…"}</span>
                 </div>
               </Show>
@@ -298,7 +299,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 />
                 <Show when={!imgLoaded()}>
                   <div class="preview-switching-overlay">
-                    <span class="spinner spinner-lg" />
+                    <Spinner size={50} />
                   </div>
                 </Show>
               </Show>
@@ -308,7 +309,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           <Show when={displayKind() === "text" && !preview.error}>
             <Show when={textAutoLoad() && preview.loading && !displayText()}>
               <div class="preview-loader">
-                <span class="spinner spinner-lg" />
+                <Spinner size={50} />
                 <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
               </div>
             </Show>
@@ -317,7 +318,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <Show when={!loadRequested()}
                       fallback={
                         <div class="preview-loader">
-                          <span class="spinner spinner-lg" />
+                          <Spinner size={50} />
                           <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
                         </div>
                       }>
@@ -367,7 +368,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
           <Show when={crossLoading()}>
             <div class="preview-switching-overlay">
-              <span class="spinner spinner-lg" />
+              <Spinner size={50} />
             </div>
           </Show>
           </div>
