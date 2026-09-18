@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cold-start splash: painted by the OS from process start until the WebView
+     first paint (where index.html #boot-splash takes over). Same dark ground
+     as the web splash so the handoff is seamless. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <color android:color="#0C0D12" />
+    </item>
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/ic_launcher_foreground" />
+    </item>
+</layer-list>

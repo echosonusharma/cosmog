@@ -1,6 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.cosmog" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Cold-start ground; WebView splash takes over at first paint. -->
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.cosmog</item>
     </style>
 </resources>
