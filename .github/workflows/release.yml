@@ -142,10 +142,12 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK 27
-        run: sdkmanager "ndk;27.1.12297006"
+        run: |
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
 
       # Only the two targets users actually need: arm64 for real phones (~95%
       # of Android devices), x86_64 for emulators and some Chromebooks.
@@ -178,9 +180,9 @@ jobs:
           EOF
 
       - name: Build arm64 APK (phones)
-        run: npx tauri android build --apk --target aarch64
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+          npx tauri android build --apk --target aarch64
 
       - name: Rename arm64 APK
         run: |
@@ -189,9 +191,9 @@ jobs:
           cp "$APK" "/tmp/Cosmog-${TAG}-android-arm64.apk"
 
       - name: Build x86_64 APK (emulator)
-        run: npx tauri android build --apk --target x86_64
-        env:
-          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+          npx tauri android build --apk --target x86_64
 
       - name: Rename x86_64 APK
         run: |
