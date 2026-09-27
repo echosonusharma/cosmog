@@ -303,12 +303,6 @@
   display: flex; align-items: center; gap: 6px; margin-left: auto;
 }
 .editor-modal-btn { padding: 5px 14px; }
-.code-editor-wrap {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-}
-.code-editor-wrap .code-editor-host { height: 100%; }
 .code-editor-host { height: 100%; overflow: auto; border-radius: 6px; }
 .code-editor-host .cm-gutters {
   border-radius: 0;

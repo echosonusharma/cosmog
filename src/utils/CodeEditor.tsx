@@ -12,7 +12,6 @@ import type { Extension } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
-import Spinner from "../utils/Spinner";
 
 async function langExtension(ext: string): Promise<Extension> {
   switch (ext) {
@@ -104,38 +103,29 @@ export function CodeEditor(props: {
   let langGen = 0;
   let themeGen = 0;
   const [editorReady, setEditorReady] = createSignal(false);
-  const [langReady, setLangReady] = createSignal(false);
-  const [themeReady, setThemeReady] = createSignal(false);
-  const showEditorLoader = () => editorReady() && (!langReady() || !themeReady());
 
   function loadTheme(dark: boolean, themeId: EditorHighlightThemeId) {
     const gen = ++themeGen;
-    setThemeReady(false);
     void (async () => {
       try {
         const theme = await loadEditorTheme(themeId, dark);
         if (destroyed || !view || gen !== themeGen) return;
         view.dispatch({ effects: editorThemeComp.reconfigure(theme) });
-        setThemeReady(true);
       } catch (err) {
         console.warn("[CodeEditor] theme load failed:", err);
-        if (!destroyed && gen === themeGen) setThemeReady(true);
       }
     })();
   }
 
   function loadLang(ext: string) {
     const gen = ++langGen;
-    setLangReady(false);
     void (async () => {
       try {
         const lang = await langExtension(ext);
         if (destroyed || !view || gen !== langGen) return;
         view.dispatch({ effects: langComp.reconfigure(lang) });
-        setLangReady(true);
       } catch (err) {
         console.warn("[CodeEditor] language load failed:", err);
-        if (!destroyed && gen === langGen) setLangReady(true);
       }
     })();
   }
@@ -222,25 +212,9 @@ export function CodeEditor(props: {
     }
   });
 
-  onCleanup(() => {
-    destroyed = true;
-    setEditorReady(false);
-    setLangReady(false);
-    setThemeReady(false);
-    view?.destroy();
-    view = null;
-  });
+  onCleanup(() => { destroyed = true; setEditorReady(false); view?.destroy(); view = null; });
 
-  return (
-    <div class="code-editor-wrap rel">
-      <div ref={container} class="code-editor-host" />
-      <Show when={showEditorLoader()}>
-        <div class="preview-switching-overlay">
-          <Spinner size={50} />
-        </div>
-      </Show>
-    </div>
-  );
+  return <div ref={container} class="code-editor-host" />;
 }
 
 async function formatCode(ext: string, code: string): Promise<string> {
