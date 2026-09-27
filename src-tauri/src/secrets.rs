@@ -37,10 +37,28 @@ mod backend {
 pub(crate) static SECRET_STORE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
 
-// One-shot ndk_context init: both CosmogApp.onCreate and MainActivity.onCreate call initNdkContext,
-// and ndk_context asserts single initialization (aborts on double), so re-entry must be a no-op.
+// ndk_context aborts on double init. Since tao 0.37 it initializes the main
+// process itself, so only service processes (e.g. :nightwatch, ":suffix") init here.
 #[cfg(target_os = "android")]
 static NDK_CTX_INIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True for main-process cmdline bytes (no ":suffix").
+#[cfg(any(target_os = "android", test))]
+fn cmdline_is_main_process(cmdline: &[u8]) -> bool {
+    let end = cmdline
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(cmdline.len());
+    !cmdline[..end].contains(&b':')
+}
+
+#[cfg(target_os = "android")]
+fn android_process_is_main() -> bool {
+    match std::fs::read("/proc/self/cmdline") {
+        Ok(bytes) => cmdline_is_main_process(&bytes),
+        Err(_) => false,
+    }
+}
 
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -49,33 +67,35 @@ pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
     _class: jni::objects::JClass,
     context: jni::objects::JObject,
 ) {
-    if NDK_CTX_INIT.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
-    }
-    eprintln!("initNdkContext: entered");
-    let vm = match env.get_java_vm() {
-        Ok(vm) => vm,
-        Err(e) => {
-            eprintln!("initNdkContext get_java_vm failed: {e}");
-            return;
+    // Main process: tao owns the init; the class cache below still runs.
+    if !android_process_is_main() && !NDK_CTX_INIT.swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        eprintln!("initNdkContext: entered");
+        let vm = match env.get_java_vm() {
+            Ok(vm) => vm,
+            Err(e) => {
+                eprintln!("initNdkContext get_java_vm failed: {e}");
+                return;
+            }
+        };
+        let ctx_global = match env.new_global_ref(&context) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("initNdkContext new_global_ref failed: {e}");
+                return;
+            }
+        };
+        let ctx_raw = ctx_global.as_obj().as_raw();
+        // SAFETY: leak the global ref so the JNI reference stays valid for the process lifetime;
+        // ndk_context keeps using it after this function returns.
+        std::mem::forget(ctx_global);
+        unsafe {
+            ndk_context::initialize_android_context(
+                vm.get_java_vm_pointer().cast(),
+                ctx_raw.cast(),
+            );
         }
-    };
-    let ctx_global = match env.new_global_ref(&context) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("initNdkContext new_global_ref failed: {e}");
-            return;
-        }
-    };
-    let ctx_raw = ctx_global.as_obj().as_raw();
-    // SAFETY: leak the global ref so the JNI reference stays valid for the process lifetime;
-    // ndk_context keeps using it after this function returns.
-    std::mem::forget(ctx_global);
-    unsafe {
-        ndk_context::initialize_android_context(
-            vm.get_java_vm_pointer().cast(),
-            ctx_raw.cast(),
-        );
+        eprintln!("initNdkContext: done");
     }
     // Cache SecretStore as a global ref: FindClass from an attached native thread uses the system
     // ClassLoader and cannot find app classes.
@@ -89,7 +109,20 @@ pub extern "system" fn Java_com_sonus_cosmog_NativeBridge_initNdkContext(
         },
         Err(e) => eprintln!("initNdkContext: find_class(SecretStore) failed: {e}"),
     }
-    eprintln!("initNdkContext: done");
+}
+
+#[cfg(test)]
+mod init_tests {
+    use super::cmdline_is_main_process;
+
+    #[test]
+    fn classifies_main_vs_service_processes() {
+        assert!(cmdline_is_main_process(b"com.sonus.cosmog\0"));
+        assert!(cmdline_is_main_process(b"com.sonus.cosmog"));
+        assert!(cmdline_is_main_process(b""));
+        assert!(!cmdline_is_main_process(b"com.sonus.cosmog:nightwatch\0"));
+        assert!(!cmdline_is_main_process(b"com.sonus.cosmog:nightwatch"));
+    }
 }
 
 #[cfg(target_os = "android")]
