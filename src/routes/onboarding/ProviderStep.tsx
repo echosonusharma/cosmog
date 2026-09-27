@@ -5,7 +5,7 @@ import { ProviderIconTile } from "./shared";
 
 const PROVIDER_DESCS: Record<string, string> = {
   aws:          "s3.amazonaws.com",
-  backblaze:    "S3-compatible · low cost",
+  backblaze:    "Low cost",
   r2:           "Zero egress fees",
   wasabi:       "Hot cloud storage",
   digitalocean: "Managed object storage",
