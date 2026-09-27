@@ -318,6 +318,52 @@
   padding: 6px 16px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.editor-diff-legend {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.diff-swatch {
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  border-radius: 2px;
+  margin: 0 4px 0 10px;
+}
+.diff-swatch.diff-add { background-color: var(--ok); }
+.diff-swatch.diff-change { background-color: var(--warn); }
+.diff-swatch.diff-delete { background-color: var(--err); }
+
+/* Changed-line gutter + line wash (see src/utils/diffGutter.ts). */
+.cm-diff-gutter .cm-gutterElement {
+  display: flex;
+  justify-content: center;
+}
+.cm-diff-marker {
+  width: 3px;
+  /* No height:100% — it misbehaves on Android WebView; flex stretch fills
+     the row and min-height keeps the bar visible if row height is indefinite. */
+  min-height: 1em;
+  border-radius: 2px;
+}
+.cm-diff-marker.cm-diff-add { background-color: var(--ok); }
+.cm-diff-marker.cm-diff-change { background-color: var(--warn); }
+.cm-diff-marker.cm-diff-delete { background-color: var(--err); }
+/* Doubled class beats theme `.cm-activeLine` regardless of injection order. */
+.cm-line.cm-diff-line-add {
+  background-color: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.cm-line.cm-diff-line-change {
+  background-color: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.cm-line.cm-diff-line-delete {
+  background-color: color-mix(in srgb, var(--err) 12%, transparent);
 }
 
 /* ── image view / editor modal ──────────────────────────────────────────── */

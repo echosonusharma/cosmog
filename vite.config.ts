@@ -18,6 +18,7 @@ export default defineConfig(async () => ({
       "@codemirror/commands",
       "@codemirror/language",
       "@codemirror/lint",
+      "@codemirror/merge",
       "@codemirror/autocomplete",
       "@codemirror/search",
       "@codemirror/lang-json",

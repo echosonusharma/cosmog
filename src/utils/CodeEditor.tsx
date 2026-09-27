@@ -12,6 +12,7 @@ import type { Extension } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
+import { diffGutter, setDiffBase } from "./diffGutter";
 
 async function langExtension(ext: string): Promise<Extension> {
   switch (ext) {
@@ -90,6 +91,8 @@ export function CodeEditor(props: {
   readOnly?: boolean;
   dark?: boolean;
   gutters?: boolean;
+  /** Baseline text for changed-line highlights. Omit to disable. */
+  original?: string;
   onChange?: (v: string) => void;
 }) {
   let container!: HTMLDivElement;
@@ -98,6 +101,8 @@ export function CodeEditor(props: {
   const roComp   = new Compartment();
   const shellComp = new Compartment();
   const editorThemeComp = new Compartment();
+  const diffComp = new Compartment();
+  let diffActive = false;
 
   let destroyed = false;
   let langGen = 0;
@@ -139,6 +144,7 @@ export function CodeEditor(props: {
         ? [lineNumbers(), lintGutter(), highlightActiveLineGutter(), foldGutter()]
         : [lintGutter()];
 
+      diffActive = props.original !== undefined;
       const state = EditorState.create({
         doc: props.value,
         extensions: [
@@ -147,6 +153,7 @@ export function CodeEditor(props: {
           langComp.of([]),
           roComp.of(EditorState.readOnly.of(props.readOnly ?? false)),
           ...gutterExts,
+          diffComp.of(props.original !== undefined ? diffGutter(props.original) : []),
           drawSelection(),
           dropCursor(),
           rectangularSelection(),
@@ -194,6 +201,23 @@ export function CodeEditor(props: {
 
   createEffect(() => {
     view?.dispatch({ effects: roComp.reconfigure(EditorState.readOnly.of(props.readOnly ?? false)) });
+  });
+
+  // Retarget the diff baseline when the saved text changes.
+  createEffect(() => {
+    const base = props.original;
+    if (!view) return;
+    if (base === undefined) {
+      if (diffActive) {
+        view.dispatch({ effects: diffComp.reconfigure([]) });
+        diffActive = false;
+      }
+    } else if (!diffActive) {
+      view.dispatch({ effects: diffComp.reconfigure(diffGutter(base)) });
+      diffActive = true;
+    } else {
+      view.dispatch({ effects: setDiffBase.of(base) });
+    }
   });
 
   createEffect(() => {
@@ -317,11 +341,19 @@ export function EditorModal(props: {
             readOnly={false}
             dark={props.dark}
             gutters={true}
+            original={props.value}
             onChange={setContent}
           />
         </div>
         <div class="editor-modal-footer">
           <span class="muted text-xxs">Ctrl+S to save · Esc to close</span>
+          <Show when={isDirty()}>
+            <span class="muted text-xxs editor-diff-legend" title="Changed lines vs the saved file">
+              <i class="diff-swatch diff-add" />added
+              <i class="diff-swatch diff-change" />changed
+              <i class="diff-swatch diff-delete" />deleted
+            </span>
+          </Show>
         </div>
       </div>
     </div>

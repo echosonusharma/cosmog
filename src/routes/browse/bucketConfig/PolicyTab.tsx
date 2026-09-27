@@ -137,6 +137,7 @@ export function PolicyTab(props: {
                 ext="json"
                 dark={resolvedTheme() === "dark"}
                 gutters={true}
+                original={prettify(seeded() ?? EMPTY_POLICY)}
                 onChange={setContent}
               />
             </div>
