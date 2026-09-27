@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "cosmog"
-version = "1.1.38"
+version = "1.1.39"
 dependencies = [
  "age",
  "anyhow",
