@@ -253,7 +253,7 @@ pub fn run() {
                 if let Err(e) = db.reap_orphan_transfers_by_origin("user").await {
                     tracing::warn!("reap_orphan_transfers_by_origin failed: {e}");
                 }
-                // Concurrency changes take effect next launch: the Semaphore isn't resizable in place.
+                // Initial concurrency; settings changes resize it live via set_concurrency.
                 let settings = db.settings_load().await.unwrap_or_default();
                 // Apply proxy / custom-CA env BEFORE any SDK client is built.
                 crate::db::settings::apply_network_env(&settings);
@@ -285,33 +285,12 @@ pub fn run() {
                     if let Err(e) = state.db.delete_old_request_logs(ttl_cutoff).await {
                         tracing::warn!("request log TTL cleanup failed: {e}");
                     }
-                    // Crash leftovers under <db_dir>/enc_tmp/ are ciphertext-only, safe to delete
-                    // unconditionally (staged for uploads that never completed).
                     if let Some(parent) = db_path.parent() {
                         let enc_tmp = parent.join("enc_tmp");
-                        if enc_tmp.exists() {
-                            let _ = tokio::task::spawn_blocking(move || {
-                                match std::fs::read_dir(&enc_tmp) {
-                                    Ok(rd) => {
-                                        let mut removed = 0usize;
-                                        for entry in rd.flatten() {
-                                            if std::fs::remove_file(entry.path()).is_ok() {
-                                                removed += 1;
-                                            }
-                                        }
-                                        if removed > 0 {
-                                            tracing::info!(
-                                                "swept {} stale file(s) from {}",
-                                                removed,
-                                                enc_tmp.display()
-                                            );
-                                        }
-                                    }
-                                    Err(e) => tracing::warn!("enc_tmp sweep failed: {e}"),
-                                }
-                            })
-                            .await;
-                        }
+                        let _ = tokio::task::spawn_blocking(move || {
+                            crate::transfer::encrypt::sweep_enc_tmp(&enc_tmp)
+                        })
+                        .await;
                     }
                     // Cancel token parked in a OnceLock so it lives until process exit.
                     static SCHEDULER_CANCEL: std::sync::OnceLock<

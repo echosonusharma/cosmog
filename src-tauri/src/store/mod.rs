@@ -91,9 +91,9 @@ pub struct PutOptions {
     pub user_metadata: std::collections::HashMap<String, String>,
     pub if_match: Option<String>,
     pub if_none_match: Option<String>,
-    /// Deleted after successful upload (encrypted temp source); never serialized to DB/IPC.
-    #[serde(skip)]
-    pub cleanup_path: Option<std::path::PathBuf>,
+    /// Set only by the backend (stripped from IPC input); serialized so retries re-encrypt.
+    #[serde(default)]
+    pub encrypt: Option<crate::transfer::EncryptSpec>,
     /// SAF staging dir removed once the upload settles (Done/Canceled); serialized
     /// so a retry recovers it. `None` for desktop uploads.
     #[serde(default)]
@@ -122,6 +122,10 @@ pub struct GetOptions {
     /// otherwise a pre-existing unrelated file silently gains appended bytes.
     #[serde(default)]
     pub resume: bool,
+    /// Resume guard (manager-only, never persisted/IPC): partial's mtime in unix secs;
+    /// an object modified after it restarts from zero instead of appending other bytes.
+    #[serde(skip)]
+    pub resume_unmodified_since: Option<i64>,
 }
 
 /// `deleted` = keys confirmed gone; `errors` = per-key failures (caller decides handling).

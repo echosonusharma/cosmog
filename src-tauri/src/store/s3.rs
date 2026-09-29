@@ -196,13 +196,20 @@ fn canceled(transfer_id: &str) -> AppError {
     AppError::Canceled(format!("transfer {transfer_id} canceled"))
 }
 
-/// True when resume state was built from a different source-file version (size/mtime changed).
-/// Unknown fingerprints never count as stale: resuming stays the best-effort guess it always was.
+/// True unless the saved parts provably came from the current source version with a known
+/// part size; mixing parts from two versions or part sizes corrupts the object.
 fn resume_state_is_stale(state: &ResumeState, ctx: &TransferCtx) -> bool {
-    match (state.source_len, state.source_mtime_secs, ctx.source_stat) {
-        (Some(len), Some(mtime), Some(cur)) => len != cur.len || mtime != cur.mtime_secs,
-        _ => false,
+    match (state.source_len, state.source_mtime_secs, ctx.source_stat, state.part_size) {
+        (Some(len), Some(mtime), Some(cur), Some(_)) => len != cur.len || mtime != cur.mtime_secs,
+        _ => true,
     }
+}
+
+/// Parallel downloads preallocate (holes), so they write here and rename onto `dest`.
+fn sparse_path(dest: &std::path::Path) -> PathBuf {
+    let mut name = dest.file_name().unwrap_or_default().to_os_string();
+    name.push(".sparse");
+    dest.with_file_name(name)
 }
 
 /// True when a ranged GET was rejected because of the range itself (HTTP 416 /
@@ -225,6 +232,12 @@ where
         }
     }
     false
+}
+
+fn precondition_failed<E>(
+    err: &SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
+) -> bool {
+    matches!(err, SdkError::ServiceError(se) if se.raw().status().as_u16() == 412)
 }
 
 /// Parse the total from `Content-Range: bytes a-b/total`; `None` for `*` or malformed input.
@@ -1158,25 +1171,50 @@ impl ObjectStore for S3Store {
             return Err(canceled(&ctx.transfer_id));
         }
         if opts.range_start.is_none() && opts.range_end.is_none() {
-            if let Ok(head) = self.client.head_object().bucket(bucket).key(key).send().await {
+            // HEAD the requested version, else an older version gets the latest's size.
+            let head_req = self
+                .client
+                .head_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(opts.version_id.clone());
+            if let Ok(head) = head_req.send().await {
                 if let Some(total) = head.content_length().map(|n| n as u64) {
                     if total > ctx.multipart_threshold {
+                        let meta = head.metadata().cloned().unwrap_or_default();
                         return self
-                            .get_object_parallel(bucket, key, &dest, total, &opts, &ctx)
+                            .get_object_parallel(bucket, key, &dest, total, &opts, &ctx, meta)
                             .await;
                     }
                 }
             }
         }
 
-        let mut req = self.client.get_object().bucket(bucket).key(key);
-        if let Some(v) = opts.version_id {
-            req = req.version_id(v);
-        }
-        if let Some(range) = build_range_header(opts.range_start, opts.range_end) {
-            req = req.range(range);
-        }
-        let resp = req.send().await.map_err(|e| classify_aws("get_object", e))?;
+        let mut opts = opts;
+        let resp = loop {
+            let mut req = self
+                .client
+                .get_object()
+                .bucket(bucket)
+                .key(key)
+                .set_version_id(opts.version_id.clone());
+            if let Some(range) = build_range_header(opts.range_start, opts.range_end) {
+                req = req.range(range);
+            }
+            if let (true, Some(secs)) = (opts.resume, opts.resume_unmodified_since) {
+                req = req.if_unmodified_since(aws_smithy_types::DateTime::from_secs(secs));
+            }
+            match req.send().await {
+                Ok(r) => break r,
+                // Offset past the end, or object replaced since the partial: restart.
+                Err(e) if opts.resume && (range_request_rejected(&e) || precondition_failed(&e)) => {
+                    opts.resume = false;
+                    opts.range_start = None;
+                }
+                Err(e) => return Err(classify_aws("get_object", e)),
+            }
+        };
+        let user_metadata = resp.metadata().cloned().unwrap_or_default();
 
         // Ranged GET: content_length is range-size; Content-Range carries the real total.
         let total = resp
@@ -1255,7 +1293,7 @@ impl ObjectStore for S3Store {
             etag: None,
         });
 
-        Ok(DownloadResult { bytes: bytes_done })
+        Ok(DownloadResult { bytes: bytes_done, user_metadata })
     }
 }
 
@@ -1269,12 +1307,14 @@ impl S3Store {
         total: u64,
         opts: &GetOptions,
         ctx: &TransferCtx,
+        user_metadata: std::collections::HashMap<String, String>,
     ) -> AppResult<DownloadResult> {
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        let sparse = sparse_path(dest);
         {
-            let file = File::create(dest).await?;
+            let file = File::create(&sparse).await?;
             file.set_len(total).await?;
         }
 
@@ -1285,7 +1325,7 @@ impl S3Store {
         let bucket_s = bucket.to_string();
         let key_s = key.to_string();
         let version_id = opts.version_id.clone();
-        let dest_s = dest.clone();
+        let dest_s = sparse.clone();
         let progress = ctx.progress.clone();
         let cancel = ctx.cancel.clone();
         let transfer_id = ctx.transfer_id.clone();
@@ -1369,16 +1409,12 @@ impl S3Store {
         while let Some(res) = stream.next().await {
             if let Err(e) = res {
                 drop(stream);
-                let _ = tokio::fs::remove_file(dest).await;
-                let event = if matches!(&e, AppError::Canceled(_)) {
-                    TransferEvent::Canceled { transfer_id: ctx.transfer_id.clone() }
-                } else {
-                    TransferEvent::Failed { transfer_id: ctx.transfer_id.clone(), error: e.to_string() }
-                };
-                ctx.progress.emit(event);
+                // No terminal event: the worker may retry, and it emits the single terminal.
+                let _ = tokio::fs::remove_file(&sparse).await;
                 return Err(e);
             }
         }
+        tokio::fs::rename(&sparse, dest).await?;
 
         ctx.progress.emit(TransferEvent::Progress {
             transfer_id: ctx.transfer_id.clone(),
@@ -1390,7 +1426,7 @@ impl S3Store {
             etag: None,
         });
 
-        Ok(DownloadResult { bytes: total })
+        Ok(DownloadResult { bytes: total, user_metadata })
     }
 
     async fn put_single(
@@ -1499,15 +1535,16 @@ impl S3Store {
         opts: PutOptions,
         ctx: TransferCtx,
     ) -> AppResult<UploadResult> {
-        let (upload_id, already_done) = self.init_or_resume_upload(bucket, key, &opts, &ctx).await?;
+        let (upload_id, already_done, part_size) =
+            self.init_or_resume_upload(bucket, key, &opts, &ctx).await?;
         // Publish upload_id immediately: retries resume this same upload even if
         // zero parts complete before an error; the worker aborts on give-up.
         ctx.progress.emit(TransferEvent::MultipartInitiated {
             transfer_id: ctx.transfer_id.clone(),
             upload_id: upload_id.clone(),
+            part_size,
         });
 
-        let part_size = ctx.part_size.max(5 * 1024 * 1024); // S3 floor for non-final parts
         let num_parts_u64 = (total + part_size - 1) / part_size;
         if num_parts_u64 > 10_000 {
             return Err(crate::error::AppError::InvalidInput(format!(
@@ -1652,12 +1689,29 @@ impl S3Store {
         key: &str,
         opts: &PutOptions,
         ctx: &TransferCtx,
-    ) -> AppResult<(String, Vec<SavedPart>)> {
+    ) -> AppResult<(String, Vec<SavedPart>, u64)> {
+        let fresh_part_size = ctx.part_size.max(5 * 1024 * 1024); // S3 floor for non-final parts
         if let Some(state) = ctx.resume.clone() {
             if !state.upload_id.is_empty() && !resume_state_is_stale(&state, ctx) {
-                return Ok((state.upload_id, state.completed_parts));
-            }
-            if !state.upload_id.is_empty() {
+                let part_size = state.part_size.unwrap_or(fresh_part_size);
+                let probe = self
+                    .client
+                    .list_parts()
+                    .bucket(bucket)
+                    .key(key)
+                    .upload_id(&state.upload_id)
+                    .max_parts(1)
+                    .send()
+                    .await;
+                // An aborted/expired upload fails every part with NoSuchUpload: start fresh.
+                match probe.map_err(|e| classify_aws("list_parts", e)) {
+                    Ok(_) | Err(AppError::Unsupported(_)) => {
+                        return Ok((state.upload_id, state.completed_parts, part_size));
+                    }
+                    Err(AppError::NotFound(_)) => {}
+                    Err(e) => return Err(e),
+                }
+            } else if !state.upload_id.is_empty() {
                 // Best-effort abort so incomplete-multipart storage doesn't leak.
                 let _ = self
                     .abort_multipart_upload(bucket, key, &state.upload_id)
@@ -1712,7 +1766,7 @@ impl S3Store {
             .upload_id()
             .ok_or_else(|| AppError::S3("multipart: no upload id".into()))?
             .to_string();
-        Ok((id, Vec::new()))
+        Ok((id, Vec::new(), fresh_part_size))
     }
 
     async fn complete_multipart(

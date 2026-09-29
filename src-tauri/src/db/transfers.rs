@@ -3,7 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
-use crate::transfer::CompletedPart;
+use crate::transfer::ResumeState;
 
 use super::Db;
 
@@ -106,6 +106,7 @@ pub struct Transfer {
     pub bytes_done: i64,
     pub status: TransferStatus,
     pub upload_id: Option<String>,
+    #[serde(skip_serializing)]
     pub parts_json: Option<String>,
     /// PutOptions/GetOptions captured at enqueue time so `retry_transfer`
     /// reapplies the original content_type / SSE / ACL / range. Empty if none.
@@ -235,6 +236,7 @@ impl Db {
         row.ok_or_else(|| AppError::NotFound("transfer".into()))
     }
 
+    /// UI listing; `parts_json` is left out (NULL) since only resume needs it.
     pub async fn list_transfers(&self, status: Option<TransferStatus>) -> AppResult<Vec<Transfer>> {
         let status_str = status.map(|s| s.as_str().to_string());
         let rows = self
@@ -242,11 +244,11 @@ impl Db {
             .call(move |conn| {
                 let (sql, has_filter) = match status_str.as_deref() {
                     Some(_) => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers WHERE status = ?1 ORDER BY created_at DESC",
+                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers WHERE status = ?1 ORDER BY created_at DESC",
                         true,
                     ),
                     None => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers ORDER BY created_at DESC",
+                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers ORDER BY created_at DESC",
                         false,
                     ),
                 };
@@ -342,15 +344,16 @@ impl Db {
         Ok(())
     }
 
+    /// Persists the whole resume state (parts + source fingerprint + part size) in parts_json.
     pub async fn update_transfer_multipart(
         &self,
         id: &str,
         upload_id: Option<String>,
-        parts: &[CompletedPart],
+        state: &ResumeState,
     ) -> AppResult<()> {
         let id = id.to_string();
         let now = Utc::now().timestamp();
-        let parts_json = serde_json::to_string(parts).unwrap_or_else(|_| "[]".to_string());
+        let parts_json = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
         self.conn
             .call(move |conn| {
                 conn.execute(
@@ -361,6 +364,59 @@ impl Db {
             })
             .await?;
         Ok(())
+    }
+
+    pub async fn clear_transfer_multipart(&self, id: &str) -> AppResult<()> {
+        let id = id.to_string();
+        let now = Utc::now().timestamp();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE transfers SET upload_id = NULL, parts_json = NULL, updated_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Finished rows still holding a multipart upload (crash-reaped); aborted before clearing.
+    pub async fn list_finished_with_upload(&self) -> AppResult<Vec<Transfer>> {
+        let rows = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers
+                     WHERE status IN ('done', 'canceled', 'failed') AND upload_id IS NOT NULL",
+                )?;
+                let out = stmt
+                    .query_map([], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await?;
+        Ok(rows)
+    }
+
+    /// Keep only the newest `keep` finished rows. Rows holding an upload_id survive so
+    /// their multipart upload can still be aborted on clear.
+    pub async fn prune_finished_transfers(&self, keep: i64) -> AppResult<usize> {
+        let n = self
+            .conn
+            .call(move |conn| {
+                let n = conn.execute(
+                    "DELETE FROM transfers WHERE status IN ('done', 'canceled', 'failed') AND upload_id IS NULL
+                     AND id NOT IN (
+                        SELECT id FROM transfers WHERE status IN ('done', 'canceled', 'failed')
+                        ORDER BY updated_at DESC LIMIT ?1
+                     )",
+                    params![keep],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(n)
+            })
+            .await?;
+        Ok(n)
     }
 
     pub async fn delete_transfer(&self, id: &str) -> AppResult<()> {

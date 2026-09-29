@@ -99,7 +99,7 @@ async fn upload_directory_cancel_stops_early() {
     let cancel = CancellationToken::new();
     cancel.cancel();
 
-    let err = upload_directory(
+    let res = upload_directory(
         &transfers,
         &db,
         &_td.path().join("test.sqlite"),
@@ -109,12 +109,15 @@ async fn upload_directory_cancel_stops_early() {
         "prefix",
         src.path(),
         |_| ProgressSink::noop(),
+        "op".into(),
+        ProgressSink::noop(),
         cancel,
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.code(), "canceled");
+    assert!(res.canceled);
+    assert!(res.enqueued.is_empty());
     common::cleanup_bucket(&store, &bucket).await;
 }
 
@@ -157,6 +160,8 @@ async fn upload_and_download_directory_roundtrip() {
         "remote",
         src_dir.path(),
         |_| ProgressSink::noop(),
+        "op".into(),
+        ProgressSink::noop(),
         CancellationToken::new(),
     )
     .await
@@ -191,6 +196,8 @@ async fn upload_and_download_directory_roundtrip() {
         "remote/",
         dst.path(),
         |_| ProgressSink::noop(),
+        "op".into(),
+        ProgressSink::noop(),
         CancellationToken::new(),
     )
     .await

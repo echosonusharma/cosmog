@@ -78,12 +78,40 @@ pub async fn encrypt_file(
     dst: &Path,
     recipient: x25519::Recipient,
 ) -> AppResult<()> {
+    encrypt_file_cancellable(src, dst, recipient, tokio_util::sync::CancellationToken::new()).await
+}
+
+struct CancelRead<R> {
+    inner: R,
+    cancel: tokio_util::sync::CancellationToken,
+}
+
+impl<R: Read> Read for CancelRead<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.cancel.is_cancelled() {
+            return Err(std::io::Error::other("canceled"));
+        }
+        self.inner.read(buf)
+    }
+}
+
+/// [`encrypt_file`] that stops between chunks once `cancel` fires.
+pub async fn encrypt_file_cancellable(
+    src: &Path,
+    dst: &Path,
+    recipient: x25519::Recipient,
+    cancel: tokio_util::sync::CancellationToken,
+) -> AppResult<()> {
     let src = src.to_path_buf();
     let dst = dst.to_path_buf();
-    tokio::task::spawn_blocking(move || -> AppResult<()> {
+    let cancel_check = cancel.clone();
+    let res = tokio::task::spawn_blocking(move || -> AppResult<()> {
         let f_in = std::fs::File::open(&src)
             .map_err(|e| AppError::Internal(format!("open {}: {e}", src.display())))?;
-        let mut r = std::io::BufReader::new(f_in);
+        let mut r = CancelRead {
+            inner: std::io::BufReader::new(f_in),
+            cancel,
+        };
         let f_out = std::fs::File::create(&dst)
             .map_err(|e| AppError::Internal(format!("create {}: {e}", dst.display())))?;
         let w = std::io::BufWriter::new(f_out);
@@ -94,13 +122,20 @@ pub async fn encrypt_file(
             .map_err(|e| AppError::Internal(format!("age wrap_output: {e}")))?;
         std::io::copy(&mut r, &mut writer)
             .map_err(|e| AppError::Internal(format!("age copy: {e}")))?;
-        writer
+        // finish() hands back the BufWriter; dropping it unflushed would swallow write errors.
+        let mut w = writer
             .finish()
             .map_err(|e| AppError::Internal(format!("age finish: {e}")))?;
+        w.flush()
+            .map_err(|e| AppError::Internal(format!("age flush: {e}")))?;
         Ok(())
     })
     .await
-    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    if res.is_err() && cancel_check.is_cancelled() {
+        return Err(AppError::Canceled("encryption canceled".into()));
+    }
+    res
 }
 
 /// Stream-decrypt on a blocking thread; same chunked memory profile as [`encrypt_file`].

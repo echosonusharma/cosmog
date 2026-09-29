@@ -27,6 +27,7 @@ pub enum TransferEvent {
     MultipartInitiated {
         transfer_id: String,
         upload_id: String,
+        part_size: u64,
     },
     PartCompleted {
         transfer_id: String,
@@ -101,6 +102,9 @@ pub struct ResumeState {
     /// deserialize as `None` and skip staleness validation.
     #[serde(default)]
     pub source_mtime_secs: Option<i64>,
+    /// Part boundaries of the saved parts; resuming with a different size corrupts the object.
+    #[serde(default)]
+    pub part_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,4 +160,15 @@ pub struct UploadResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadResult {
     pub bytes: u64,
+    /// Object user metadata (no `x-amz-meta-` prefix).
+    #[serde(default)]
+    pub user_metadata: std::collections::HashMap<String, String>,
+}
+
+/// Encrypt-on-upload request; the worker encrypts into `tmp_dir` per run so a retry
+/// re-encrypts from the original source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptSpec {
+    pub recipient: String,
+    pub tmp_dir: std::path::PathBuf,
 }

@@ -1,4 +1,5 @@
 import { createSignal, createEffect, createMemo, For, Show, onCleanup } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { currentView } from "../state/app";
 import {
   listTransfers, cancelTransfer, clearCompletedTransfers, clearTransfer, retryTransfer,
@@ -17,7 +18,8 @@ import Spinner from "../utils/Spinner";
 type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
 export default function Transfers() {
-  const [transfers, setTransfers] = createSignal<Transfer[]>([]);
+  // Store + reconcile by id keeps row objects stable across polls, so <For> updates rows in place.
+  const [transfers, setTransfers] = createStore<Transfer[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [err, setErr] = createSignal("");
   const [filter, setFilter] = createSignal<Filter>("all");
@@ -36,25 +38,31 @@ export default function Transfers() {
     } catch (e) { toast.err(e); }
   }
 
+  // Out-of-order poll responses (or ones started before a clear) must not resurrect rows.
+  let reqSeq = 0;
+  let appliedSeq = 0;
   async function load() {
-    setErr("");
+    const seq = ++reqSeq;
     try {
       const list = await listTransfers();
+      if (seq <= appliedSeq) return;
+      appliedSeq = seq;
+      setErr("");
       list.sort(
         (a, b) =>
           STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) ||
           b.updated_at - a.updated_at,
       );
-      setTransfers(list);
+      setTransfers(reconcile(list, { key: "id" }));
     } catch (e) {
-      setErr(errMsg(e));
+      if (seq > appliedSeq) setErr(errMsg(e));
     } finally {
       setLoading(false);
     }
   }
 
   const hasActive = () =>
-    transfers().some((t) => t.status === "active" || t.status === "pending");
+    transfers.some((t) => t.status === "active" || t.status === "pending");
 
   // View stays mounted (hidden via CSS); only poll while it is active. Poll
   // fast (700ms) when transfers are running, slow (4s) when idle.
@@ -84,7 +92,8 @@ export default function Transfers() {
     discardSafDownload(id);
     try { await clearTransfer(id); }
     catch (e) { toast.err(e); return; }
-    setTransfers((prev) => prev.filter((t) => t.id !== id));
+    appliedSeq = reqSeq;
+    setTransfers(reconcile(transfers.filter((t) => t.id !== id), { key: "id" }));
   }
   async function retry(id: string) {
     try {
@@ -103,7 +112,7 @@ export default function Transfers() {
       confirmLabel: "Clear",
     });
     if (!ok) return;
-    for (const t of transfers()) {
+    for (const t of transfers) {
       if (t.status === "failed" && t.direction === "download") discardSafDownload(t.id);
     }
     try { await clearCompletedTransfers(); await load(); }
@@ -111,7 +120,7 @@ export default function Transfers() {
   }
 
   const filtered = createMemo(() => {
-    let list = transfers();
+    let list: Transfer[] = transfers;
     switch (filter()) {
       case "active": list = list.filter((t) => t.status === "active" || t.status === "pending"); break;
       case "done":     list = list.filter((t) => t.status === "done"); break;
@@ -124,7 +133,7 @@ export default function Transfers() {
   // Single pass over the list per update instead of 5 filters × ~13 JSX reads.
   const counts = createMemo(() => {
     const c = { all: 0, active: 0, done: 0, failed: 0, canceled: 0 };
-    for (const t of transfers()) {
+    for (const t of transfers) {
       c.all++;
       if (t.status === "active" || t.status === "pending") c.active++;
       else if (t.status === "done") c.done++;
@@ -135,7 +144,7 @@ export default function Transfers() {
   });
 
   const hasDone = () =>
-    transfers().some((t) => ["done", "failed", "canceled"].includes(t.status));
+    transfers.some((t) => ["done", "failed", "canceled"].includes(t.status));
 
   return (
     <div class="view-container">

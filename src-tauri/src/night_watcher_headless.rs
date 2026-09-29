@@ -158,6 +158,14 @@ async fn build_ctx(db_path: PathBuf) -> AppResult<NwHeadlessCtx> {
     // Sweep leftover SAF staging from a killed run: nw_stage/ holds per-upload scratch copies,
     // safe to delete unconditionally (mirrors the desktop enc_tmp sweep).
     sweep_nw_stage(&db_path);
+    if let Some(parent) = db_path.parent() {
+        let enc_tmp = parent.join("enc_tmp");
+        let _ = tokio::task::spawn_blocking(move || {
+            use crate::db::transfers::TransferOrigin;
+            crate::transfer::encrypt::sweep_enc_tmp_origin(&enc_tmp, TransferOrigin::NightWatch)
+        })
+        .await;
+    }
     let settings = db.settings_load().await.unwrap_or_default();
     // Same proxy / custom-CA env the main process applies at boot.
     apply_network_env(&settings);

@@ -83,6 +83,7 @@ pub async fn upload_directory_cmd(
             let _ = channel.send(event);
         })
     };
+    let op_sink = factory("");
     let transfer_id = Uuid::new_v4().to_string();
     let cancel = state.register_bulk(&transfer_id);
     let result = upload_directory(
@@ -95,6 +96,8 @@ pub async fn upload_directory_cmd(
         &prefix,
         &local_root,
         factory,
+        transfer_id.clone(),
+        op_sink,
         cancel,
     )
     .await;
@@ -125,7 +128,8 @@ pub async fn download_directory_cmd(
             let _ = channel.send(event);
         })
     };
-    // Same bulk registry wiring so cancel_bulk_op can abort running downloads too.
+    let op_sink = factory("");
+    // Same bulk registry wiring; cancel stops queueing and returns what was already queued.
     let transfer_id = Uuid::new_v4().to_string();
     let cancel = state.register_bulk(&transfer_id);
     let result = download_directory(
@@ -136,6 +140,8 @@ pub async fn download_directory_cmd(
         &prefix,
         &local_root,
         factory,
+        transfer_id.clone(),
+        op_sink,
         cancel,
     )
     .await;

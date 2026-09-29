@@ -41,37 +41,26 @@ pub async fn enqueue_upload(
     let path = validate::validate_upload_source(&local_path).await?;
 
     let mut opts = options.unwrap_or_default();
+    // Encryption (recipient + temp dir) is backend-decided; never accept it from IPC.
+    opts.encrypt = None;
+    crate::transfer::encrypt::encrypt_for_bucket_if_needed(&state, &account_id, &bucket, &path, &mut opts)
+        .await?;
 
-    // Encrypted buckets: encrypt the source file to a temp path before
-    // enqueuing; the worker deletes it via opts.cleanup_path when done.
-    let (upload_path, cleanup_on_err) =
-        crate::transfer::encrypt::encrypt_for_bucket_if_needed(&state, &account_id, &bucket, &path, &mut opts)
-            .await?;
-
-    let result: AppResult<EnqueueResult> = async {
-        let store = state.store_for(&account_id).await?;
-        let id = state
-            .transfers
-            .enqueue_upload(
-                store,
-                account_id,
-                bucket,
-                key,
-                upload_path,
-                opts,
-                channel_sink(on_event),
-                crate::db::transfers::TransferOrigin::User,
-            )
-            .await?;
-        Ok(EnqueueResult { transfer_id: id })
-    }.await;
-
-    if result.is_err() {
-        if let Some(ref p) = cleanup_on_err {
-            let _ = tokio::fs::remove_file(p).await;
-        }
-    }
-    result
+    let store = state.store_for(&account_id).await?;
+    let id = state
+        .transfers
+        .enqueue_upload(
+            store,
+            account_id,
+            bucket,
+            key,
+            path,
+            opts,
+            channel_sink(on_event),
+            crate::db::transfers::TransferOrigin::User,
+        )
+        .await?;
+    Ok(EnqueueResult { transfer_id: id })
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -146,11 +135,31 @@ pub async fn retry_transfer(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn clear_completed_transfers(state: State<'_, AppState>) -> AppResult<usize> {
+    for row in state.db.list_finished_with_upload().await? {
+        abort_leftover_upload(&state, &row).await;
+    }
     state.transfers.clear_completed().await
+}
+
+/// Crash-reaped rows still own a multipart upload; abort it (best-effort) before the
+/// row, the only record of its upload_id, is deleted.
+async fn abort_leftover_upload(state: &AppState, row: &Transfer) {
+    let Some(upload_id) = row.upload_id.as_deref() else { return };
+    if !matches!(row.status, TransferStatus::Done | TransferStatus::Failed | TransferStatus::Canceled) {
+        return;
+    }
+    if let Ok(store) = state.store_for(&row.account_id).await {
+        if let Err(e) = store.abort_multipart_upload(&row.bucket, &row.key, upload_id).await {
+            tracing::warn!(transfer_id = %row.id, "abort leftover multipart failed: {e}");
+        }
+    }
 }
 
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn clear_transfer(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    if let Ok(row) = state.transfers.get(&id).await {
+        abort_leftover_upload(&state, &row).await;
+    }
     state.transfers.delete_one(&id).await
 }

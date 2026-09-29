@@ -153,14 +153,37 @@ async fn flush(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct BulkTransferResult {
     pub enqueued: Vec<String>,
     pub skipped: Vec<String>,
+    /// Unreadable dirs/entries as `path: error`; the walk continues past them.
+    pub errors: Vec<String>,
+    /// Canceled mid-walk; `enqueued` still lists what was already queued.
+    pub canceled: bool,
+}
+
+/// Emits the op's Started, then exactly one terminal matching `res`.
+async fn run_op<F>(op_id: String, op_sink: ProgressSink, body: F) -> AppResult<BulkTransferResult>
+where
+    F: std::future::Future<Output = AppResult<BulkTransferResult>>,
+{
+    op_sink.emit(TransferEvent::Started {
+        transfer_id: op_id.clone(),
+        bytes_total: None,
+    });
+    let res = body.await;
+    op_sink.emit(match &res {
+        Ok(r) if r.canceled => TransferEvent::Canceled { transfer_id: op_id },
+        Ok(_) => TransferEvent::Done { transfer_id: op_id, etag: None },
+        Err(e) => TransferEvent::Failed { transfer_id: op_id, error: e.to_string() },
+    });
+    res
 }
 
 /// Walk a local dir, enqueueing each file as an individual upload (subdirs joined onto
-/// `prefix`); encrypted buckets get per-file stream-encryption to enc_tmp, config once/op.
+/// `prefix`). Encrypted buckets are stamped once; each worker encrypts its own file.
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_directory(
     transfers: &crate::transfer::TransferManager,
     db: &crate::db::Db,
@@ -171,6 +194,8 @@ pub async fn upload_directory(
     prefix: &str,
     local_root: &Path,
     external_sink_factory: impl Fn(&str) -> ProgressSink,
+    op_id: String,
+    op_sink: ProgressSink,
     cancel: CancellationToken,
 ) -> AppResult<BulkTransferResult> {
     if !local_root.is_dir() {
@@ -179,100 +204,86 @@ pub async fn upload_directory(
             local_root.display()
         )));
     }
-    let mut out = BulkTransferResult {
-        enqueued: Vec::new(),
-        skipped: Vec::new(),
-    };
-    let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
+    run_op(op_id, op_sink, async {
+        let mut out = BulkTransferResult::default();
+        let enc = crate::transfer::encrypt::encrypt_spec_for_bucket(db, db_path, account_id, bucket).await?;
+        let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
 
-    // Resolve encryption once per op (mirrors encrypt_for_bucket_if_needed_with,
-    // hoisted out of the loop); None => plaintext.
-    let enc_cfg = db.get_encryption_config(account_id, bucket).await?;
-    let enc = match &enc_cfg {
-        Some(cfg) => {
-            let recipient = crate::crypto::parse_recipient(&cfg.recipient)?;
-            let tmp_dir = db_path
-                .parent()
-                .ok_or_else(|| AppError::Internal("db_path has no parent".into()))?
-                .join("enc_tmp");
-            tokio::fs::create_dir_all(&tmp_dir).await?;
-            Some((recipient, tmp_dir))
-        }
-        None => None,
-    };
-
-    while let Some(dir) = stack.pop() {
-        if cancel.is_cancelled() {
-            return Err(AppError::Canceled("upload_directory canceled".into()));
-        }
-        let mut entries = tokio::fs::read_dir(&dir).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            let meta = entry.metadata().await?;
-            if meta.is_dir() {
-                stack.push(path);
-                continue;
-            }
-            if !meta.is_file() {
-                out.skipped.push(path.to_string_lossy().to_string());
-                continue;
-            }
-            let rel = path
-                .strip_prefix(local_root)
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-            let key = join_key(prefix, rel);
+        while let Some(dir) = stack.pop() {
             if cancel.is_cancelled() {
-                return Err(AppError::Canceled("upload_directory canceled".into()));
+                out.canceled = true;
+                return Ok(out);
             }
+            let mut entries = match tokio::fs::read_dir(&dir).await {
+                Ok(rd) => rd,
+                Err(e) if dir.as_path() != local_root => {
+                    out.errors.push(format!("{}: {e}", dir.display()));
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+            loop {
+                let entry = match entries.next_entry().await {
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => break,
+                    Err(e) => {
+                        out.errors.push(format!("{}: {e}", dir.display()));
+                        break;
+                    }
+                };
+                let path = entry.path();
+                let meta = match entry.metadata().await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        out.errors.push(format!("{}: {e}", path.display()));
+                        continue;
+                    }
+                };
+                if meta.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !meta.is_file() {
+                    out.skipped.push(path.to_string_lossy().to_string());
+                    continue;
+                }
+                let rel = path
+                    .strip_prefix(local_root)
+                    .map_err(|e| AppError::Internal(e.to_string()))?;
+                let key = join_key(prefix, rel);
+                if cancel.is_cancelled() {
+                    out.canceled = true;
+                    return Ok(out);
+                }
 
-            // Encrypt BEFORE enqueue so plaintext never reaches the worker; failure aborts
-            // the op rather than uploading plaintext (staged temps owned via cleanup_path).
-            let mut opts = crate::store::PutOptions::default();
-            let mut upload_path = path.clone();
-            if let Some((recipient, tmp_dir)) = &enc {
-                let tmp_path = tmp_dir.join(format!("{}.age", uuid::Uuid::new_v4()));
-                if let Err(e) =
-                    crate::crypto::encrypt_file(&path, &tmp_path, recipient.clone()).await
-                {
-                    let _ = tokio::fs::remove_file(&tmp_path).await;
-                    return Err(e);
+                let mut opts = crate::store::PutOptions::default();
+                if let Some(spec) = &enc {
+                    crate::transfer::encrypt::stamp(&mut opts, spec);
                 }
-                opts.cleanup_path = Some(tmp_path.clone());
-                // Same metadata markers as the single-file path so download +
-                // UI detection work identically for bulk-uploaded objects.
-                opts.user_metadata
-                    .insert("cosmog-encrypted".into(), "1".into());
-                opts.user_metadata
-                    .insert("cosmog-format".into(), crate::crypto::FORMAT_TAG.into());
-                if let Some(cfg) = &enc_cfg {
-                    opts.user_metadata
-                        .insert("cosmog-recipient".into(), cfg.recipient.clone());
-                }
-                upload_path = tmp_path;
+                let sink = external_sink_factory(&path.to_string_lossy());
+                let id = transfers
+                    .enqueue_upload(
+                        store.clone(),
+                        account_id.to_string(),
+                        bucket.to_string(),
+                        key,
+                        path,
+                        opts,
+                        sink,
+                        crate::db::transfers::TransferOrigin::User,
+                    )
+                    .await?;
+                out.enqueued.push(id);
             }
-
-            let sink = external_sink_factory(&path.to_string_lossy());
-            let id = transfers
-                .enqueue_upload(
-                    store.clone(),
-                    account_id.to_string(),
-                    bucket.to_string(),
-                    key,
-                    upload_path,
-                    opts,
-                    sink,
-                    crate::db::transfers::TransferOrigin::User,
-                )
-                .await?;
-            out.enqueued.push(id);
         }
-    }
-
-    Ok(out)
+        Ok(out)
+    })
+    .await
 }
 
 /// Recursively LIST a remote prefix, enqueuing each object as a download into
 /// `local_root` (subpaths preserved). Mid-flight cancellable like the other bulk ops.
+#[allow(clippy::too_many_arguments)]
 pub async fn download_directory(
     transfers: &crate::transfer::TransferManager,
     store: Arc<dyn ObjectStore>,
@@ -281,98 +292,105 @@ pub async fn download_directory(
     prefix: &str,
     local_root: &Path,
     external_sink_factory: impl Fn(&str) -> ProgressSink,
+    op_id: String,
+    op_sink: ProgressSink,
     cancel: CancellationToken,
 ) -> AppResult<BulkTransferResult> {
     tokio::fs::create_dir_all(local_root).await?;
-    let mut out = BulkTransferResult {
-        enqueued: Vec::new(),
-        skipped: Vec::new(),
-    };
-
     // Canonicalize root once: path-traversal guard so server-controlled keys like
     // "a/../../etc/x" can't write outside local_root.
     let root_canonical = tokio::fs::canonicalize(local_root)
         .await
         .map_err(|e| AppError::Io(format!("canonicalize local_root: {e}")))?;
 
-    // Parents already mkdir'd + escape-checked this run; skips repeated syscalls
-    // since thousands of objects often share few dirs.
-    let mut validated_parents: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    run_op(op_id, op_sink, async {
+        let mut out = BulkTransferResult::default();
+        // Parents already mkdir'd + escape-checked this run; thousands of objects often share few dirs.
+        let mut validated_parents: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
-    let mut continuation: Option<String> = None;
-    loop {
-        if cancel.is_cancelled() {
-            return Err(AppError::Canceled(format!("download_directory {prefix}")));
-        }
-        let page = tokio::select! {
-            _ = cancel.cancelled() => {
-                return Err(AppError::Canceled(format!("download_directory {prefix}")))
-            }
-            p = store.list_objects(
-                bucket,
-                ListOptions {
-                    prefix: Some(prefix.to_string()),
-                    delimiter: None,
-                    continuation: continuation.clone(),
-                    max_keys: Some(1000),
-                },
-            ) => p?,
-        };
-
-        for obj in &page.objects {
+        let mut continuation: Option<String> = None;
+        loop {
             if cancel.is_cancelled() {
-                return Err(AppError::Canceled(format!("download_directory {prefix}")));
+                out.canceled = true;
+                return Ok(out);
             }
-            let suffix = obj.key.strip_prefix(prefix).unwrap_or(&obj.key);
-            let suffix = suffix.trim_start_matches('/');
-            if suffix.is_empty() {
-                // The prefix itself is a "directory marker" — skip it.
-                out.skipped.push(obj.key.clone());
-                continue;
-            }
-            // Reject components that would escape local_root, before touching the FS.
-            if !is_safe_relative_suffix(suffix) {
-                out.skipped.push(obj.key.clone());
-                continue;
-            }
-            let dest = local_root.join(suffix);
-            // Defense in depth: if is_safe_relative_suffix missed something (symlink, OS
-            // quirk), the resolved-parent check after mkdir catches it.
-            if let Some(parent) = dest.parent() {
-                if !validated_parents.contains(parent) {
-                    tokio::fs::create_dir_all(parent).await?;
-                    let parent_canonical = tokio::fs::canonicalize(parent)
-                        .await
-                        .map_err(|e| AppError::Io(format!("canonicalize dest parent: {e}")))?;
-                    if !parent_canonical.starts_with(&root_canonical) {
-                        out.skipped.push(obj.key.clone());
-                        continue;
-                    }
-                    validated_parents.insert(parent.to_path_buf());
+            let page = tokio::select! {
+                _ = cancel.cancelled() => {
+                    out.canceled = true;
+                    return Ok(out);
                 }
-            }
-            let sink = external_sink_factory(&obj.key);
-            let id = transfers
-                .enqueue_download(
-                    store.clone(),
-                    account_id.to_string(),
-                    bucket.to_string(),
-                    obj.key.clone(),
-                    dest,
-                    crate::store::GetOptions::default(),
-                    sink,
-                )
-                .await?;
-            out.enqueued.push(id);
-        }
+                p = store.list_objects(
+                    bucket,
+                    ListOptions {
+                        prefix: Some(prefix.to_string()),
+                        delimiter: None,
+                        continuation: continuation.clone(),
+                        max_keys: Some(1000),
+                    },
+                ) => p?,
+            };
 
-        if page.is_truncated {
-            continuation = page.continuation;
-        } else {
-            break;
+            for obj in &page.objects {
+                if cancel.is_cancelled() {
+                    out.canceled = true;
+                    return Ok(out);
+                }
+                let suffix = obj.key.strip_prefix(prefix).unwrap_or(&obj.key);
+                let suffix = suffix.trim_start_matches('/');
+                // Empty suffix is the prefix's own "directory marker".
+                if suffix.is_empty() || !is_safe_relative_suffix(suffix) {
+                    out.skipped.push(obj.key.clone());
+                    continue;
+                }
+                let dest = local_root.join(suffix);
+                // Defense in depth: if is_safe_relative_suffix missed something (symlink, OS
+                // quirk), the resolved-parent check after mkdir catches it.
+                if let Some(parent) = dest.parent() {
+                    if !validated_parents.contains(parent) {
+                        let checked = async {
+                            tokio::fs::create_dir_all(parent).await?;
+                            tokio::fs::canonicalize(parent).await
+                        }
+                        .await;
+                        match checked {
+                            Ok(c) if c.starts_with(&root_canonical) => {
+                                validated_parents.insert(parent.to_path_buf());
+                            }
+                            Ok(_) => {
+                                out.skipped.push(obj.key.clone());
+                                continue;
+                            }
+                            Err(e) => {
+                                out.errors.push(format!("{}: {e}", parent.display()));
+                                continue;
+                            }
+                        }
+                    }
+                }
+                let sink = external_sink_factory(&obj.key);
+                let id = transfers
+                    .enqueue_download(
+                        store.clone(),
+                        account_id.to_string(),
+                        bucket.to_string(),
+                        obj.key.clone(),
+                        dest,
+                        crate::store::GetOptions::default(),
+                        sink,
+                    )
+                    .await?;
+                out.enqueued.push(id);
+            }
+
+            if page.is_truncated {
+                continuation = page.continuation;
+            } else {
+                break;
+            }
         }
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
 }
 
 /// True when a key suffix can safely join a download root: rejects empty segments,
