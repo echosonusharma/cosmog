@@ -602,7 +602,7 @@ pub struct SafTree {
 }
 
 /// One SAF tree-walk entry: `rel_path` is tree-relative (forward slashes, no
-/// leading slash); `mtime` is SECONDS (DocumentsContract reports milliseconds).
+/// leading slash); `mtime` is epoch ms (0 if unknown), `size` -1 if unknown.
 #[derive(serde::Serialize)]
 pub struct SafEntry {
     pub rel_path: String,
@@ -678,6 +678,30 @@ pub fn nw_wakelock_heartbeat() -> Result<(), String> {
     Ok(())
 }
 
+/// Release the NightWatchService wakelock while nothing is syncing.
+#[cfg(target_os = "android")]
+pub fn nw_wakelock_idle() -> Result<(), String> {
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    if ctx.vm().is_null() {
+        return Err("android context not initialized".into());
+    }
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("attach_current_thread: {e}"))?;
+
+    let cls_ref = NIGHTWATCH_SERVICE_CLASS
+        .get()
+        .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
+    let cls: &jni::objects::JClass = cls_ref.as_obj().into();
+    env.call_static_method(cls, "idleWakelock", "()V", &[])
+        .map_err(|e| jni_err(&mut env, "idleWakelock", e))?;
+    Ok(())
+}
+
 #[cfg(target_os = "android")]
 pub fn set_nightwatch_boot_flag(enabled: bool) -> Result<(), String> {
     use jni::objects::{JObject, JValue};
@@ -722,7 +746,8 @@ fn nw_picker_class() -> Result<&'static jni::objects::GlobalRef, String> {
 }
 
 /// Launch the tree picker and poll. KOTLIN MUST ALIGN: poll() gives null while pending,
-/// `"<treeUri>\n<name>"` on success (split on FIRST '\n'), `"__NW_CANCELED__"` on cancel, ~120s timeout.
+/// `"<treeUri>\n<name>"` on success (split on FIRST '\n'), `"__NW_CANCELED__"` on cancel,
+/// `"__NW_ERROR__<msg>"` on failure, ~120s timeout.
 #[cfg(target_os = "android")]
 pub async fn nw_pick_tree() -> Result<SafTree, String> {
     tokio::task::spawn_blocking(move || -> Result<SafTree, String> {
@@ -731,6 +756,7 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
         const POLL_INTERVAL_MS: u64 = 250;
         const MAX_POLLS: u32 = 480; // ~120s at 250ms.
         const CANCEL_SENTINEL: &str = "__NW_CANCELED__";
+        const ERROR_PREFIX: &str = "__NW_ERROR__";
 
         let ctx = ndk_context::android_context();
         if ctx.vm().is_null() || ctx.context().is_null() {
@@ -776,6 +802,9 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
             if let Some(s) = result {
                 if s == CANCEL_SENTINEL {
                     return Err("canceled".into());
+                }
+                if let Some(msg) = s.strip_prefix(ERROR_PREFIX) {
+                    return Err(msg.to_string());
                 }
                 let (uri, display_name) = match s.split_once('\n') {
                     Some((u, n)) => (u.to_string(), n.to_string()),
@@ -905,7 +934,9 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
         // and the caller must skip mark-and-sweep to avoid pruning live files.
         let mut read_errors = 0u64;
 
+        let mut is_root = true;
         while let Some((parent_doc_id, prefix)) = stack.pop() {
+            let errors_before = read_errors;
             // Bug #2: per-row local refs leak into a ~512-entry table and abort on
             // real folders; each dir gets its own frame so refs free on pop.
             let frame_res: Result<(), jni::errors::Error> = env.with_local_frame(64, |env| {
@@ -992,8 +1023,7 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
                         let name = cursor_get_string(env, &cursor, 1).unwrap_or_default();
                         let mime = cursor_get_string(env, &cursor, 2).unwrap_or_default();
                         let size = cursor_get_long(env, &cursor, 3).unwrap_or(-1);
-                        let mtime_ms = cursor_get_long(env, &cursor, 4).unwrap_or(0);
-                        let mtime = mtime_ms / 1000; // ms -> seconds.
+                        let mtime = cursor_get_long(env, &cursor, 4).unwrap_or(0);
 
                         if doc_id.is_empty() {
                             return Ok(());
@@ -1097,12 +1127,84 @@ pub async fn collect_tree_files(tree_uri: String) -> Result<(Vec<SafEntry>, u64)
             if let Some(e) = fatal {
                 return Err(e);
             }
+            // Unreadable root (grant revoked, provider gone) must fail the scan, not look empty.
+            if is_root && read_errors > errors_before {
+                return Err("cannot read watched folder; folder access may have been revoked, pick it again".into());
+            }
+            is_root = false;
         }
 
         Ok((out, read_errors))
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Drop the persisted read grant for a tree URI once no watch uses it.
+#[cfg(target_os = "android")]
+pub async fn release_tree_permission(tree_uri: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        use jni::objects::{JObject, JString, JValue};
+        use jni::JavaVM;
+
+        const FLAG_GRANT_READ_URI_PERMISSION: i32 = 1;
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let uri_jstr: JString = env
+            .new_string(&tree_uri)
+            .map_err(|e| jni_err(&mut env, "new_string(uri)", e))?;
+        let uri_class = env
+            .find_class("android/net/Uri")
+            .map_err(|e| jni_err(&mut env, "find_class(Uri)", e))?;
+        let uri_obj = env
+            .call_static_method(
+                uri_class,
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_jstr))],
+            )
+            .map_err(|e| jni_err(&mut env, "Uri.parse", e))?
+            .l()
+            .map_err(|e| format!("Uri.parse.l: {e}"))?;
+        let resolver = env
+            .call_method(
+                &context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| jni_err(&mut env, "getContentResolver", e))?
+            .l()
+            .map_err(|e| format!("getContentResolver.l: {e}"))?;
+        env.call_method(
+            &resolver,
+            "releasePersistableUriPermission",
+            "(Landroid/net/Uri;I)V",
+            &[
+                JValue::Object(&uri_obj),
+                JValue::Int(FLAG_GRANT_READ_URI_PERMISSION),
+            ],
+        )
+        .map_err(|e| jni_err(&mut env, "releasePersistableUriPermission", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn release_tree_permission(_tree_uri: String) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(not(target_os = "android"))]

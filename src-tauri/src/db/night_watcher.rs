@@ -166,6 +166,14 @@ impl Db {
                 // One transaction: a partial patch after an IO failure would mix new + old config.
                 let tx = conn.transaction()?;
                 if let Some(v) = patch.key_prefix {
+                    let old: Option<String> = tx
+                        .query_row("SELECT key_prefix FROM nw_watch WHERE id=?1", params![id], |r| r.get(0))
+                        .optional()?;
+                    // New destination: old synced state would skip every upload to it.
+                    if old.is_some_and(|o| o.trim_matches('/') != v.trim_matches('/')) {
+                        tx.execute("DELETE FROM nw_file_state WHERE watch_id=?1", params![id])?;
+                        tx.execute("DELETE FROM nw_file_retry WHERE watch_id=?1", params![id])?;
+                    }
                     tx.execute("UPDATE nw_watch SET key_prefix=?2 WHERE id=?1", params![id, v])?;
                 }
                 if let Some(v) = patch.ignore_file {
@@ -354,10 +362,12 @@ impl Db {
     }
 
     /// Batch delete in one transaction so mark-and-sweep isn't N separate writes.
+    /// Rows written at or after `before` (epoch secs) are kept.
     pub async fn file_state_delete_many(
         &self,
         watch_id: &str,
         rel_paths: &[String],
+        before: i64,
     ) -> AppResult<u64> {
         if rel_paths.is_empty() {
             return Ok(0);
@@ -371,10 +381,10 @@ impl Db {
                 let mut n = 0u64;
                 {
                     let mut stmt = tx.prepare_cached(
-                        "DELETE FROM nw_file_state WHERE watch_id=?1 AND rel_path=?2",
+                        "DELETE FROM nw_file_state WHERE watch_id=?1 AND rel_path=?2 AND synced_at<?3",
                     )?;
                     for rel in &rels {
-                        n += stmt.execute(params![watch_id, rel])? as u64;
+                        n += stmt.execute(params![watch_id, rel, before])? as u64;
                     }
                 }
                 tx.commit()?;
@@ -384,14 +394,20 @@ impl Db {
         Ok(n)
     }
 
-    /// Recorded rel_paths for a watch; input to the full-scan mark-and-sweep prune.
-    pub async fn file_state_list_rel_paths(&self, watch_id: &str) -> AppResult<Vec<String>> {
+    /// Rel_paths written before `before` (epoch secs); input to the mark-and-sweep prune.
+    pub async fn file_state_list_rel_paths(
+        &self,
+        watch_id: &str,
+        before: i64,
+    ) -> AppResult<Vec<String>> {
         let watch_id = watch_id.to_string();
         self.conn
             .call(move |conn| {
-                let mut stmt = conn
-                    .prepare("SELECT rel_path FROM nw_file_state WHERE watch_id=?1")?;
-                let rows = stmt.query_map(params![watch_id], |row| row.get::<_, String>(0))?;
+                let mut stmt = conn.prepare(
+                    "SELECT rel_path FROM nw_file_state WHERE watch_id=?1 AND synced_at<?2",
+                )?;
+                let rows = stmt
+                    .query_map(params![watch_id, before], |row| row.get::<_, String>(0))?;
                 let mut out = Vec::new();
                 for r in rows {
                     out.push(r?);

@@ -31,6 +31,8 @@ pub trait NwCtx: Clone + Send + Sync + 'static {
     fn nw_unclaim(&self, watch_id: &str, rel_path: &str);
     fn nw_scan_claim(&self, watch_id: &str) -> bool;
     fn nw_scan_unclaim(&self, watch_id: &str);
+    /// Drop a cached store client (e.g. after an auth failure) so the next use rebuilds it.
+    fn invalidate_store(&self, _account_id: &str) {}
 }
 
 impl NwCtx for AppState {
@@ -58,6 +60,9 @@ impl NwCtx for AppState {
     fn nw_scan_unclaim(&self, watch_id: &str) {
         AppState::nw_scan_unclaim(self, watch_id)
     }
+    fn invalidate_store(&self, account_id: &str) {
+        AppState::invalidate(self, account_id)
+    }
 }
 
 /// Loop tick only; per-watch cadence comes from `full_scan_secs`.
@@ -67,6 +72,27 @@ const TICK_SECS: u64 = 30;
 const MAX_UPLOAD_RETRIES: i64 = 3;
 /// How long a file is skipped after hitting [`MAX_UPLOAD_RETRIES`] failures.
 const RETRY_PAUSE_SECS: i64 = 3600;
+
+// transfer_id -> watch_id for uploads this process enqueued, so stop/disable can cancel them.
+static UPLOADS: std::sync::LazyLock<dashmap::DashMap<String, String>> =
+    std::sync::LazyLock::new(dashmap::DashMap::new);
+
+/// Cancel in-flight uploads for `watch_id`, or every Night Watcher upload when `None`.
+pub(crate) fn cancel_uploads(transfers: &TransferManager, watch_id: Option<&str>) {
+    cancel_uploads_where(transfers, |w| watch_id.map_or(true, |id| id == w));
+}
+
+fn cancel_uploads_where(transfers: &TransferManager, pred: impl Fn(&str) -> bool) {
+    // Collect first: never hold a DashMap shard lock while a sink might remove entries.
+    let ids: Vec<String> = UPLOADS
+        .iter()
+        .filter(|e| pred(e.value()))
+        .map(|e| e.key().clone())
+        .collect();
+    for id in ids {
+        let _ = transfers.cancel(&id);
+    }
+}
 
 /// Spawn the Night Watcher; returns immediately. Caller keeps the token alive for the process.
 // Desktop only: Android's loop lives in the :nightwatch service process, so this in-process
@@ -120,9 +146,13 @@ impl<S: NwCtx> Drop for ScanClaimGuard<S> {
 }
 
 /// Scan every due enabled watch, one guarded task per watch (never concurrent scans of one
-/// watch). Token threads into scans so a stop also halts in-flight uploads (wakelock).
+/// watch). Uploads of watches no longer enabled are canceled here.
 async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<()> {
     let watches = state.db().list_enabled_watches().await?;
+    let live: std::collections::HashSet<&str> = watches.iter().map(|w| w.id.as_str()).collect();
+    cancel_uploads_where(state.transfers(), |w| !live.contains(w));
+    // Done can fire before enqueue returns and records the id; drop such leftovers.
+    UPLOADS.retain(|id, _| state.transfers().is_live(id));
     let now = Utc::now().timestamp();
     for w in watches {
         if token.is_cancelled() {
@@ -138,6 +168,7 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
         if !state.nw_scan_claim(&w.id) {
             continue;
         }
+        let _ = crate::saf::nw_wakelock_heartbeat();
         let state = state.clone();
         let task_token = token.clone();
         tokio::spawn(async move {
@@ -180,8 +211,10 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
         )));
     }
     let matcher = Matcher::build(watch);
+    let scan_start = Utc::now().timestamp();
     // read_errors seeds `errors` so a subdir vanishing mid-scan blocks the sweep.
     let (files, read_errors) = collect_files(root.clone()).await?;
+    let total = files.len();
     // Bulk-load state once: the per-file fast-path is an in-memory lookup, not a DB round-trip.
     let prefetched = state.db().file_state_map(&watch.id).await?;
     let (mut scanned, mut ignored, mut enqueued, mut errors) = (0u64, 0u64, 0u64, read_errors);
@@ -214,13 +247,7 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
             }
         }
     }
-    // Mark-and-sweep, only on a clean walk: a transient read failure must not mass-prune.
-    // delete_policy=keep drops just the state row; the remote object is untouched.
-    let pruned = if errors == 0 {
-        sweep_deleted(state, watch, &seen).await
-    } else {
-        0
-    };
+    let pruned = finish_sweep(state, watch, &seen, errors, total, scan_start).await?;
     info!(
         watch = %watch.id,
         dir = %watch.local_dir,
@@ -230,14 +257,37 @@ pub(crate) async fn reconcile_watch<S: NwCtx>(
     Ok(())
 }
 
+/// Mark-and-sweep, only on a clean walk (a transient read failure must not mass-prune).
+/// An empty walk over a watch with state is treated as an unmounted/unreadable folder.
+async fn finish_sweep<S: NwCtx>(
+    state: &S,
+    watch: &NightWatch,
+    seen: &std::collections::HashSet<String>,
+    errors: u64,
+    total: usize,
+    scan_start: i64,
+) -> AppResult<u64> {
+    if errors > 0 {
+        return Ok(0);
+    }
+    if total == 0 && state.db().file_state_count(&watch.id).await? > 0 {
+        return Err(AppError::InvalidInput(
+            "watched folder is empty; skipped cleanup".into(),
+        ));
+    }
+    Ok(sweep_deleted(state, watch, seen, scan_start).await)
+}
+
 /// Prune state rows for files absent from a completed full scan; returns rows removed.
+/// Rows written after `scan_start` (by the watcher mid-scan) are kept.
 /// delete_policy=keep: the remote object is left untouched.
 async fn sweep_deleted<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
     seen: &std::collections::HashSet<String>,
+    scan_start: i64,
 ) -> u64 {
-    let known = match state.db().file_state_list_rel_paths(&watch.id).await {
+    let known = match state.db().file_state_list_rel_paths(&watch.id, scan_start).await {
         Ok(k) => k,
         Err(e) => {
             warn!(watch = %watch.id, "night watcher: sweep list failed: {e}");
@@ -251,7 +301,11 @@ async fn sweep_deleted<S: NwCtx>(
     for rel in &doomed {
         info!(watch = %watch.id, rel = %rel, "night watcher: local file gone, remote kept (delete_policy=keep)");
     }
-    match state.db().file_state_delete_many(&watch.id, &doomed).await {
+    match state
+        .db()
+        .file_state_delete_many(&watch.id, &doomed, scan_start)
+        .await
+    {
         Ok(n) => n,
         Err(e) => {
             warn!(watch = %watch.id, "night watcher: sweep delete failed: {e}");
@@ -268,10 +322,12 @@ async fn reconcile_watch_saf<S: NwCtx>(
     token: &CancellationToken,
 ) -> AppResult<()> {
     let uri = watch.tree_uri.clone().expect("tree_uri present");
+    let scan_start = Utc::now().timestamp();
     // read_errors seeds `errors` (blocks sweep), matching the desktop path.
     let (entries, read_errors) = crate::saf::collect_tree_files(uri)
         .await
         .map_err(AppError::Internal)?;
+    let total = entries.iter().filter(|e| !e.is_dir).count();
 
     let matcher = Matcher::build(watch);
     let prefetched = state.db().file_state_map(&watch.id).await?;
@@ -306,12 +362,7 @@ async fn reconcile_watch_saf<S: NwCtx>(
             }
         }
     }
-    // Mark-and-sweep only after a clean enumeration+reconcile: transient failures must not mass-prune.
-    let pruned = if errors == 0 {
-        sweep_deleted(state, watch, &seen).await
-    } else {
-        0
-    };
+    let pruned = finish_sweep(state, watch, &seen, errors, total, scan_start).await?;
     info!(
         watch = %watch.id,
         tree = %watch.tree_uri.as_deref().unwrap_or(""),
@@ -337,7 +388,8 @@ pub(crate) async fn reconcile_file<S: NwCtx>(
     abs: &Path,
     prefetched: Option<&std::collections::HashMap<String, FileState>>,
 ) -> AppResult<Reconciled> {
-    let meta = match tokio::fs::metadata(abs).await {
+    // Not following symlinks, matching collect_files.
+    let meta = match tokio::fs::symlink_metadata(abs).await {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // Genuinely gone: leave unseen so mark-and-sweep prunes the row.
@@ -398,10 +450,9 @@ async fn reconcile_saf_entry<S: NwCtx>(
 ) -> AppResult<Reconciled> {
     let rel_path = entry.rel_path.clone();
     let doc_uri = entry.doc_uri.clone();
-    // SAF providers may report -1 for unknown size; clamp so fingerprints stay comparable.
     let size = entry.size.max(0);
-    // Provider mtimes arrive in seconds or ms; normalize to the fs path's millisecond domain.
-    let mtime = norm_mtime(entry.mtime);
+    // Unknown size/mtime: mtime 0 disables the fast path so the hash decides.
+    let mtime = if entry.size < 0 { 0 } else { entry.mtime.max(0) };
 
     // Stage dir beside the db file, mirroring the encrypt path's enc_tmp scratch placement.
     let stage_dir = state
@@ -470,15 +521,17 @@ where
     SFut: std::future::Future<Output = AppResult<UploadSource>>,
 {
     // State from the scan's prefetched map when present; watcher path/tests pass None (DB hit).
-    let prev = match prefetched {
+    let mut prev = match prefetched {
         Some(map) => map.get(rel_path).cloned(),
         None => state.db().file_state_get(&watch.id, rel_path).await?,
     };
-    if let Some(p) = &prev {
-        if norm_mtime(p.mtime) == mtime && p.size == size {
-            debug!(watch = %watch.id, rel = %rel_path, "night watcher: unchanged (mtime+size)");
-            return Ok(false);
-        }
+    // The snapshot may predate a watcher-driven sync; re-read before hashing/uploading.
+    if prefetched.is_some() && !prev.as_ref().is_some_and(|p| fast_match(p, mtime, size)) {
+        prev = state.db().file_state_get(&watch.id, rel_path).await?;
+    }
+    if prev.as_ref().is_some_and(|p| fast_match(p, mtime, size)) {
+        debug!(watch = %watch.id, rel = %rel_path, "night watcher: unchanged (mtime+size)");
+        return Ok(false);
     }
 
     // Backoff checked BEFORE hashing: a paused file mustn't pay a disk read + blake3 pass per
@@ -534,6 +587,7 @@ where
     let source = match source_fn().await {
         Ok(s) => s,
         Err(e) => {
+            record_failure(state, &watch.id, rel_path).await;
             state.nw_unclaim(&watch.id, rel_path);
             return Err(e);
         }
@@ -553,6 +607,7 @@ where
     )
     .await;
     if result.is_err() {
+        record_failure(state, &watch.id, rel_path).await;
         state.nw_unclaim(&watch.id, rel_path);
         if let Some(dir) = source.cleanup_dir {
             let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -609,6 +664,8 @@ async fn enqueue_upload_for<S: NwCtx>(
     let key = build_key(&watch.key_prefix, rel_path);
     let sink = persist_sink(
         state.clone(),
+        watch.account_id.clone(),
+        watch.key_prefix.clone(),
         watch.id.clone(),
         rel_path.to_string(),
         hash,
@@ -635,12 +692,18 @@ async fn enqueue_upload_for<S: NwCtx>(
     }
     .await;
 
-    if enqueue.is_err() {
-        if let Some(p) = cleanup_on_err {
-            let _ = tokio::fs::remove_file(&p).await;
+    match enqueue {
+        Ok(id) => {
+            UPLOADS.entry(id).or_insert_with(|| watch.id.clone());
+            Ok(())
+        }
+        Err(e) => {
+            if let Some(p) = cleanup_on_err {
+                let _ = tokio::fs::remove_file(&p).await;
+            }
+            Err(e)
         }
     }
-    enqueue.map(|_| ())
 }
 
 /// Progress sink: success records the synced fingerprint + clears the claim; failure/cancel
@@ -648,6 +711,8 @@ async fn enqueue_upload_for<S: NwCtx>(
 #[allow(clippy::too_many_arguments)]
 fn persist_sink<S: NwCtx>(
     state: S,
+    account_id: String,
+    key_prefix: String,
     watch_id: String,
     rel_path: String,
     hash: String,
@@ -663,13 +728,30 @@ fn persist_sink<S: NwCtx>(
         }
     };
     ProgressSink::from_fn(move |event| match event {
-        TransferEvent::Done { etag, .. } => {
+        TransferEvent::Started { transfer_id, .. } => {
+            UPLOADS.insert(transfer_id, watch_id.clone());
+        }
+        TransferEvent::Done { etag, transfer_id } => {
+            UPLOADS.remove(&transfer_id);
             let state = state.clone();
             let watch_id = watch_id.clone();
             let rel_path = rel_path.clone();
             let hash = hash.clone();
+            let key_prefix = key_prefix.clone();
             cleanup_stage();
             tokio::spawn(async move {
+                // Prefix changed (state cleared) or watch deleted mid-upload: this object
+                // is not at the current destination, so recording it would skip the re-upload.
+                let moved = match state.db().get_watch(&watch_id).await {
+                    Ok(Some(w)) => w.key_prefix.trim_matches('/') != key_prefix.trim_matches('/'),
+                    Ok(None) => true,
+                    Err(_) => false,
+                };
+                if moved {
+                    info!(watch = %watch_id, rel = %rel_path, "night watcher: destination changed mid-upload; not recording");
+                    state.nw_unclaim(&watch_id, &rel_path);
+                    return;
+                }
                 let st = FileState {
                     rel_path: rel_path.clone(),
                     hash,
@@ -686,34 +768,43 @@ fn persist_sink<S: NwCtx>(
                 state.nw_unclaim(&watch_id, &rel_path);
             });
         }
-        TransferEvent::Failed { error, .. } => {
+        TransferEvent::Failed { error, transfer_id } => {
+            UPLOADS.remove(&transfer_id);
             warn!(watch = %watch_id, rel = %rel_path, "night watcher: upload failed: {error}");
+            // Possibly stale credentials: the next attempt builds a fresh client.
+            state.invalidate_store(&account_id);
             cleanup_stage();
             let state = state.clone();
             let watch_id = watch_id.clone();
             let rel_path = rel_path.clone();
             tokio::spawn(async move {
-                match state
-                    .db()
-                    .file_retry_record_failure(&watch_id, &rel_path, MAX_UPLOAD_RETRIES, RETRY_PAUSE_SECS)
-                    .await
-                {
-                    Ok(n) if n >= MAX_UPLOAD_RETRIES => {
-                        warn!(watch = %watch_id, rel = %rel_path, fails = n, pause_secs = RETRY_PAUSE_SECS, "night watcher: pausing file after repeated upload failures");
-                    }
-                    Ok(_) => {}
-                    Err(e) => warn!(watch = %watch_id, rel = %rel_path, "night watcher: record retry failed: {e}"),
-                }
+                record_failure(&state, &watch_id, &rel_path).await;
                 state.nw_unclaim(&watch_id, &rel_path);
             });
         }
-        TransferEvent::Canceled { .. } => {
+        TransferEvent::Canceled { transfer_id } => {
+            UPLOADS.remove(&transfer_id);
             debug!(watch = %watch_id, rel = %rel_path, "night watcher: upload canceled");
             cleanup_stage();
             state.nw_unclaim(&watch_id, &rel_path);
         }
         _ => {}
     })
+}
+
+/// Bump the file's retry counter so repeated failures pause it (same backoff for every stage).
+async fn record_failure<S: NwCtx>(state: &S, watch_id: &str, rel_path: &str) {
+    match state
+        .db()
+        .file_retry_record_failure(watch_id, rel_path, MAX_UPLOAD_RETRIES, RETRY_PAUSE_SECS)
+        .await
+    {
+        Ok(n) if n >= MAX_UPLOAD_RETRIES => {
+            warn!(watch = %watch_id, rel = %rel_path, fails = n, pause_secs = RETRY_PAUSE_SECS, "night watcher: pausing file after repeated upload failures");
+        }
+        Ok(_) => {}
+        Err(e) => warn!(watch = %watch_id, rel = %rel_path, "night watcher: record retry failed: {e}"),
+    }
 }
 
 /// Stream a file through blake3 on a blocking thread.
@@ -780,19 +871,15 @@ enum Decision {
     Upload,
 }
 
-/// Legacy rows stored whole seconds; ms epochs are ~1.7e12, so smaller positive values are
-/// seconds and get scaled up on read. Misclassification costs at most one extra hash pass.
-fn norm_mtime(v: i64) -> i64 {
-    if v > 0 && v < 1_000_000_000_000 {
-        v * 1000
-    } else {
-        v
-    }
+/// mtimes are ms on both sides; a legacy seconds row just misses once and gets TouchOnly.
+/// mtime 0 means unknown, so the fingerprint is never trusted.
+fn fast_match(p: &FileState, mtime: i64, size: i64) -> bool {
+    mtime != 0 && p.mtime == mtime && p.size == size
 }
 
 fn decide(prev: Option<&FileState>, mtime: i64, size: i64, hash: &str) -> Decision {
     match prev {
-        Some(p) if norm_mtime(p.mtime) == mtime && p.size == size => Decision::Skip,
+        Some(p) if fast_match(p, mtime, size) => Decision::Skip,
         Some(p) if p.hash == hash => Decision::TouchOnly,
         _ => Decision::Upload,
     }
@@ -881,12 +968,17 @@ mod tests {
     }
 
     #[test]
-    fn decide_normalizes_legacy_second_mtime() {
-        let prev = fs(1_700_000_000, 10, "aaa");
-        assert_eq!(
-            decide(Some(&prev), 1_700_000_000_000, 10, "zzz"),
-            Decision::Skip
-        );
+    fn decide_compares_pre_2001_ms_mtime_as_is() {
+        let prev = fs(900_000_000_000, 10, "aaa");
+        assert_eq!(decide(Some(&prev), 900_000_000_000, 10, "zzz"), Decision::Skip);
+        assert_eq!(decide(Some(&prev), 900_000_000_001, 10, "bbb"), Decision::Upload);
+    }
+
+    #[test]
+    fn decide_never_trusts_unknown_mtime() {
+        let prev = fs(0, 10, "aaa");
+        assert_eq!(decide(Some(&prev), 0, 10, "bbb"), Decision::Upload);
+        assert_eq!(decide(Some(&prev), 0, 10, "aaa"), Decision::TouchOnly);
     }
 
     #[test]
@@ -1060,11 +1152,23 @@ mod desktop {
                 return;
             }
         };
+        // notify may report canonical paths (e.g. macOS /private/var) for a symlinked root.
+        let roots: Vec<(PathBuf, Option<PathBuf>)> = watches
+            .iter()
+            .map(|w| {
+                let root = PathBuf::from(&w.local_dir);
+                let canon = std::fs::canonicalize(&root).ok().filter(|c| *c != root);
+                (root, canon)
+            })
+            .collect();
         for p in paths {
-            for w in &watches {
-                let root = Path::new(&w.local_dir);
-                let Ok(rel_path) = p.strip_prefix(root) else {
-                    continue;
+            for (w, (root, canon)) in watches.iter().zip(&roots) {
+                let rel_path = match p.strip_prefix(root) {
+                    Ok(r) => r,
+                    Err(_) => match canon.as_ref().and_then(|c| p.strip_prefix(c).ok()) {
+                        Some(r) => r,
+                        None => continue,
+                    },
                 };
                 let rel = normalize_rel(rel_path);
                 if rel.is_empty() {

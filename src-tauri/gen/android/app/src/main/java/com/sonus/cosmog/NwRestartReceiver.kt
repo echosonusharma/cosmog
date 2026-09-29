@@ -14,10 +14,7 @@ import android.content.Intent
 class NwRestartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         try {
-            val enabled = context
-                .getSharedPreferences(NightWatchService.PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(NightWatchService.KEY_ENABLED, false)
-            if (!enabled) return
+            if (!NightWatchService.isEnabled(context)) return
             NightWatchService.start(context)
         } catch (t: Throwable) {
             android.util.Log.w("NwRestartReceiver", "restart failed: $t")

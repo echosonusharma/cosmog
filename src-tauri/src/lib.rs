@@ -233,10 +233,18 @@ pub fn run() {
                             pending.display()
                         );
                         let _ = tokio::fs::remove_file(&pending).await;
-                    } else if let Err(e) = tokio::fs::rename(&pending, &db_path).await {
-                        tracing::warn!("apply restore_pending failed: {e}");
                     } else {
-                        tracing::info!("applied pending restore to {}", db_path.display());
+                        // :nightwatch holds the DB open; nw_refresh_service restarts it after boot.
+                        #[cfg(target_os = "android")]
+                        let _ = crate::saf::set_nightwatch_service(false);
+                        let (p, d) = (pending.clone(), db_path.clone());
+                        match tokio::task::spawn_blocking(move || apply_restore(&p, &d)).await {
+                            Ok(Ok(())) => {
+                                tracing::info!("applied pending restore to {}", db_path.display())
+                            }
+                            Ok(Err(e)) => tracing::warn!("apply restore_pending failed: {e}"),
+                            Err(e) => tracing::warn!("apply restore_pending panicked: {e}"),
+                        }
                     }
                 }
 
@@ -499,4 +507,62 @@ pub fn run() {
                 }
             }
         });
+}
+
+// Backup API instead of rename: another open connection (Android :nightwatch) would keep
+// the old inode while sharing the new file's -wal.
+fn apply_restore(pending: &std::path::Path, db_path: &std::path::Path) -> Result<(), String> {
+    let via_backup = (|| -> rusqlite::Result<()> {
+        let src = rusqlite::Connection::open_with_flags(
+            pending,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let mut dst = rusqlite::Connection::open(db_path)?;
+        // Short handler: step() invokes it on every busy retry, so a long one stalls boot.
+        dst.busy_timeout(std::time::Duration::from_millis(500))?;
+        {
+            let backup = rusqlite::backup::Backup::new(&src, &mut dst)?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            loop {
+                match backup.step(-1)? {
+                    rusqlite::backup::StepResult::Done => break,
+                    rusqlite::backup::StepResult::More => {}
+                    _ if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                    _ => return Err(rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                        Some("restore: database stayed busy".into()),
+                    )),
+                }
+            }
+        }
+        dst.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        Ok(())
+    })();
+    match via_backup {
+        Ok(()) => {
+            let _ = std::fs::remove_file(pending);
+            // A read-only open of a WAL-mode file can leave its own sidecars behind.
+            for sfx in ["-wal", "-shm"] {
+                let mut side = pending.as_os_str().to_owned();
+                side.push(sfx);
+                let _ = std::fs::remove_file(side);
+            }
+            Ok(())
+        }
+        // Android: never rename under a possibly-live second process; retry next boot.
+        #[cfg(target_os = "android")]
+        Err(e) => Err(format!("backup restore failed, kept pending: {e}")),
+        #[cfg(not(target_os = "android"))]
+        Err(e) => {
+            tracing::warn!("backup restore failed ({e}); falling back to rename");
+            std::fs::rename(pending, db_path).map_err(|e| e.to_string())?;
+            // Old -wal frames would replay onto the new file; dropped only after the swap.
+            for ext in ["sqlite-wal", "sqlite-shm"] {
+                let _ = std::fs::remove_file(db_path.with_extension(ext));
+            }
+            Ok(())
+        }
+    }
 }

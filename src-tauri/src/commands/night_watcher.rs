@@ -168,7 +168,22 @@ pub async fn nw_update_watch(
 #[tauri::command]
 pub async fn nw_delete_watch(state: State<'_, AppState>, id: String) -> AppResult<()> {
     let id = validate::require_non_empty("id", &id)?;
+    let tree_uri = state.db.get_watch(&id).await?.and_then(|w| w.tree_uri);
+    crate::night_watcher::cancel_uploads(&state.transfers, Some(&id));
     state.db.delete_watch(&id).await?;
+    if let Some(uri) = tree_uri {
+        let shared = state
+            .db
+            .list_watches()
+            .await?
+            .iter()
+            .any(|w| w.tree_uri.as_deref() == Some(uri.as_str()));
+        if !shared {
+            if let Err(e) = crate::saf::release_tree_permission(uri).await {
+                tracing::warn!("release tree permission failed: {e}");
+            }
+        }
+    }
     nw_refresh_service(&state).await;
     Ok(())
 }
@@ -182,6 +197,9 @@ pub async fn nw_set_watch_enabled(
 ) -> AppResult<()> {
     let id = validate::require_non_empty("id", &id)?;
     state.db.set_watch_enabled(&id, enabled).await?;
+    if !enabled {
+        crate::night_watcher::cancel_uploads(&state.transfers, Some(&id));
+    }
     nw_refresh_service(&state).await;
     Ok(())
 }

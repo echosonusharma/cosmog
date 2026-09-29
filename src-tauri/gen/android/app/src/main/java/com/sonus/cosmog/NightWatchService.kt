@@ -36,12 +36,7 @@ class NightWatchService : Service() {
         super.onCreate()
         ensureChannel(this)
 
-        // Bounded acquire: Night Watcher survives swipe-away and runs 24/7, so
-        // an untimed PARTIAL_WAKE_LOCK would pin the CPU forever and drain the
-        // battery. The Rust sync loop pings heartbeatWakelock() well within the
-        // cap, so a sync spanning many cycles (or one long transfer) keeps the
-        // CPU; the OS still auto-releases at the cap if the loop dies without a
-        // heartbeat, so a crash that skips onDestroy can never leak it.
+        // Bounded so it auto-releases if the Rust loop dies; re-armed only while busy.
         acquireWakelock(this)
 
         val notif = buildNotification(this)
@@ -133,11 +128,16 @@ class NightWatchService : Service() {
         @Volatile
         private var wakeLock: PowerManager.WakeLock? = null
 
+        // Kept so the heartbeat can re-acquire after an idle release; cleared on teardown.
+        @Volatile
+        private var appCtx: Context? = null
+
         // (Re)acquire the bounded CPU wakelock. Called from onCreate and, on the
         // heartbeat path, from the Rust sync loop. acquire() on a non-ref-counted
         // lock resets the timeout, so repeated calls just push the cap forward.
         @JvmStatic
         fun acquireWakelock(ctx: Context) {
+            appCtx = ctx.applicationContext
             try {
                 val pm = ctx.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
                 val wl = wakeLock ?: pm
@@ -152,20 +152,25 @@ class NightWatchService : Service() {
             }
         }
 
-        // Heartbeat from the Rust loop (same :nightwatch process): push the cap
-        // forward on the already-created lock. No-op if the lock is gone (service
-        // torn down); the loop is being canceled in that case anyway.
+        // Called by the Rust loop only while a scan/upload is active. No-op once
+        // the service is torn down.
         @JvmStatic
         fun heartbeatWakelock() {
+            val c = appCtx ?: return
+            acquireWakelock(c)
+        }
+
+        // Rust loop is idle: let the CPU sleep until the next scan/upload.
+        @JvmStatic
+        fun idleWakelock() {
             try {
-                wakeLock?.acquire(WAKELOCK_TIMEOUT_MS)
-            } catch (t: Throwable) {
-                android.util.Log.w("NightWatchService", "heartbeatWakelock failed: $t")
-            }
+                wakeLock?.takeIf { it.isHeld }?.release()
+            } catch (_: Throwable) {}
         }
 
         @JvmStatic
         fun releaseWakelock() {
+            appCtx = null
             try {
                 wakeLock?.takeIf { it.isHeld }?.release()
             } catch (_: Throwable) {}
@@ -278,38 +283,62 @@ class NightWatchService : Service() {
             } catch (_: Throwable) {}
         }
 
+        // Flags are plain files, not SharedPreferences: prefs cache per process,
+        // so a write from :nightwatch (FGS timeout) was invisible to the main one.
+        private fun flagFile(ctx: Context, key: String) = java.io.File(ctx.filesDir, "$key.flag")
+
+        private fun readFlag(ctx: Context, key: String): Boolean? = try {
+            val f = flagFile(ctx, key)
+            if (f.exists()) f.readText().trim() == "1" else null
+        } catch (_: Throwable) {
+            null
+        }
+
+        private fun writeFlag(ctx: Context, key: String, value: Boolean) {
+            try {
+                // Temp + rename: the other process must never read a truncated flag.
+                val dst = flagFile(ctx, key)
+                val tmp = java.io.File(ctx.filesDir, "$key.flag.${android.os.Process.myPid()}.tmp")
+                tmp.writeText(if (value) "1" else "0")
+                if (!tmp.renameTo(dst)) {
+                    tmp.delete()
+                    throw java.io.IOException("rename failed")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("NightWatchService", "write flag $key failed: $t")
+            }
+        }
+
+        // Falls back to the legacy prefs value for installs that predate the flag file.
+        @JvmStatic
+        fun isEnabled(ctx: Context): Boolean = readFlag(ctx, KEY_ENABLED)
+            ?: ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
         // Persist whether Night Watcher should relaunch after boot. Read by
         // BootReceiver on BOOT_COMPLETED / LOCKED_BOOT_COMPLETED.
         @JvmStatic
         fun setBootFlag(ctx: Context, enabled: Boolean) {
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_ENABLED, enabled)
-                // Clearing the enable flag also cancels any deferred boot resume.
-                .apply { if (!enabled) remove(KEY_BOOT_PENDING) }
-                .apply()
-            // Disabling also drops any pending FGS-timeout restart alarm.
-            if (!enabled) cancelRestart(ctx)
+            writeFlag(ctx, KEY_ENABLED, enabled)
+            if (!enabled) {
+                writeFlag(ctx, KEY_BOOT_PENDING, false)
+                cancelRestart(ctx)
+            }
         }
 
-        // Mark that a boot-time resume was deferred (A12+ cannot start a
-        // dataSync FGS from BOOT_COMPLETED). Consumed by resumeIfPending().
+        // Mark that a resume was deferred (A12+ cannot start a dataSync FGS from
+        // BOOT_COMPLETED; FGS timeout). Consumed by resumeIfPending().
         @JvmStatic
         fun setBootPending(ctx: Context, pending: Boolean) {
-            ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_BOOT_PENDING, pending)
-                .apply()
+            writeFlag(ctx, KEY_BOOT_PENDING, pending)
         }
 
         // Called from a foreground context (MainActivity.onResume) where an FGS
-        // start is allowed. If a boot resume was deferred and Night Watcher is
-        // still enabled, start the service now and clear the pending flag.
+        // start is allowed. If a resume was deferred and Night Watcher is still
+        // enabled, start the service now and clear the pending flag.
         @JvmStatic
         fun resumeIfPending(ctx: Context) {
-            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (!prefs.getBoolean(KEY_ENABLED, false)) return
-            if (!prefs.getBoolean(KEY_BOOT_PENDING, false)) return
+            if (!isEnabled(ctx)) return
+            if (readFlag(ctx, KEY_BOOT_PENDING) != true) return
             start(ctx)
             setBootPending(ctx, false)
         }

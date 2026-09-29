@@ -23,10 +23,7 @@ import android.os.Build
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         try {
-            val enabled = context
-                .getSharedPreferences(NightWatchService.PREFS_NAME, Context.MODE_PRIVATE)
-                .getBoolean(NightWatchService.KEY_ENABLED, false)
-            if (!enabled) return
+            if (!NightWatchService.isEnabled(context)) return
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Cannot legally start a dataSync FGS from boot on A12+.

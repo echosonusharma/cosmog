@@ -158,3 +158,49 @@ async fn deleting_account_cascades_to_watch_and_file_state() {
     assert!(db.get_watch("w1").await.unwrap().is_none());
     assert_eq!(db.file_state_count("w1").await.unwrap(), 0);
 }
+
+fn state(rel: &str) -> FileState {
+    FileState {
+        rel_path: rel.into(),
+        hash: "h".into(),
+        mtime: 1,
+        size: 1,
+        synced_etag: None,
+    }
+}
+
+#[tokio::test]
+async fn key_prefix_change_clears_file_state_but_same_prefix_keeps_it() {
+    let (db, _td) = common::tmp_db().await;
+    let acct = seed_account(&db).await;
+    db.insert_watch("w1", new_watch(&acct, "/tmp/one")).await.unwrap();
+    db.file_state_upsert("w1", state("a.txt")).await.unwrap();
+
+    let patch = |p: &str| WatchPatch { key_prefix: Some(p.into()), ..Default::default() };
+    db.update_watch("w1", patch("/prefix/")).await.unwrap();
+    assert_eq!(db.file_state_count("w1").await.unwrap(), 1);
+
+    db.update_watch("w1", patch("other")).await.unwrap();
+    assert_eq!(db.file_state_count("w1").await.unwrap(), 0);
+    assert_eq!(db.get_watch("w1").await.unwrap().unwrap().key_prefix, "other");
+}
+
+#[tokio::test]
+async fn sweep_queries_keep_rows_written_after_scan_start() {
+    let (db, _td) = common::tmp_db().await;
+    let acct = seed_account(&db).await;
+    db.insert_watch("w1", new_watch(&acct, "/tmp/one")).await.unwrap();
+    db.file_state_upsert("w1", state("a.txt")).await.unwrap();
+    let now = chrono::Utc::now().timestamp();
+
+    // Row written during the scan (synced_at >= scan start) is invisible to the sweep.
+    assert!(db.file_state_list_rel_paths("w1", now).await.unwrap().is_empty());
+    let n = db.file_state_delete_many("w1", &["a.txt".into()], now).await.unwrap();
+    assert_eq!(n, 0);
+    assert_eq!(db.file_state_count("w1").await.unwrap(), 1);
+
+    let later = now + 10;
+    assert_eq!(db.file_state_list_rel_paths("w1", later).await.unwrap(), vec!["a.txt"]);
+    let n = db.file_state_delete_many("w1", &["a.txt".into()], later).await.unwrap();
+    assert_eq!(n, 1);
+}

@@ -11,7 +11,7 @@ import android.provider.DocumentsContract
  * (nw_pick_tree) calls launch() then poll() every ~250ms until state is
  * terminal, then reset().
  *
- * States: 0 idle, 1 pending, 2 done (result set), 3 canceled/error.
+ * States: 0 idle, 1 pending, 2 done (result set), 3 canceled, 4 error (result = message).
  * On success result = "<treeUri>\n<displayName>".
  *
  * The actual system picker requires an Activity + a launcher registered before
@@ -64,13 +64,18 @@ object NwTreePicker {
             return
         }
         val act = activity
+        // Without a persisted grant the watch would lose access after restart.
         try {
-            act?.contentResolver?.takePersistableUriPermission(
+            if (act == null) throw IllegalStateException("no activity")
+            act.contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         } catch (t: Throwable) {
             android.util.Log.w("NwTreePicker", "persist grant failed: $t")
+            result = "could not keep access to this folder: ${t.message ?: t}"
+            state = 4
+            return
         }
         val name = resolveTreeDisplayName(act, uri) ?: ""
         result = "$uri\n$name"
@@ -104,7 +109,11 @@ object NwTreePicker {
     // (state 3) return the NUL-prefixed sentinel the Rust side maps to a
     // "canceled" result, so it does not hang until the poll timeout.
     @JvmStatic
-    fun poll(): String? = if (state == 3) "__NW_CANCELED__" else result
+    fun poll(): String? = when (state) {
+        3 -> "__NW_CANCELED__"
+        4 -> "__NW_ERROR__${result ?: "folder pick failed"}"
+        else -> result
+    }
 
     @JvmStatic
     fun reset() {

@@ -281,7 +281,7 @@ export default function NightWatcher() {
             <div class="nw-note">
               On Android, syncing runs on the periodic scan interval below.
               File changes are picked up on the next scan, not the instant they
-              happen.
+              happen. Ignore files are not supported on Android.
             </div>
           </Show>
 
@@ -343,13 +343,16 @@ export default function NightWatcher() {
               onInput={(e) => patch("key_prefix", e.currentTarget.value)}
             />
 
-            <label class="settings-label">Ignore file</label>
-            <input
-              class="field"
-              placeholder="/path/to/.cosmogignore (optional)"
-              value={field("ignore_file")}
-              onInput={(e) => patch("ignore_file", e.currentTarget.value)}
-            />
+            {/* Ignore rules need a filesystem path; SAF folders on Android have none. */}
+            <Show when={!IS_MOBILE_OS}>
+              <label class="settings-label">Ignore file</label>
+              <input
+                class="field"
+                placeholder="/path/to/.cosmogignore (optional)"
+                value={field("ignore_file")}
+                onInput={(e) => patch("ignore_file", e.currentTarget.value)}
+              />
+            </Show>
 
             <label class="settings-label">Full scan interval (seconds)</label>
             <div class="num-field">

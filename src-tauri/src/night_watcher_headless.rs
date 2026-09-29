@@ -73,6 +73,32 @@ impl NwCtx for NwHeadlessCtx {
     fn nw_scan_unclaim(&self, watch_id: &str) {
         self.scan_inflight.remove(watch_id);
     }
+    fn invalidate_store(&self, account_id: &str) {
+        self.clients.remove(account_id);
+    }
+}
+
+/// The main process edits accounts/settings in the shared DB; this process only sees them
+/// by polling. Returns the fingerprint so unchanged polls are cheap no-ops.
+async fn refresh_config(ctx: &NwHeadlessCtx, last: Option<String>) -> Option<String> {
+    let (Ok(accounts), Ok(settings)) = (ctx.db.list_accounts().await, ctx.db.settings_load().await)
+    else {
+        return last;
+    };
+    let Ok(fp) = serde_json::to_string(&(&accounts, &settings)) else {
+        return last;
+    };
+    if last.as_deref() != Some(fp.as_str()) {
+        if last.is_some() {
+            info!("accounts/settings changed; rebuilding store clients");
+            apply_network_env(&settings);
+            ctx.transfers
+                .set_concurrency(settings.transfer_concurrency as usize);
+            ctx.clients.clear();
+        }
+        return Some(fp);
+    }
+    last
 }
 
 // Process-lifetime singletons: runtime + ctx are built once and REUSED across service
@@ -243,24 +269,30 @@ fn start_inner() {
 
     let token = CancellationToken::new();
     *NW_CANCEL.lock().unwrap_or_else(|p| p.into_inner()) = Some(token.clone());
-    // Wakelock acquire is bounded (10 min) so a crash can't leak it, but a longer sync would
-    // lose the CPU past the cap. Ping the Java side well inside the window to re-arm it.
-    rt.spawn(wakelock_heartbeat(token.clone()));
+    rt.spawn(wakelock_heartbeat(ctx.clone(), token.clone()));
     rt.spawn(run_loop(ctx, token));
     info!("headless night watcher started (service process)");
 }
 
-/// Re-arm the service wakelock every 5 min (Java cap 10 min, wide margin); the loop's
-/// cancellation token stops pings the moment the service is torn down.
-async fn wakelock_heartbeat(token: CancellationToken) {
-    const HEARTBEAT_SECS: u64 = 5 * 60;
+/// Hold the wakelock (Java cap 10 min) only while a scan or upload is active, and poll
+/// for account/settings changes on the same tick.
+async fn wakelock_heartbeat(ctx: NwHeadlessCtx, token: CancellationToken) {
+    const HEARTBEAT_SECS: u64 = 30;
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(HEARTBEAT_SECS));
+    let mut config_fp: Option<String> = None;
     loop {
         tokio::select! {
             _ = token.cancelled() => break,
             _ = tick.tick() => {
-                if let Err(e) = crate::saf::nw_wakelock_heartbeat() {
-                    warn!("wakelock heartbeat failed: {e}");
+                config_fp = refresh_config(&ctx, config_fp).await;
+                let busy = !ctx.scan_inflight.is_empty() || !ctx.inflight.is_empty();
+                let res = if busy {
+                    crate::saf::nw_wakelock_heartbeat()
+                } else {
+                    crate::saf::nw_wakelock_idle()
+                };
+                if let Err(e) = res {
+                    warn!("wakelock update failed: {e}");
                 }
             }
         }
@@ -275,11 +307,14 @@ fn stop_inner() {
     {
         token.cancel();
     }
+    if let Some(ctx) = NW_CTX.get() {
+        crate::night_watcher::cancel_uploads(&ctx.transfers, None);
+    }
     NW_RUNNING.store(false, Ordering::SeqCst);
     info!("headless night watcher stop requested");
 }
 
-/// Start the headless loop. Idempotent; panics are contained — unwinding across JNI is UB.
+/// Start the headless loop. Idempotent; panics are contained: unwinding across JNI is UB.
 #[no_mangle]
 pub extern "system" fn Java_com_sonus_cosmog_NightWatchService_startNwSync(
     _env: jni::JNIEnv,
