@@ -33,6 +33,8 @@ use super::{
     PendingMultipartUpload, PutOptions, Sse,
 };
 
+mod copy;
+
 /// Per-account config for [`S3Store`]; `endpoint` is `None` for plain AWS.
 /// `addressing_style`: `"path"`, `"virtual"`, or `"auto"` (= path-style whenever a custom endpoint is set).
 #[derive(Debug, Clone)]
@@ -348,11 +350,12 @@ impl ObjectStore for S3Store {
             .send()
             .await
             .map_err(|e| classify_aws("get_bucket_location", e))?;
-        // Empty LocationConstraint = us-east-1; normalise to None for callers.
+        // Empty LocationConstraint = us-east-1 (None for callers); legacy "EU" = eu-west-1.
         Ok(resp
             .location_constraint()
-            .map(|c| c.as_str().to_string())
-            .filter(|s| !s.is_empty()))
+            .map(|c| c.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| if s == "EU" { "eu-west-1".to_string() } else { s.to_string() }))
     }
 
     async fn put_bucket_acl(&self, name: &str, acl: CannedAcl) -> AppResult<()> {
@@ -749,23 +752,9 @@ impl ObjectStore for S3Store {
         key: &str,
         version_id: &str,
     ) -> AppResult<()> {
-        // Restore = server-side CopyObject from `bucket/key?versionId=..` to the same key (new
-        // latest version; invalid against delete markers). CopySource segments percent-encoded, slashes kept.
-        let encoded_key: String = key
-            .split('/')
-            .map(|seg| urlencoding::encode(seg).into_owned())
-            .collect::<Vec<_>>()
-            .join("/");
-        let copy_source = format!("{bucket}/{encoded_key}?versionId={version_id}");
-        self.client
-            .copy_object()
-            .copy_source(copy_source)
-            .bucket(bucket)
-            .key(key)
-            .send()
+        // Restore = copy the old version onto the same key (invalid against delete markers).
+        self.server_copy("restore_object_version", bucket, key, Some(version_id), bucket, key)
             .await
-            .map_err(|e| classify_aws("restore_object_version", e))?;
-        Ok(())
     }
 
     async fn list_object_versions(
@@ -844,22 +833,8 @@ impl ObjectStore for S3Store {
         dst_bucket: &str,
         dst_key: &str,
     ) -> AppResult<()> {
-        // CopySource segments must be percent-encoded; slashes stay separators.
-        let encoded_key: String = src_key
-            .split('/')
-            .map(|seg| urlencoding::encode(seg).into_owned())
-            .collect::<Vec<_>>()
-            .join("/");
-        let copy_source = format!("{src_bucket}/{encoded_key}");
-        self.client
-            .copy_object()
-            .copy_source(copy_source)
-            .bucket(dst_bucket)
-            .key(dst_key)
-            .send()
+        self.server_copy("copy_object", src_bucket, src_key, None, dst_bucket, dst_key)
             .await
-            .map_err(|e| classify_aws("copy_object", e))?;
-        Ok(())
     }
 
     async fn put_object_acl(&self, bucket: &str, key: &str, acl: CannedAcl) -> AppResult<()> {
@@ -1084,12 +1059,29 @@ impl ObjectStore for S3Store {
         prefix: Option<&str>,
         key_marker: Option<String>,
     ) -> AppResult<(Vec<PendingMultipartUpload>, Option<String>)> {
+        // Paging needs key-marker AND upload-id-marker (many uploads per key);
+        // carried as an opaque JSON token like list_object_versions.
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct UploadsMarker {
+            key: String,
+            upload_id: Option<String>,
+        }
+
         let mut req = self.client.list_multipart_uploads().bucket(bucket);
         if let Some(p) = prefix {
             req = req.prefix(p);
         }
-        if let Some(km) = key_marker {
-            req = req.key_marker(km);
+        if let Some(token) = key_marker {
+            match serde_json::from_str::<UploadsMarker>(&token) {
+                Ok(m) => {
+                    req = req.key_marker(m.key);
+                    if let Some(uid) = m.upload_id {
+                        req = req.upload_id_marker(uid);
+                    }
+                }
+                // Legacy plain key-marker token.
+                Err(_) => req = req.key_marker(token),
+            }
         }
         let resp = req
             .send()
@@ -1109,7 +1101,16 @@ impl ObjectStore for S3Store {
             })
             .collect();
         let next = if resp.is_truncated().unwrap_or(false) {
-            resp.next_key_marker().map(|s| s.to_string())
+            resp.next_key_marker().map(|k| {
+                let m = UploadsMarker {
+                    key: k.to_string(),
+                    upload_id: resp
+                        .next_upload_id_marker()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string()),
+                };
+                serde_json::to_string(&m).unwrap_or_default()
+            })
         } else {
             None
         };

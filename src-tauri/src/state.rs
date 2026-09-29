@@ -8,11 +8,10 @@ use dashmap::{DashMap, DashSet};
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::db::accounts::UpdateAccount;
 use crate::db::settings::AppSettings;
 use crate::db::Db;
 use crate::error::AppResult;
-use crate::providers::{build_probe_store, build_store};
+use crate::providers::{build_probe_store, build_store, build_store_with_region};
 use crate::store::logging::LoggingStore;
 use crate::store::region_retry::RegionRetryStore;
 use crate::store::ObjectStore;
@@ -162,8 +161,8 @@ impl AppState {
         self.clients.remove(account_id);
     }
 
-    /// On PermanentRedirect: probe the bucket's real region via a store pointed
-    /// at the global endpoint, persist it, evict the client, rebuild, return.
+    /// On PermanentRedirect: probe the bucket's real region and return a store
+    /// signed for it. The account region is left alone: it's shared by every bucket.
     pub async fn fix_region_for_bucket(
         &self,
         account_id: &str,
@@ -171,13 +170,11 @@ impl AppState {
     ) -> AppResult<Arc<dyn ObjectStore>> {
         let account = self.db.get_account(account_id).await?;
         let probe = build_probe_store(&account).await?;
-        // Never persist a guessed region: a failed probe (e.g. IAM denies
-        // GetBucketLocation) must not clobber a possibly-correct stored region.
         let real_region = probe
             .get_bucket_location(bucket)
             .await
             .map_err(|e| {
-                tracing::warn!(bucket = %bucket, "region probe failed, keeping stored region: {e}");
+                tracing::warn!(bucket = %bucket, "region probe failed: {e}");
                 e
             })?
             .unwrap_or_else(|| "us-east-1".to_string());
@@ -185,22 +182,18 @@ impl AppState {
             account_id = %account_id,
             bucket = %bucket,
             region = %real_region,
-            "PermanentRedirect: auto-correcting stored region"
+            "PermanentRedirect: routing bucket to its own region"
         );
-        self.db
-            .update_account(
-                account_id,
-                UpdateAccount {
-                    name: None,
-                    endpoint: None,
-                    region: Some(real_region),
-                    access_key_id: None,
-                    addressing_style: None,
-                },
-            )
-            .await?;
-        self.invalidate(account_id);
-        self.store_for(account_id).await
+        let inner = build_store_with_region(&account, &real_region).await?;
+        Ok(Arc::new(LoggingStore::new(
+            inner,
+            self.db.clone(),
+            self.app.clone(),
+            &account.id,
+            &account.name,
+            account.endpoint.clone(),
+            real_region,
+        )))
     }
 
     pub fn register_scan(&self, account_id: &str, bucket: &str) -> CancellationToken {

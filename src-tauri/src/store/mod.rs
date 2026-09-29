@@ -309,7 +309,7 @@ pub trait ObjectStore: Send + Sync {
         upload_id: &str,
     ) -> AppResult<()>;
 
-    /// Paginated; next `key_marker` returned in the second tuple slot.
+    /// Paginated; second slot is an opaque token for the next page.
     async fn list_multipart_uploads(
         &self,
         bucket: &str,

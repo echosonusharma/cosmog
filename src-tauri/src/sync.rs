@@ -128,7 +128,8 @@ async fn sync_prefix_impl(
         }
 
         if page.is_truncated {
-            continuation = page.continuation;
+            // Error, not break: sweeping after a partial listing would drop live rows.
+            continuation = Some(page.continuation.ok_or_else(truncated_without_token)?);
         } else {
             break;
         }
@@ -143,6 +144,10 @@ async fn sync_prefix_impl(
     stats.completed = true;
     db.prefix_sync_set(account_id, bucket, prefix).await?;
     Ok(stats)
+}
+
+fn truncated_without_token() -> AppError {
+    AppError::S3("provider returned a truncated listing without a continuation token".into())
 }
 
 /// Full-bucket scan; cancellable and resumable via `scan_continuation` persisted in
@@ -210,7 +215,8 @@ pub async fn full_bucket_scan(
             });
 
             if page.is_truncated {
-                continuation = page.continuation.clone();
+                // Error, not break: finalizing would sweep rows past this page.
+                continuation = Some(page.continuation.clone().ok_or_else(truncated_without_token)?);
                 // Persist so we can resume from this point on next call.
                 db.bucket_scan_progress(account_id, bucket, continuation.clone())
                     .await?;

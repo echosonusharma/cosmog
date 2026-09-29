@@ -191,12 +191,10 @@ pub async fn delete_object_version(
     key: String,
     version_id: String,
 ) -> AppResult<()> {
-    state
-        .store_for(&account_id)
-        .await?
-        .delete_object_version(&bucket, &key, &version_id)
-        .await
-    // We don't touch the cache here: only the live/latest version is mirrored.
+    let store = state.store_for(&account_id).await?;
+    store.delete_object_version(&bucket, &key, &version_id).await?;
+    refresh_cached_key(&state, store.as_ref(), &account_id, &bucket, &key).await;
+    Ok(())
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -208,13 +206,31 @@ pub async fn restore_object_version(
     key: String,
     version_id: String,
 ) -> AppResult<()> {
-    state
-        .store_for(&account_id)
-        .await?
-        .restore_object_version(&bucket, &key, &version_id)
-        .await
-    // No cache write: the restore only affects remote version state, and a
-    // subsequent list/head refreshes the mirrored latest version.
+    let store = state.store_for(&account_id).await?;
+    store.restore_object_version(&bucket, &key, &version_id).await?;
+    refresh_cached_key(&state, store.as_ref(), &account_id, &bucket, &key).await;
+    Ok(())
+}
+
+/// Version ops can change or remove the latest version, which is what the cache mirrors.
+async fn refresh_cached_key(
+    state: &AppState,
+    store: &dyn crate::store::ObjectStore,
+    account_id: &str,
+    bucket: &str,
+    key: &str,
+) {
+    let res = match store.head_object(bucket, key).await {
+        Ok(meta) => state.db.cache_upsert_object(account_id, bucket, &meta).await,
+        Err(AppError::NotFound(_)) => state.db.cache_remove_object(account_id, bucket, key).await,
+        Err(e) => {
+            warn!("head after version op failed for {key}: {e}");
+            return;
+        }
+    };
+    if let Err(e) = res {
+        expire_prefix_on_cache_err(state, account_id, bucket, key, &e);
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -424,7 +440,7 @@ pub async fn preview_object(
         }
 
         // Whole-ciphertext fetch: read_object_full bypasses read_object_range's
-        // 8 MiB preview cap; age decrypt needs the full stream to authenticate.
+        // preview cap; age decrypt needs the full stream to authenticate.
         let ciphertext = store.read_object_full(&bucket, &key).await?;
         // Trust the payload bytes, not S3 user metadata: an attacker with PUT
         // rights could strip/forge `cosmog-encrypted`.

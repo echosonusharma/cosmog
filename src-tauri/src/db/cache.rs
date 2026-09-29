@@ -111,22 +111,6 @@ impl KeyParts {
     }
 }
 
-/// Escape `%`/`_`/`\` and append `%` for a SQLite LIKE prefix match.
-fn like_prefix(prefix: &str) -> String {
-    let mut out = String::with_capacity(prefix.len() + 1);
-    for c in prefix.chars() {
-        match c {
-            '%' | '_' | '\\' => {
-                out.push('\\');
-                out.push(c);
-            }
-            _ => out.push(c),
-        }
-    }
-    out.push('%');
-    out
-}
-
 /// Build an FTS5 MATCH query for the trigram tokenizer; terms shorter than 3
 /// chars are skipped. Returns None if no usable terms (caller uses LIKE fallback).
 pub fn build_fts_query(input: &str) -> Option<String> {
@@ -143,6 +127,21 @@ pub fn build_fts_query(input: &str) -> Option<String> {
 
 /// 1-indexed CHARACTER offset past `prefix`, for SQLite substr(); multibyte
 /// prefixes (e.g. "文档/") must not use byte length or nested keys get misclassified.
+/// Exclusive upper bound for a BINARY-collated `key >= prefix AND key < bound` range scan
+/// (index-friendly, case-sensitive). UTF-8 byte order equals code point order, so bumping the
+/// last bumpable char bounds every extension. No bound: an empty blob, since TEXT < BLOB.
+fn prefix_upper_bound(prefix: &str) -> Value {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(c) = chars.pop() {
+        let next = if c == '\u{D7FF}' { Some('\u{E000}') } else { char::from_u32(c as u32 + 1) };
+        if let Some(n) = next {
+            chars.push(n);
+            return Value::Text(chars.into_iter().collect());
+        }
+    }
+    Value::Blob(Vec::new())
+}
+
 fn substr_offset_past_prefix(prefix: &str) -> i64 {
     prefix.chars().count() as i64 + 1
 }
@@ -390,22 +389,22 @@ impl Db {
                     }
                     SyncScope::PrefixDirect { prefix } => {
                         let after = substr_offset_past_prefix(&prefix);
-                        let pat = like_prefix(&prefix);
+                        let upper = prefix_upper_bound(&prefix);
                         conn.execute(
                             "UPDATE cached_objects SET seen = 0
                              WHERE account_id = ?1 AND bucket = ?2
-                               AND key LIKE ?3 ESCAPE '\\'
+                               AND key >= ?3 AND key < ?5
                                AND instr(substr(key, ?4), '/') = 0",
-                            params![account_id, bucket, pat, after],
+                            params![account_id, bucket, prefix, after, upper],
                         )?;
                     }
                     SyncScope::PrefixRecursive { prefix } => {
-                        let pat = like_prefix(&prefix);
+                        let upper = prefix_upper_bound(&prefix);
                         conn.execute(
                             "UPDATE cached_objects SET seen = 0
                              WHERE account_id = ?1 AND bucket = ?2
-                               AND key LIKE ?3 ESCAPE '\\'",
-                            params![account_id, bucket, pat],
+                               AND key >= ?3 AND key < ?4",
+                            params![account_id, bucket, prefix, upper],
                         )?;
                     }
                 }
@@ -434,24 +433,24 @@ impl Db {
                     )?,
                     SyncScope::PrefixDirect { prefix } => {
                         let after = substr_offset_past_prefix(&prefix);
-                        let pat = like_prefix(&prefix);
+                        let upper = prefix_upper_bound(&prefix);
                         conn.execute(
                             "DELETE FROM cached_objects
                              WHERE account_id = ?1 AND bucket = ?2
-                               AND key LIKE ?3 ESCAPE '\\'
+                               AND key >= ?3 AND key < ?5
                                AND instr(substr(key, ?4), '/') = 0
                                AND seen = 0",
-                            params![account_id, bucket, pat, after],
+                            params![account_id, bucket, prefix, after, upper],
                         )?
                     }
                     SyncScope::PrefixRecursive { prefix } => {
-                        let pat = like_prefix(&prefix);
+                        let upper = prefix_upper_bound(&prefix);
                         conn.execute(
                             "DELETE FROM cached_objects
                              WHERE account_id = ?1 AND bucket = ?2
-                               AND key LIKE ?3 ESCAPE '\\'
+                               AND key >= ?3 AND key < ?4
                                AND seen = 0",
-                            params![account_id, bucket, pat],
+                            params![account_id, bucket, prefix, upper],
                         )?
                     }
                 };
@@ -494,18 +493,17 @@ impl Db {
                     }
                     v
                 } else {
-                    let pat = like_prefix(&prefix);
+                    let upper = prefix_upper_bound(&prefix);
                     let mut stmt = conn.prepare_cached(
                         "SELECT key FROM cached_objects
                          WHERE account_id = ?1 AND bucket = ?2
-                           AND key LIKE ?3 ESCAPE '\\'
-                           AND key != ?4
+                           AND key > ?4 AND key < ?3
                            AND substr(key, -1) = '/'
                            AND instr(substr(key, ?5, length(key) - ?5), '/') = 0
                            AND content_type = 'application/x-directory'",
                     )?;
                     let mut v = Vec::new();
-                    for r in stmt.query_map(params![account_id, bucket, pat, prefix, after], |row| row.get(0))? {
+                    for r in stmt.query_map(params![account_id, bucket, upper, prefix, after], |row| row.get(0))? {
                         v.push(r?);
                     }
                     v
@@ -719,8 +717,9 @@ impl Db {
         let bucket = bucket.to_string();
         self.conn
             .call(move |conn| {
+                // enabled guard: a scan racing a disable must not re-save its token.
                 conn.execute(
-                    "UPDATE bucket_index SET scan_continuation = ?1 WHERE account_id = ?2 AND bucket = ?3",
+                    "UPDATE bucket_index SET scan_continuation = ?1 WHERE account_id = ?2 AND bucket = ?3 AND enabled = 1",
                     params![continuation, account_id, bucket],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(())
@@ -965,7 +964,9 @@ impl Db {
                     params![account_id, bucket],
                 )?;
                 tx.execute(
-                    "UPDATE bucket_index SET enabled = 0, last_full_sync_at = NULL, object_count = 0
+                    // Drop scan state too, else re-enable resumes mid-scan over an empty cache.
+                    "UPDATE bucket_index SET enabled = 0, last_full_sync_at = NULL, object_count = 0,
+                        scan_continuation = NULL, scan_started_at = NULL
                      WHERE account_id = ?1 AND bucket = ?2",
                     params![account_id, bucket],
                 )?;
@@ -977,7 +978,7 @@ impl Db {
     }
 
     /// Returns (files, subprefixes, has_more) for the direct children of
-    /// `prefix`, derived from keys via LIKE + instr (no parent_prefix column).
+    /// `prefix`, derived from keys via a key range + instr (no parent_prefix column).
     /// Subprefixes are returned only on the first page (`offset == 0`).
     pub async fn browse_children(
         &self,
@@ -1034,19 +1035,18 @@ impl Db {
                     };
                     (files, subprefixes)
                 } else {
-                    let like_pat = like_prefix(&prefix);
+                    let upper = prefix_upper_bound(&prefix);
                     let files: Vec<CachedObjectMeta> = {
                         let mut stmt = conn.prepare_cached(
                             "SELECT co.account_id, co.bucket, co.key, co.size, co.etag, co.last_modified, co.storage_class, co.content_type, co.extension, co.basename, co.version_id, co.synced_at
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
-                               AND co.key LIKE ?3 ESCAPE '\\'
-                               AND co.key != ?4
+                               AND co.key > ?4 AND co.key < ?3
                                AND instr(substr(co.key, ?5), '/') = 0
                              ORDER BY co.key LIMIT ?6 OFFSET ?7",
                         )?;
                         let mut v = Vec::new();
-                        for r in stmt.query_map(params![account_id, bucket, like_pat, prefix, after, fetch_limit, offset], row_to_cached)? {
+                        for r in stmt.query_map(params![account_id, bucket, upper, prefix, after, fetch_limit, offset], row_to_cached)? {
                             v.push(r?);
                         }
                         v
@@ -1056,12 +1056,12 @@ impl Db {
                             "SELECT DISTINCT substr(co.key, 1, (?5 - 1) + instr(substr(co.key, ?5), '/')) AS folder
                              FROM cached_objects co
                              WHERE co.account_id = ?1 AND co.bucket = ?2
-                               AND co.key LIKE ?3 ESCAPE '\\'
+                               AND co.key >= ?4 AND co.key < ?3
                                AND instr(substr(co.key, ?5), '/') > 0
                              ORDER BY folder",
                         )?;
                         let mut v = Vec::new();
-                        for r in stmt.query_map(params![account_id, bucket, like_pat, prefix, after], |row| row.get(0))? {
+                        for r in stmt.query_map(params![account_id, bucket, upper, prefix, after], |row| row.get(0))? {
                             v.push(r?);
                         }
                         v
@@ -1189,8 +1189,10 @@ fn build_filter(
 
     match scope {
         SearchScope::Prefix { prefix, recursive } => {
-            clauses.push("co.key LIKE ? ESCAPE '\\'".into());
-            p.push(Value::Text(like_prefix(prefix)));
+            // Range, not LIKE: case-sensitive like S3 keys, and uses the PK index.
+            clauses.push("co.key >= ? AND co.key < ?".into());
+            p.push(Value::Text(prefix.clone()));
+            p.push(prefix_upper_bound(prefix));
             if !recursive {
                 // Exclude keys with a slash after the prefix (descendants).
                 let mut pat = String::with_capacity(prefix.len() + 4);
@@ -1385,9 +1387,10 @@ impl Db {
                 // Full page => there may be more; hand back the next offset.
                 let next_cursor = if objects.len() as i64 == limit { Some(offset + limit) } else { None };
 
-                // Pass the built FTS query (not raw input) so facets use the
-                // same trigram matching.
-                let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, fts.as_deref())?;
+                // Facets reuse the built FTS query and short-term LIKEs so
+                // counts match the result set.
+                let tm = TextMatch { fts: fts.as_deref(), likes: &short_like_terms };
+                let facets = compute_facets(conn, &account_id, &bucket, &scope, &filters, tm)?;
 
                 Ok::<SearchResult, tokio_rusqlite::Error>(SearchResult {
                     objects,
@@ -1407,19 +1410,19 @@ fn compute_facets(
     bucket: &str,
     scope: &SearchScope,
     filters: &SearchFilters,
-    fts: Option<&str>,
+    tm: TextMatch,
 ) -> Result<Facets, tokio_rusqlite::Error> {
     let mut facets = Facets::default();
 
     facets.extensions =
-        facet_group(conn, account_id, bucket, scope, filters, fts, FacetDim::Extension, "co.extension")?;
+        facet_group(conn, account_id, bucket, scope, filters, tm, FacetDim::Extension, "co.extension")?;
     facets.storage_classes = facet_group(
         conn,
         account_id,
         bucket,
         scope,
         filters,
-        fts,
+        tm,
         FacetDim::StorageClass,
         "co.storage_class",
     )?;
@@ -1429,25 +1432,38 @@ fn compute_facets(
         bucket,
         scope,
         filters,
-        fts,
+        tm,
         FacetDim::ContentType,
         "co.content_type",
     )?;
 
-    facets.size_buckets = facet_size_buckets(conn, account_id, bucket, scope, filters, fts)?;
-    facets.date_buckets = facet_date_buckets(conn, account_id, bucket, scope, filters, fts)?;
+    facets.size_buckets = facet_size_buckets(conn, account_id, bucket, scope, filters, tm)?;
+    facets.date_buckets = facet_date_buckets(conn, account_id, bucket, scope, filters, tm)?;
 
     Ok(facets)
 }
 
-fn fts_join(query: &Option<String>) -> (String, Option<String>) {
-    match query {
-        Some(text) => (
-            "JOIN cached_objects_fts fts ON fts.rowid = co.rowid".to_string(),
-            Some(text.clone()),
-        ),
-        None => (String::new(), None),
+#[derive(Clone, Copy)]
+struct TextMatch<'a> {
+    fts: Option<&'a str>,
+    likes: &'a [String],
+}
+
+fn text_match(tm: TextMatch, params: &mut Vec<Value>) -> (&'static str, String) {
+    let mut clause = String::new();
+    let join = match tm.fts {
+        Some(text) => {
+            clause.push_str(" AND cached_objects_fts MATCH ?");
+            params.push(Value::Text(text.to_string()));
+            "JOIN cached_objects_fts fts ON fts.rowid = co.rowid"
+        }
+        None => "",
+    };
+    for t in tm.likes {
+        clause.push_str(" AND co.basename LIKE ? ESCAPE '\\'");
+        params.push(Value::Text(t.clone()));
     }
+    (join, clause)
 }
 
 fn facet_group(
@@ -1456,17 +1472,12 @@ fn facet_group(
     bucket: &str,
     scope: &SearchScope,
     filters: &SearchFilters,
-    fts: Option<&str>,
+    tm: TextMatch,
     dim: FacetDim,
     col: &str,
 ) -> Result<Vec<FacetBucket>, tokio_rusqlite::Error> {
     let (filter_sql, mut params) = build_filter(account_id, bucket, scope, filters, Some(dim));
-    let fts_owned = fts.map(|s| s.to_string());
-    let (join_sql, fts_param) = fts_join(&fts_owned);
-    let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
-    if let Some(text) = fts_param {
-        params.push(Value::Text(text));
-    }
+    let (join_sql, fts_clause) = text_match(tm, &mut params);
 
     let sql = format!(
         "SELECT {col} AS v, COUNT(*) FROM cached_objects co {join_sql} {filter_sql} {fts_clause}
@@ -1503,18 +1514,13 @@ fn facet_size_buckets(
     bucket: &str,
     scope: &SearchScope,
     filters: &SearchFilters,
-    fts: Option<&str>,
+    tm: TextMatch,
 ) -> Result<Vec<FacetBucket>, tokio_rusqlite::Error> {
     let mut out = Vec::with_capacity(SIZE_BUCKETS.len());
     for (label, lo, hi) in SIZE_BUCKETS {
         let (filter_sql, mut params) =
             build_filter(account_id, bucket, scope, filters, Some(FacetDim::Size));
-        let fts_owned = fts.map(|s| s.to_string());
-        let (join_sql, fts_param) = fts_join(&fts_owned);
-        let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
-        if let Some(text) = fts_param {
-            params.push(Value::Text(text));
-        }
+        let (join_sql, fts_clause) = text_match(tm, &mut params);
         params.push(Value::Integer(*lo));
         params.push(Value::Integer(*hi));
 
@@ -1540,7 +1546,7 @@ fn facet_date_buckets(
     bucket: &str,
     scope: &SearchScope,
     filters: &SearchFilters,
-    fts: Option<&str>,
+    tm: TextMatch,
 ) -> Result<Vec<FacetBucket>, tokio_rusqlite::Error> {
     let now = Utc::now().timestamp();
     let day = 86_400;
@@ -1555,12 +1561,7 @@ fn facet_date_buckets(
     for (label, since) in ranges {
         let (filter_sql, mut params) =
             build_filter(account_id, bucket, scope, filters, Some(FacetDim::Date));
-        let fts_owned = fts.map(|s| s.to_string());
-        let (join_sql, fts_param) = fts_join(&fts_owned);
-        let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
-        if let Some(text) = fts_param {
-            params.push(Value::Text(text));
-        }
+        let (join_sql, fts_clause) = text_match(tm, &mut params);
         params.push(Value::Integer(*since));
 
         let sql = format!(
@@ -1580,12 +1581,7 @@ fn facet_date_buckets(
     // "Older" — no upper bound, just absence of last_modified-after window.
     let (filter_sql, mut params) =
         build_filter(account_id, bucket, scope, filters, Some(FacetDim::Date));
-    let fts_owned = fts.map(|s| s.to_string());
-    let (join_sql, fts_param) = fts_join(&fts_owned);
-    let fts_clause = if fts_param.is_some() { " AND cached_objects_fts MATCH ? ".to_string() } else { String::new() };
-    if let Some(text) = fts_param {
-        params.push(Value::Text(text));
-    }
+    let (join_sql, fts_clause) = text_match(tm, &mut params);
     let year_ago = now - 365 * day;
     params.push(Value::Integer(year_ago));
     let sql = format!(
@@ -1686,6 +1682,104 @@ mod tests {
             db.cache_get_object("acct", "b", "root.txt").await.unwrap().is_some(),
             "rows outside the prefix must be untouched"
         );
+    }
+
+    #[test]
+    fn prefix_upper_bound_bumps_last_bumpable_char() {
+        assert_eq!(prefix_upper_bound("a/"), Value::Text("a0".into()));
+        assert_eq!(prefix_upper_bound("\u{D7FF}"), Value::Text("\u{E000}".into()));
+        assert_eq!(prefix_upper_bound("a\u{10FFFF}"), Value::Text("b".into()));
+        assert_eq!(prefix_upper_bound(""), Value::Blob(Vec::new()));
+        assert_eq!(prefix_upper_bound("\u{10FFFF}"), Value::Blob(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn prefix_range_handles_unicode_and_like_metachars() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Db::open(&dir.path().join("test.sqlite")).await.expect("open db");
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO accounts (id, name, protocol, region, access_key_id, addressing_style, created_at, updated_at)
+                     VALUES ('acct', 't', 's3', 'us-east-1', 'k', 'path', 0, 0)",
+                    [],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+        let meta = |key: &str| crate::store::ObjectMeta {
+            key: key.to_string(),
+            size: 1,
+            etag: None,
+            last_modified: None,
+            storage_class: None,
+            content_type: None,
+            version_id: None,
+            user_metadata: Default::default(),
+        };
+        let keys = ["caf\u{e9} 100%_x/a.txt", "caf\u{e9} 100%_x/sub/b.txt", "cafe 100ab_x/c.txt", "caf\u{e9} 100%_y/d.txt"];
+        db.cache_upsert_objects_batch("acct", "b", &keys.iter().map(|k| meta(k)).collect::<Vec<_>>())
+            .await
+            .unwrap();
+
+        let (files, subs, _) = db.browse_children("acct", "b", "caf\u{e9} 100%_x/", 0).await.unwrap();
+        assert_eq!(files.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(), [keys[0]]);
+        assert_eq!(subs, ["caf\u{e9} 100%_x/sub/"]);
+
+        let scope = || SyncScope::PrefixRecursive { prefix: "caf\u{e9} 100%_x/".into() };
+        db.cache_mark_unseen("acct", "b", scope()).await.unwrap();
+        assert_eq!(db.cache_sweep_unseen("acct", "b", scope()).await.unwrap(), 2);
+        assert!(db.cache_get_object("acct", "b", keys[2]).await.unwrap().is_some());
+        assert!(db.cache_get_object("acct", "b", keys[3]).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn prefix_sweep_is_case_sensitive() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Db::open(&dir.path().join("test.sqlite")).await.expect("open db");
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO accounts (id, name, protocol, region, access_key_id, addressing_style, created_at, updated_at)
+                     VALUES ('acct', 't', 's3', 'us-east-1', 'k', 'path', 0, 0)",
+                    [],
+                )?;
+                Ok::<_, tokio_rusqlite::Error>(())
+            })
+            .await
+            .unwrap();
+        let meta = |key: &str| crate::store::ObjectMeta {
+            key: key.to_string(),
+            size: 1,
+            etag: None,
+            last_modified: None,
+            storage_class: None,
+            content_type: None,
+            version_id: None,
+            user_metadata: Default::default(),
+        };
+        db.cache_upsert_objects_batch(
+            "acct",
+            "b",
+            &[meta("Photos/a.jpg"), meta("photos/b.jpg")],
+        )
+        .await
+        .unwrap();
+
+        let scope = || SyncScope::PrefixRecursive { prefix: "photos/".into() };
+        db.cache_mark_unseen("acct", "b", scope()).await.unwrap();
+        let removed = db.cache_sweep_unseen("acct", "b", scope()).await.unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(db.cache_get_object("acct", "b", "photos/b.jpg").await.unwrap().is_none());
+        assert!(
+            db.cache_get_object("acct", "b", "Photos/a.jpg").await.unwrap().is_some(),
+            "a differently-cased sibling prefix must not be swept"
+        );
+
+        let (files, _, _) = db.browse_children("acct", "b", "Photos/", 0).await.unwrap();
+        assert_eq!(files.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(), ["Photos/a.jpg"]);
     }
 
     /// Regression (migration 19): the FTS UPDATE trigger only fires when

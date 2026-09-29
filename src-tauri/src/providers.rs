@@ -48,10 +48,13 @@ async fn build_store_inner(account: &Account, region: &str, endpoint: Option<Str
     Ok(Arc::new(store))
 }
 
-/// Minimal us-east-1/global-endpoint store for cross-region probes (GetBucketLocation), so region
-/// auto-correction never probes through a misconfigured-region client.
+/// Store for GetBucketLocation probes: AWS global endpoint (us-east-1) for AWS accounts,
+/// the account's own endpoint for custom providers (never leak those to AWS).
 pub async fn build_probe_store(account: &Account) -> AppResult<Arc<dyn ObjectStore>> {
-    build_store_inner(account, "us-east-1", None).await
+    match &account.endpoint {
+        Some(ep) => build_store_inner(account, &account.region, Some(ep.clone())).await,
+        None => build_store_inner(account, "us-east-1", None).await,
+    }
 }
 
 /// Like [`build_store`] but signs for an explicit region (per-bucket region routing).
