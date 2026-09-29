@@ -8,6 +8,8 @@ import { sourceByKey, sourceLabel } from "../utils/logSource";
 import { LogRow } from "./LogRow";
 import Spinner from "../utils/Spinner";
 
+const MAX_LINES = 5000;
+
 export function SystemLog(props: { active?: boolean }) {
   const isActive = () => props.active !== false;
   const [lines, setLines] = createSignal<ParsedLine[]>([]);
@@ -32,13 +34,41 @@ export function SystemLog(props: { active?: boolean }) {
     setSourceFilter((cur) => (cur === key ? "" : key));
   }
 
+  // Last two raw lines seen; finds where new output starts so existing rows are reused.
+  let anchor: [string, string] | null = null;
+
+  function newStart(raw: string[]): number {
+    if (!anchor) return -1;
+    for (let i = raw.length - 1; i > 0; i--) {
+      if (raw[i] === anchor[1] && raw[i - 1] === anchor[0]) return i + 1;
+    }
+    return -1;
+  }
+
+  let inFlight = false;
   async function load() {
+    // Overlapping loads would both append the same new lines.
+    if (inFlight) return;
+    inFlight = true;
     try {
       const tail = await getLogTail(512 * 1024);
-      const parsed = tail.content.split("\n").map(parseLine).filter(Boolean) as ParsedLine[];
-      const anchor = clearedAt();
-      setLines(anchor ? parsed.filter((l) => l.ts > anchor) : parsed);
-    } catch { setLines([]); } finally { setLoading(false); }
+      // Drop a trailing partial line; it is picked up once complete.
+      const end = tail.content.lastIndexOf("\n");
+      const raw = (end >= 0 ? tail.content.slice(0, end) : "").split("\n").filter((l) => l.trim());
+      const start = newStart(raw);
+      if (start === raw.length) return;
+      anchor = raw.length >= 2 ? [raw[raw.length - 2], raw[raw.length - 1]] : null;
+      const cut = clearedAt();
+      const parse = (rs: string[]) => {
+        const out = rs.map(parseLine).filter(Boolean) as ParsedLine[];
+        return cut ? out.filter((l) => l.ts > cut) : out;
+      };
+      if (start < 0) setLines(parse(raw).slice(-MAX_LINES));
+      else {
+        const fresh = parse(raw.slice(start));
+        if (fresh.length) setLines((prev) => [...prev, ...fresh].slice(-MAX_LINES));
+      }
+    } catch { setLines([]); anchor = null; } finally { inFlight = false; setLoading(false); }
   }
 
   // Both log tabs stay mounted (hidden via CSS) to preserve scroll/selection;

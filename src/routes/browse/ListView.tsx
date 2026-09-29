@@ -2,6 +2,7 @@ import { createMemo, createSignal, createEffect, Show, Index, onMount, onCleanup
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { errMsg } from "../../state/toast";
 import { goUpPrefix, navigateToPrefix } from "../../state/app";
+import { isShownKey } from "../../state/settings";
 import { formatBytes, formatDate, basename } from "../../utils/fmt";
 import {
   FileIcon, fileTypeLabel,
@@ -41,8 +42,8 @@ export function ListView(props: {
     const realSubs = new Set(d.subprefixes);
     const optimistic = (props.pendingFolders ?? []).filter((f) => !realSubs.has(f));
     return [
-      ...[...d.subprefixes, ...optimistic].map((sub: string) => ({ kind: "folder" as const, sub })),
-      ...d.objects.map((obj: CachedObjectMeta) => ({ kind: "file" as const, obj })),
+      ...[...d.subprefixes, ...optimistic].filter(isShownKey).map((sub: string) => ({ kind: "folder" as const, sub })),
+      ...d.objects.filter((o) => isShownKey(o.key)).map((obj: CachedObjectMeta) => ({ kind: "file" as const, obj })),
     ];
   });
 

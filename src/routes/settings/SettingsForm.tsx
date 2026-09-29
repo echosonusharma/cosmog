@@ -1,7 +1,7 @@
-import { createSignal, createResource, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 import { Select } from "../../utils/Select";
-import { getSettings, updateSettings, resetSettings } from "../../api/settings";
-import { setTheme } from "../../state/theme";
+import { setTheme, themePref, type Theme } from "../../state/theme";
+import { appSettings, loadSettings, saveSettings, resetAllSettings } from "../../state/settings";
 import { editorHighlightTheme, setEditorHighlightTheme, EDITOR_HIGHLIGHT_THEMES, type EditorHighlightThemeId } from "../../state/editorTheme";
 import { toast } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
@@ -9,23 +9,42 @@ import { parseSchema, settingsPatchSchema } from "../../validation";
 import type { AppSettings } from "../../types";
 import Spinner from "../../utils/Spinner";
 
+type NumKey = { [K in keyof AppSettings]: AppSettings[K] extends number ? K : never }[keyof AppSettings];
+
 export function SettingsForm() {
-  const [settings, { refetch }] = createResource(getSettings);
+  const [loading, setLoading] = createSignal(!appSettings());
   const [busy, setBusy] = createSignal(false);
   const [form, setForm] = createSignal<Partial<AppSettings>>({});
+
+  onMount(() => { loadSettings().finally(() => setLoading(false)); });
 
   function field<K extends keyof AppSettings>(key: K): AppSettings[K] | undefined {
     const over = form() as Partial<AppSettings>;
     if (key in over) return over[key] as AppSettings[K];
-    return (settings.latest ?? settings())?.[key];
+    return appSettings()?.[key];
   }
 
   function patch<K extends keyof AppSettings>(key: K, val: AppSettings[K]) {
     setForm((p) => ({ ...p, [key]: val }));
-    if (key === "theme") setTheme(val as "light" | "dark" | "system");
+  }
+
+  // Clamp on commit, not per keystroke; rewrite the text so it shows the clamped value.
+  function commitNum(key: NumKey, e: Event & { currentTarget: HTMLInputElement }, min: number, max: number, fallback: number, scale = 1) {
+    const n = parseInt(e.currentTarget.value);
+    const v = Math.min(max, Math.max(min, Number.isNaN(n) ? fallback : n));
+    e.currentTarget.value = String(v);
+    patch(key, v * scale);
+  }
+
+  // Persist immediately, matching the titlebar toggle.
+  async function chooseTheme(t: Theme) {
+    setTheme(t);
+    try { await saveSettings({ theme: t }); } catch (e) { toast.err(e); }
   }
 
   async function save() {
+    // Number inputs commit on change (blur); flush a still-focused one first.
+    (document.activeElement as HTMLElement | null)?.blur?.();
     const patch = form();
     const result = parseSchema(settingsPatchSchema, patch);
     if (!result.success) {
@@ -34,9 +53,8 @@ export function SettingsForm() {
     }
     setBusy(true);
     try {
-      await updateSettings(patch);
+      await saveSettings(patch);
       setForm({});
-      await refetch();
       toast.ok("Settings saved", "Your preferences were updated");
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
@@ -52,10 +70,9 @@ export function SettingsForm() {
     if (!ok) return;
     setBusy(true);
     try {
-      const s = await resetSettings();
+      const s = await resetAllSettings();
       setTheme(s.theme ?? "system");
       setForm({});
-      await refetch();
       toast.ok("Defaults restored", "Every preference was reset to its default");
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
@@ -66,20 +83,20 @@ export function SettingsForm() {
   return (
     <div class="settings-section">
       <div class="settings-section-title">General</div>
-      <Show when={settings.loading && !settings.latest}>
+      <Show when={loading() && !appSettings()}>
         <div class="loading-row"><Spinner /> Loading settings…</div>
       </Show>
-      <Show when={settings.latest}>
+      <Show when={appSettings()}>
         <div class="settings-grid">
           <label class="settings-label">Theme</label>
           <Select
-            value={field("theme") ?? "system"}
+            value={themePref()}
             options={[
               { value: "system", label: "System" },
               { value: "dark", label: "Dark" },
               { value: "light", label: "Light" },
             ]}
-            onChange={(v) => patch("theme", v as "light" | "dark" | "system")}
+            onChange={(v) => chooseTheme(v as Theme)}
           />
 
           <label class="settings-label">Editor highlight theme</label>
@@ -98,7 +115,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={1} max={16}
                    value={field("transfer_concurrency") ?? 3}
-                   onInput={(e) => patch("transfer_concurrency", Math.min(16, Math.max(1, parseInt(e.currentTarget.value) || 1)))} />
+                   onChange={(e) => commitNum("transfer_concurrency", e, 1, 16, 1)} />
             <button type="button" class="num-field-btn" onClick={() => patch("transfer_concurrency", Math.max(1, (field("transfer_concurrency") ?? 3) - 1))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("transfer_concurrency", Math.min(16, (field("transfer_concurrency") ?? 3) + 1))}>+</button>
           </div>
@@ -107,7 +124,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={1} max={16}
                    value={field("multipart_parallelism") ?? 4}
-                   onInput={(e) => patch("multipart_parallelism", Math.min(16, Math.max(1, parseInt(e.currentTarget.value) || 1)))} />
+                   onChange={(e) => commitNum("multipart_parallelism", e, 1, 16, 1)} />
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_parallelism", Math.max(1, (field("multipart_parallelism") ?? 4) - 1))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_parallelism", Math.min(16, (field("multipart_parallelism") ?? 4) + 1))}>+</button>
           </div>
@@ -116,7 +133,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={5}
                    value={Math.round((field("multipart_threshold_bytes") ?? 8388608) / 1048576)}
-                   onInput={(e) => patch("multipart_threshold_bytes", Math.max(5, parseInt(e.currentTarget.value) || 8) * 1048576)} />
+                   onChange={(e) => commitNum("multipart_threshold_bytes", e, 5, Infinity, 8, 1048576)} />
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_threshold_bytes", Math.max(5 * 1048576, (field("multipart_threshold_bytes") ?? 8388608) - 1048576))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_threshold_bytes", (field("multipart_threshold_bytes") ?? 8388608) + 1048576)}>+</button>
           </div>
@@ -125,7 +142,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={5}
                    value={Math.round((field("part_size_bytes") ?? 8388608) / 1048576)}
-                   onInput={(e) => patch("part_size_bytes", Math.max(5, parseInt(e.currentTarget.value) || 8) * 1048576)} />
+                   onChange={(e) => commitNum("part_size_bytes", e, 5, Infinity, 8, 1048576)} />
             <button type="button" class="num-field-btn" onClick={() => patch("part_size_bytes", Math.max(5 * 1048576, (field("part_size_bytes") ?? 8388608) - 1048576))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("part_size_bytes", (field("part_size_bytes") ?? 8388608) + 1048576)}>+</button>
           </div>
@@ -134,7 +151,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={60} max={604800}
                    value={field("presign_default_expires_secs") ?? 3600}
-                   onInput={(e) => patch("presign_default_expires_secs", Math.min(604800, Math.max(60, parseInt(e.currentTarget.value) || 60)))} />
+                   onChange={(e) => commitNum("presign_default_expires_secs", e, 60, 604800, 60)} />
             <button type="button" class="num-field-btn" onClick={() => patch("presign_default_expires_secs", Math.max(60, (field("presign_default_expires_secs") ?? 3600) - 60))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("presign_default_expires_secs", Math.min(604800, (field("presign_default_expires_secs") ?? 3600) + 60))}>+</button>
           </div>
@@ -153,7 +170,7 @@ export function SettingsForm() {
           <div class="num-field">
             <input type="number" min={1} max={365}
                    value={field("request_log_ttl_days") ?? 30}
-                   onInput={(e) => patch("request_log_ttl_days", Math.min(365, Math.max(1, parseInt(e.currentTarget.value) || 30)))} />
+                   onChange={(e) => commitNum("request_log_ttl_days", e, 1, 365, 30)} />
             <button type="button" class="num-field-btn" onClick={() => patch("request_log_ttl_days", Math.max(1, (field("request_log_ttl_days") ?? 30) - 1))}>−</button>
             <button type="button" class="num-field-btn" onClick={() => patch("request_log_ttl_days", Math.min(365, (field("request_log_ttl_days") ?? 30) + 1))}>+</button>
           </div>

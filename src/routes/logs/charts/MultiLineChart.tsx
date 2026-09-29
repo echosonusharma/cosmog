@@ -14,6 +14,12 @@ export interface ChartSeries {
   dash?: number[];
 }
 
+// x buckets are UTC days; render them in UTC so they don't shift a day in UTC- zones.
+const utcDate = (ts: number) => uPlot.tzDate(new Date(ts * 1000), "Etc/UTC");
+
+// Counts only: whole-number y steps so rounded labels never repeat.
+const COUNT_INCRS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6, 2e6, 5e6, 1e7];
+
 type HoverTip = {
   left: number;
   top: number;
@@ -56,7 +62,7 @@ export function MultiLineChart(props: {
     }
 
     const ts = u.data[0][idx];
-    const date = uPlot.fmtDate("{MM}/{DD}/{YYYY}")(new Date(ts * 1000));
+    const date = uPlot.fmtDate("{MM}/{DD}/{YYYY}")(utcDate(ts));
     const rows = props.series
       .map((s) => {
         const n = s.values[idx] ?? 0;
@@ -125,6 +131,7 @@ export function MultiLineChart(props: {
         },
       },
       legend: { show: false },
+      tzDate: (ts) => utcDate(ts),
       scales: { x: { time: true } },
       axes: [
         { stroke: muted, grid: { stroke: border }, ticks: { stroke: border } },
@@ -133,6 +140,7 @@ export function MultiLineChart(props: {
           grid: { stroke: border },
           ticks: { stroke: border },
           values: (_u, splits) => splits.map((v) => fmtY(v)),
+          incrs: props.formatY ? undefined : COUNT_INCRS,
           size: width < 420 ? 36 : 48,
         },
       ],

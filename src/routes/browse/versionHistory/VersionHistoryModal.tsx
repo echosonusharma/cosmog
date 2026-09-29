@@ -8,6 +8,7 @@ import {
 import { enqueueDownload } from "../../../api/transfers";
 import { toast, errMsg } from "../../../state/toast";
 import { confirmDialog } from "../../../state/confirm";
+import { confirmDestructive } from "../../../state/settings";
 import { basename } from "../../../utils/fmt";
 import { IconX } from "../../../utils/icons";
 import type { ObjectVersion } from "../../../types";
@@ -116,7 +117,7 @@ export function VersionHistoryModal(props: {
 
   async function handleDelete(v: ObjectVersion) {
     if (!v.version_id) return;
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Delete this version permanently?",
       body: `Version ${v.version_id.slice(0, 8)} of "${name()}" will be erased for good. Unlike a normal delete (which keeps prior versions), this cannot be undone.`,
       confirmLabel: "Delete permanently",

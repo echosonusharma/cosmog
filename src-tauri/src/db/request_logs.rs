@@ -377,7 +377,9 @@ impl Db {
                         },
                     })
                     .collect();
-                by_account.sort_by(|a, b| b.count.cmp(&a.count));
+                by_account.sort_by(|a, b| {
+                    b.count.cmp(&a.count).then_with(|| a.account_name.cmp(&b.account_name))
+                });
 
                 let mut by_operation: Vec<RequestLogOperationStat> = by_operation_map
                     .into_iter()

@@ -45,6 +45,7 @@ export function AccountsList() {
   onMount(bumpAccountsRefresh);
 
   async function handleDelete(id: string, name: string) {
+    // Always prompt: removal also destroys encryption keys, which is unrecoverable.
     const ok = await confirmDialog({
       title: "Remove account?",
       body: `"${name}": cached objects, transfers, and credentials will be removed. This action is irreversible.`,

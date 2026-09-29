@@ -1,10 +1,11 @@
-import { createSignal, createEffect, createMemo, onMount, onCleanup, Index, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, onMount, onCleanup, untrack, Index, Show } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
 import type { RequestLog } from "../types";
 import { toast } from "../state/toast";
-import { confirmDialog } from "../state/confirm";
+import { currentView } from "../state/app";
+import { confirmDestructive } from "../state/settings";
 import { IconSearch, IconTrash, IconX } from "../utils/icons";
 import { Select } from "../utils/Select";
 import { isMobile } from "../utils/breakpoint";
@@ -18,9 +19,7 @@ import Spinner from "../utils/Spinner";
 // / bottom sheet), so the virtualizer never measures variable heights.
 const ROW_H_DESKTOP = 40;
 const ROW_H_MOBILE = 64;
-const ROW_H = typeof window !== "undefined" && window.innerWidth <= 768
-  ? ROW_H_MOBILE
-  : ROW_H_DESKTOP;
+const rowH = () => (isMobile() ? ROW_H_MOBILE : ROW_H_DESKTOP);
 
 function durationClass(ms: number): string {
   if (ms < 200) return "duration-fast";
@@ -160,7 +159,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
 }
 
 export function RequestLogs(props: { active?: boolean }) {
-  const isActive = () => props.active !== false;
+  const isActive = () => props.active !== false && currentView() === "logs";
   const [logs, setLogs] = createSignal<RequestLog[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [loadingMore, setLoadingMore] = createSignal(false);
@@ -232,7 +231,7 @@ export function RequestLogs(props: { active?: boolean }) {
     get count() { return logs().length; },
     getScrollElement: () => virtScrollEl(),
     getItemKey: (i) => logs()[i]?.id ?? i,
-    estimateSize: () => ROW_H,
+    estimateSize: () => rowH(),
     overscan: 12,
   });
 
@@ -319,9 +318,13 @@ export function RequestLogs(props: { active?: boolean }) {
     if (last && last.index >= logs().length - 10) loadMore();
   });
 
+  // Refetch on becoming visible only if events arrived while hidden. untrack keeps
+  // filter reads inside load() from turning every keystroke into a fetch.
+  let stale = true;
   createEffect(() => {
-    if (!isActive()) return;
-    load();
+    if (!isActive() || !stale) return;
+    stale = false;
+    untrack(load);
   });
 
   let disposed = false;
@@ -334,7 +337,7 @@ export function RequestLogs(props: { active?: boolean }) {
   });
   onMount(() => {
     listen<void>("request-log-added", () => {
-      if (!isActive()) return;
+      if (!untrack(isActive)) { stale = true; return; }
       clearTimeout(eventTimeout);
       eventTimeout = setTimeout(() => {
         if (!scrollDiv || scrollDiv.scrollTop < 120) load();
@@ -393,7 +396,7 @@ export function RequestLogs(props: { active?: boolean }) {
   }
 
   async function doClear() {
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Clear all request logs?",
       body: "All recorded S3 API request history will be deleted permanently.",
       confirmLabel: "Clear",
@@ -514,7 +517,7 @@ export function RequestLogs(props: { active?: boolean }) {
                               class={`req-log-row${isErr() ? " req-log-error" : ""}${isSelected() ? " req-log-open" : ""}${isFocused() ? " kb-active" : ""}`}
                               style={{
                                 position: "absolute", top: 0, left: 0, width: "100%",
-                                height: `${ROW_H}px`,
+                                height: `${rowH()}px`,
                                 transform: `translateY(${vrow().start}px)`,
                                 "--row-color": isErr() ? "#ef4444" : color(),
                               }}

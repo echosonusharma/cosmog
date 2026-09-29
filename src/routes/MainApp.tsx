@@ -17,7 +17,7 @@ import { useBackHandler } from "../utils/androidBack";
 import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
 import { listTransfers } from "../api/transfers";
-import { getSettings } from "../api/settings";
+import { appSettings, loadSettings } from "../state/settings";
 import { setTheme } from "../state/theme";
 import {
   notify,
@@ -64,7 +64,7 @@ export default function MainApp() {
   // Tick 0 reuses the boot() seed; later ticks (resume/refresh) refetch.
   const [accountsData] = createResource(accountsRefreshTick, (tick) =>
     tick === 0 ? accounts() : listAccounts());
-  const [settings] = createResource(getSettings);
+  const [settingsLoaded] = createResource(loadSettings);
 
   createEffect(() => {
     const list = accountsData();
@@ -73,14 +73,14 @@ export default function MainApp() {
     const currentId = browseState.accountId;
     const stillExists = currentId && list.some((a) => a.id === currentId);
     if (!stillExists && list.length > 0) {
-      selectAccount(list[0].id);
+      selectAccount(list[0].id, { navigate: false });
     } else if (!stillExists) {
       setBrowseState({ accountId: null, bucket: null, prefix: "" });
     }
   });
 
   createEffect(() => {
-    const s = settings();
+    const s = settingsLoaded();
     if (s) setTheme(s.theme ?? "system");
   });
 
@@ -234,11 +234,18 @@ export default function MainApp() {
       }
     } catch { }
   }
-  refreshCount();
-  // 1s poll keeps speed/ETA feeling live; queries are in-memory Rust-side, so it's
-  // comfortable even on mobile.
-  const countTimer = setInterval(refreshCount, 1000);
-  onCleanup(() => clearInterval(countTimer));
+  // Fast poll only while transfers are in flight (live speed/ETA).
+  const ACTIVE_POLL_MS = 1000;
+  const IDLE_POLL_MS = 3000;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
+  async function pollLoop() {
+    await refreshCount();
+    if (disposed) return;
+    pollTimer = setTimeout(pollLoop, activeCount() > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS);
+  }
+  void pollLoop();
+  onCleanup(() => { disposed = true; clearTimeout(pollTimer); });
 
   // Prompt for notification permission on first launch rather than mid-transfer.
   if (IS_MOBILE_OS) ensureNotificationPermission();
@@ -280,7 +287,7 @@ export default function MainApp() {
   onCleanup(() => document.removeEventListener("visibilitychange", onVis));
 
   const activeAccount = () => accounts().find((a) => a.id === browseState.accountId) ?? null;
-  const defaultDownloadDir = () => settings()?.default_download_dir ?? "~/Downloads";
+  const defaultDownloadDir = () => appSettings()?.default_download_dir ?? "~/Downloads";
 
   return (
     <div class="app-shell">

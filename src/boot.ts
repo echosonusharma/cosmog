@@ -1,6 +1,6 @@
 import { listAccounts } from "./api/accounts";
 import { listBuckets } from "./api/buckets";
-import { getSettings } from "./api/settings";
+import { loadSettings } from "./state/settings";
 import { initPrefs } from "./state/prefs";
 import { initEditorTheme } from "./state/editorTheme";
 import { setTheme } from "./state/theme";
@@ -42,7 +42,8 @@ export async function boot(setStage: (s: string) => void) {
 
     setStage("Loading settings…");
     try {
-      const s = await getSettings();
+      // Seeds the shared store so hidden-file and confirm prefs apply on first paint.
+      const s = await loadSettings();
       // Pre-paint apply avoids a theme flash.
       if (s) setTheme(s.theme ?? "system");
     } catch {

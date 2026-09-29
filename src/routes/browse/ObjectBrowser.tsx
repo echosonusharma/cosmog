@@ -1,4 +1,4 @@
-import { createSignal, createResource, For, Show, createEffect, onMount, onCleanup, ErrorBoundary } from "solid-js";
+import { createSignal, createResource, For, Show, createEffect, onMount, onCleanup, ErrorBoundary, untrack } from "solid-js";
 import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import {
   searchObjects, bucketIndexStatus,
@@ -17,6 +17,7 @@ import {
 import { useBackHandler } from "../../utils/androidBack";
 import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
+import { confirmDestructive, isShownKey, showHiddenFiles } from "../../state/settings";
 import { getPref, setPref } from "../../state/prefs";
 import type { CachedObjectMeta } from "../../types";
 import { DownloadModal, UploadModal, NewFolderModal, RenameModal } from "./modals";
@@ -239,6 +240,13 @@ export function ObjectBrowser(props: {
 
   createEffect(() => { props.prefix; props.bucket; props.accountId; setSelected(new Set<string>()); });
   createEffect(() => { viewMode(); setSelected(new Set<string>()); setPreviewTarget(null); });
+  // Hiding dotfiles must also drop them from the selection, or bulk actions hit invisible keys.
+  createEffect(() => {
+    if (showHiddenFiles()) return;
+    const cur = untrack(selected);
+    const kept = [...cur].filter(isShownKey);
+    if (kept.length !== cur.size) setSelected(new Set(kept));
+  });
 
   // Consume pendingPreview set by navigateToObject (from Search).
   createEffect(() => {
@@ -262,7 +270,7 @@ export function ObjectBrowser(props: {
   }
 
   async function handleDeleteFolder(sub: string) {
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Delete folder?",
       body: `"${sub}" and all its contents will be permanently deleted. This action is irreversible.`,
       confirmLabel: "Delete",
@@ -283,7 +291,7 @@ export function ObjectBrowser(props: {
   }
 
   async function handleDelete(obj: CachedObjectMeta) {
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Delete object?",
       body: `${obj.key}\n\nThis action is irreversible.`,
       confirmLabel: "Delete",
@@ -303,7 +311,7 @@ export function ObjectBrowser(props: {
   async function handleBulkDelete() {
     const keys = Array.from(selected());
     if (!keys.length) return;
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: `Delete ${keys.length} object${keys.length > 1 ? "s" : ""}?`,
       body: keys.slice(0, 5).join("\n") + (keys.length > 5 ? `\n…and ${keys.length - 5} more` : "") + "\n\nThis action is irreversible.",
       confirmLabel: "Delete",

@@ -5,7 +5,7 @@ import { currentView } from "../state/app";
 import { Select } from "../utils/Select";
 import { IconTrash, IconFolder, IconEye, IconAlertCircle } from "../utils/icons";
 import { toast } from "../state/toast";
-import { confirmDialog } from "../state/confirm";
+import { confirmDestructive } from "../state/settings";
 import { formatRelative } from "../utils/fmt";
 import { IS_MOBILE_OS } from "../utils/notify";
 import { listAccounts } from "../api/accounts";
@@ -163,7 +163,7 @@ export default function NightWatcher() {
   }
 
   async function removeWatch(w: NightWatch) {
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Delete this watch?",
       body: `Stops syncing "${w.local_dir}". Remote files are left untouched.`,
       confirmLabel: "Delete",

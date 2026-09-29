@@ -8,6 +8,7 @@ import { detectProvider } from "../../providers";
 import { toast } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
+import { confirmDestructive } from "../../state/settings";
 import {
   IconHome, IconRefresh, IconTrash, IconPlus, IconBucket, IconSearch, IconX, IconLock, IconSettings,
 } from "../../utils/icons";
@@ -61,7 +62,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   });
 
   async function handleDelete(name: string) {
-    const ok = await confirmDialog({
+    const ok = await confirmDestructive({
       title: "Delete bucket?",
       body: `"${name}": all objects and the bucket itself will be removed. This action is irreversible.`,
       confirmLabel: "Delete",

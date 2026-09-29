@@ -94,7 +94,7 @@ export function goUpPrefix() {
   setBrowseState("prefix", idx >= 0 ? trimmed.slice(0, idx + 1) : "");
 }
 
-export function selectAccount(accountId: string) {
+export function selectAccount(accountId: string, opts: { navigate?: boolean } = {}) {
   setBrowseState({ accountId, bucket: null, prefix: "" });
-  setCurrentView("browse");
+  if (opts.navigate !== false) setCurrentView("browse");
 }

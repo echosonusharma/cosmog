@@ -2,6 +2,7 @@ import { createMemo, Show, Index } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import { errMsg } from "../../state/toast";
+import { isShownKey } from "../../state/settings";
 import { basename } from "../../utils/fmt";
 import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
@@ -131,8 +132,8 @@ export function ColumnPane(props: {
   const items = createMemo<Row[]>(() => {
     const realSubs = new Set(state.subprefixes);
     const optimistic = (props.pendingFolders ?? []).filter((f) => !realSubs.has(f));
-    const folders: Row[] = [...state.subprefixes, ...optimistic].map((key) => ({ kind: "folder", key }));
-    const files: Row[] = state.objects.map((obj) => ({ kind: "file", obj }));
+    const folders: Row[] = [...state.subprefixes, ...optimistic].filter(isShownKey).map((key) => ({ kind: "folder", key }));
+    const files: Row[] = state.objects.filter((o) => isShownKey(o.key)).map((obj) => ({ kind: "file", obj }));
     const rows: Row[] = [...folders, ...files];
     if (state.continuation) rows.push({ kind: "loadmore" });
     return rows;

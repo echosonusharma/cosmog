@@ -78,9 +78,12 @@ export const IconSave         = I("save");
 export const IconMaximize     = I("maximize");
 
 import { resolvedTheme, setTheme } from "../state/theme";
+import { saveSettings } from "../state/settings";
 
 export function toggleTheme() {
-  setTheme(resolvedTheme() === "dark" ? "light" : "dark");
+  const t = resolvedTheme() === "dark" ? "light" : "dark";
+  setTheme(t);
+  saveSettings({ theme: t }).catch(() => {});
 }
 
 export function SunIcon(props: { size?: number }) {

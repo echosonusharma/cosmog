@@ -1,7 +1,7 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, untrack, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { getRequestLogStats } from "../api/requestLogs";
-import { getSettings } from "../api/settings";
+import { appSettings } from "../state/settings";
 import type { RequestLogAccountStat, RequestLogStats } from "../types";
 import { currentView } from "../state/app";
 import { isMobile } from "../utils/breakpoint";
@@ -269,9 +269,12 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+// Through today's bucket inclusive.
 function dayAxis(stats: RequestLogStats): number[] {
   const startDay = Math.floor(stats.since_ts / 86400) * 86400;
-  return Array.from({ length: stats.period_days }, (_, i) => startDay + i * 86400);
+  const today = Math.floor(Date.now() / 86400000) * 86400;
+  const n = Math.max(1, Math.round((today - startDay) / 86400) + 1);
+  return Array.from({ length: n }, (_, i) => startDay + i * 86400);
 }
 
 function countsForDays(x: number[], dayMap: Map<number, number>): number[] {
@@ -293,7 +296,6 @@ function defaultAccountKeys(accounts: RequestLogAccountStat[]): Set<string> {
 }
 
 export function ApiLogDashboard(props: { active: boolean }) {
-  const [settings] = createResource(getSettings);
   const [stats, setStats] = createSignal<RequestLogStats | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [refreshing, setRefreshing] = createSignal(false);
@@ -301,7 +303,9 @@ export function ApiLogDashboard(props: { active: boolean }) {
   const [selectedAccountKeys, setSelectedAccountKeys] = createSignal<Set<string> | null>(null);
 
   let loadGen = 0;
-  const periodDays = () => stats()?.period_days ?? settings()?.request_log_ttl_days ?? 30;
+  // Memo so unrelated settings writes (e.g. theme) don't refetch stats.
+  const ttlDays = createMemo(() => appSettings()?.request_log_ttl_days);
+  const periodDays = () => stats()?.period_days ?? ttlDays() ?? 30;
 
   async function load() {
     const isRefresh = untrack(() => stats() !== null);
@@ -328,7 +332,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
   createEffect(() => {
     if (!props.active || currentView() !== "dashboard") return;
     // Refetch when retention changes so the header + charts match settings.
-    void settings()?.request_log_ttl_days;
+    void ttlDays();
     untrack(() => load());
   });
 
