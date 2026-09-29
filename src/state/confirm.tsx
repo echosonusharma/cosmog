@@ -16,6 +16,8 @@ const [pending, setPending] = createSignal<ConfirmReq | null>(null);
 /** Returns true=confirm, false=cancel, null=dismissed (backdrop/X) */
 export function confirmDialog(opts: Omit<ConfirmReq, "resolve">): Promise<boolean | null> {
   return new Promise((resolve) => {
+    // Superseded dialog resolves as dismissed so its caller never hangs.
+    pending()?.resolve(null);
     setPending({ ...opts, resolve });
   });
 }

@@ -1,11 +1,11 @@
 import { createSignal, createResource, createMemo, createEffect, For, Show, onCleanup } from "solid-js";
 import { listBuckets, deleteBucket } from "../../api/buckets";
-import { deleteObjects, listKeysUnderPrefix } from "../../api/objects";
+import { deleteObjects, listKeysUnderPrefix, listObjectVersions, deleteObjectVersion } from "../../api/objects";
 import { listEncryptedBuckets } from "../../api/encryption";
 import { notify } from "../../utils/notify";
 import { accounts, setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { detectProvider } from "../../providers";
-import { toast } from "../../state/toast";
+import { toast, errMsg } from "../../state/toast";
 import { parseWireError } from "../../utils/errors";
 import { confirmDialog } from "../../state/confirm";
 import { confirmDestructive } from "../../state/settings";
@@ -81,7 +81,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       if (parseWireError(e).code === "conflict") {
         const emptyAndDelete = await confirmDialog({
           title: "Bucket is not empty",
-          body: `"${name}" still has objects. S3 refuses to delete a non-empty bucket.\n\nEmpty it (delete all objects) and then delete the bucket? This action is irreversible.`,
+          body: `"${name}" still has objects. S3 refuses to delete a non-empty bucket.\n\nEmpty it (delete all objects, including old versions) and then delete the bucket? This action is irreversible.`,
           confirmLabel: "Empty + delete",
           danger: true,
         });
@@ -102,13 +102,48 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     }
   }
 
+  function failMsg(failed: number, done: number, first: { key: string; message: string }) {
+    return `${failed} of ${failed + done} deletes failed; bucket not deleted. First error: ${first.key}: ${first.message}`;
+  }
+
+  // Versioned buckets keep old versions + delete markers after a plain delete;
+  // S3 refuses DeleteBucket until those are gone too.
+  async function purgeVersions(accountId: string, name: string) {
+    let token: string | undefined;
+    let done = 0;
+    const errors: Array<{ key: string; message: string }> = [];
+    do {
+      const page = await listObjectVersions(accountId, name, "", token);
+      const queue = page.versions.filter((v) => v.version_id);
+      const worker = async () => {
+        for (let v = queue.shift(); v; v = queue.shift()) {
+          try { await deleteObjectVersion(accountId, name, v.key, v.version_id!); done++; }
+          catch (e) { errors.push({ key: v.key, message: errMsg(e) }); }
+        }
+      };
+      await Promise.all(Array.from({ length: 8 }, worker));
+      token = page.continuation ?? undefined;
+      // Systemic failure (e.g. AccessDenied): stop instead of walking a huge bucket.
+    } while (token && errors.length < 100);
+    if (errors.length) throw new Error(failMsg(errors.length, done, errors[0]));
+  }
+
   // Walk every page under bucket root via live S3 listing, batch-delete, then delete bucket.
   async function emptyAndDeleteBucket(accountId: string, name: string) {
     const keys = await listKeysUnderPrefix(accountId, name, "");
+    const errors: Array<{ key: string; message: string }> = [];
     for (let i = 0; i < keys.length; i += 1000) {
-      await deleteObjects(accountId, name, keys.slice(i, i + 1000));
+      const res = await deleteObjects(accountId, name, keys.slice(i, i + 1000));
+      errors.push(...res.errors);
     }
-    await deleteBucket(accountId, name);
+    if (errors.length) throw new Error(failMsg(errors.length, keys.length - errors.length, errors[0]));
+    try {
+      await deleteBucket(accountId, name);
+    } catch (e) {
+      if (parseWireError(e).code !== "conflict") throw e;
+      await purgeVersions(accountId, name);
+      await deleteBucket(accountId, name);
+    }
   }
 
   return (

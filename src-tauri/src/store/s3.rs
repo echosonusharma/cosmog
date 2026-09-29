@@ -948,7 +948,8 @@ impl ObjectStore for S3Store {
         key: &str,
         max_bytes: u64,
     ) -> AppResult<ObjectPreview> {
-        const HARD_CAP: u64 = 8 * 1024 * 1024;
+        // Sized for the largest in-app viewer (PDF, 25 MB); callers pass tighter caps.
+        const HARD_CAP: u64 = 32 * 1024 * 1024;
         let cap = max_bytes.min(HARD_CAP);
 
         // Full-object fallback ONLY on outright range rejection (416/InvalidRange); all other

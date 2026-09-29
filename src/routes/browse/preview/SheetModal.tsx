@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
+import { createSignal, createMemo, createEffect, onCleanup, For, Show } from "solid-js";
 import ExcelJS from "exceljs";
 import { previewObject, putObjectBytes } from "../../../api/objects";
 import { notify } from "../../../utils/notify";
@@ -7,10 +7,27 @@ import { confirmDialog } from "../../../state/confirm";
 import { formatBytes } from "../../../utils/fmt";
 import { IconEye, IconX } from "../../../utils/icons";
 import type { CachedObjectMeta } from "../../../types";
-import { extOf, parseCsvIntoSheet, worksheetToCsv } from "../helpers";
+import { extOf, parseCsvIntoSheet, worksheetToCsv, detectCsvFormat, type CsvFormat } from "../helpers";
 import Spinner from "../../../utils/Spinner";
+import { useBackHandler } from "../../../utils/androidBack";
 
 const SHEET_CAP = 10 * 1024 * 1024;
+// ExcelJS drops VBA on write, so macro workbooks are view-only.
+const READ_ONLY_EXTS = new Set(["xlsm"]);
+
+// Keeps the BOM so detectCsvFormat can restore it on save.
+const decodeCsv = (bytes: Uint8Array) => new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+
+async function buildWorkbook(bytes: Uint8Array, ext: string): Promise<ExcelJS.Workbook> {
+  const wb = new ExcelJS.Workbook();
+  if (ext === "csv") {
+    parseCsvIntoSheet(decodeCsv(bytes), wb.addWorksheet("Sheet1"));
+  } else {
+    // Copy so ExcelJS never holds the pristine buffer used for Discard.
+    await wb.xlsx.load(bytes.slice().buffer as ExcelJS.Buffer);
+  }
+  return wb;
+}
 
 export function SheetPreview(props: { obj: CachedObjectMeta }) {
   const ext = () => extOf(props.obj.basename);
@@ -24,32 +41,61 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
   const [sheetRev, setSheetRev] = createSignal(0);
   const [sheetLoading, setSheetLoading] = createSignal(false);
   const [sheetErr, setSheetErr] = createSignal<string | null>(null);
+  const readOnly = () => READ_ONLY_EXTS.has(ext());
 
-  createEffect(() => { void props.obj.key; setSheetWb(null); setSheetExpanded(false); setActiveSheet(""); setSheetDirty(false); setSheetEditMode(false); setSheetErr(null); });
+  let loadGen = 0;
+  // Discard rebuilds the workbook from these bytes.
+  let origBytes: Uint8Array | null = null;
+  let loadedKey: string | null = null;
+  let csvFmt: CsvFormat | undefined;
+
+  createEffect(() => {
+    void props.obj.key;
+    loadGen++;
+    origBytes = null;
+    loadedKey = null;
+    setSheetWb(null); setSheetExpanded(false); setActiveSheet(""); setSheetDirty(false);
+    setSheetEditMode(false); setSheetErr(null); setSheetLoading(false);
+  });
+  onCleanup(() => { loadGen++; });
 
   async function loadSheet() {
     if (sheetWb() || sheetLoading()) return;
+    const gen = ++loadGen;
+    const key = props.obj.key;
+    const x = ext();
     setSheetLoading(true);
     setSheetErr(null);
     try {
-      const r = await previewObject(props.obj.account_id, props.obj.bucket, props.obj.key, SHEET_CAP);
-      const wb = new ExcelJS.Workbook();
+      const r = await previewObject(props.obj.account_id, props.obj.bucket, key, SHEET_CAP);
+      if (gen !== loadGen) return;
+      if (r.truncated) throw new Error(`File too large to open here (max ${formatBytes(SHEET_CAP)})`);
       const bytes = new Uint8Array(r.bytes);
-      if (ext() === "csv") {
-        const csvStr = new TextDecoder().decode(bytes);
-        const ws = wb.addWorksheet("Sheet1");
-        parseCsvIntoSheet(csvStr, ws);
-      } else {
-        await wb.xlsx.load(bytes.buffer as ExcelJS.Buffer);
-      }
-      const first = wb.worksheets[0]?.name ?? "";
-      setActiveSheet(first);
+      const wb = await buildWorkbook(bytes, x);
+      if (gen !== loadGen) return;
+      origBytes = bytes;
+      loadedKey = key;
+      csvFmt = x === "csv" ? detectCsvFormat(decodeCsv(bytes)) : undefined;
+      setActiveSheet(wb.worksheets[0]?.name ?? "");
       setSheetWb(wb);
     } catch (e: any) {
-      setSheetErr(errMsg(e));
+      if (gen === loadGen) setSheetErr(errMsg(e));
     } finally {
-      setSheetLoading(false);
+      if (gen === loadGen) setSheetLoading(false);
     }
+  }
+
+  async function revertWorkbook() {
+    if (!origBytes) return;
+    const gen = loadGen;
+    try {
+      const wb = await buildWorkbook(origBytes, ext());
+      if (gen !== loadGen) return;
+      const names = wb.worksheets.map((w) => w.name);
+      if (!names.includes(activeSheet())) setActiveSheet(names[0] ?? "");
+      setSheetWb(wb);
+      setSheetRev((n) => n + 1);
+    } catch (e) { toast.err(e); }
   }
 
   function openSheet() { setSheetExpanded(true); loadSheet(); }
@@ -68,6 +114,8 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
       if (action === true) {
         const saved = await doSaveSheet();
         if (!saved) return;
+      } else {
+        await revertWorkbook();
       }
     }
     setSheetExpanded(false);
@@ -78,45 +126,49 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
   async function saveSheet() {
     const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.obj.basename}?`, confirmLabel: "Save", cancelLabel: "Cancel" });
     if (!ok) return;
-    await doSaveSheet();
-    setSheetEditMode(false);
+    if (await doSaveSheet()) setSheetEditMode(false);
   }
 
   async function discardSheet() {
     if (sheetDirty()) {
       const ok = await confirmDialog({ title: "Discard changes", body: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", danger: true });
       if (!ok) return;
+      await revertWorkbook();
     }
     setSheetDirty(false);
     setSheetEditMode(false);
   }
 
-  const sheetRows = createMemo((): string[][] => {
+  useBackHandler(() => sheetExpanded(), () => { void closeSheet(); return true; });
+
+  // rowNum is the real 1-based ExcelJS row (blank rows are skipped in display).
+  const sheetRows = createMemo((): { rowNum: number; cells: string[] }[] => {
     const wb = sheetWb();
     sheetRev(); // track revision so cell edits trigger recompute
     if (!wb) return [];
     const ws = wb.getWorksheet(activeSheet());
     if (!ws) return [];
-    const colCount = ws.actualColumnCount || 1;
-    const result: string[][] = [];
-    ws.eachRow({ includeEmpty: false }, (row) => {
+    // columnCount is the max column index; actualColumnCount only counts non-empty columns.
+    const colCount = ws.columnCount || 1;
+    const result: { rowNum: number; cells: string[] }[] = [];
+    ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
       const cells: string[] = [];
       for (let c = 1; c <= colCount; c++) {
         const cell = row.getCell(c);
         cells.push(cell.text ?? String(cell.value ?? ""));
       }
-      result.push(cells);
+      result.push({ rowNum, cells });
     });
     return result;
   });
 
-  function sheetCellUpdate(ri: number, ci: number, val: string) {
+  function sheetCellUpdate(rowNum: number, ci: number, val: string) {
     const wb = sheetWb();
     if (!wb) return;
     const ws = wb.getWorksheet(activeSheet());
     if (!ws) return;
-    // ri/ci are 0-indexed from render; ExcelJS is 1-indexed
-    const row = ws.getRow(ri + 1);
+    // ci is 0-indexed from render; ExcelJS is 1-indexed
+    const row = ws.getRow(rowNum);
     row.getCell(ci + 1).value = val || null;
     row.commit();
     setSheetDirty(true);
@@ -125,14 +177,17 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
 
   async function doSaveSheet(): Promise<boolean> {
     const wb = sheetWb();
-    if (!wb) return false;
+    // Snapshot the target: a selection change mid-save must not redirect the write.
+    const obj = props.obj;
+    const isCsv = ext() === "csv";
+    if (!wb || readOnly() || loadedKey !== obj.key) return false;
     setSheetSaving(true);
     try {
       let bytes: number[];
       let ct: string;
-      if (ext() === "csv") {
+      if (isCsv) {
         const ws = wb.worksheets[0];
-        const csvStr = worksheetToCsv(ws);
+        const csvStr = worksheetToCsv(ws, csvFmt);
         bytes = Array.from(new TextEncoder().encode(csvStr));
         ct = "text/csv";
       } else {
@@ -140,10 +195,10 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
         bytes = Array.from(new Uint8Array(buf as ArrayBuffer));
         ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       }
-      await putObjectBytes(props.obj.account_id, props.obj.bucket, props.obj.key, bytes, ct);
-      setSheetDirty(false);
-      notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
-        largeBody: `Saved changes to "${props.obj.key}" in "${props.obj.bucket}"`,
+      await putObjectBytes(obj.account_id, obj.bucket, obj.key, bytes, ct);
+      if (loadedKey === obj.key) { origBytes = new Uint8Array(bytes); setSheetDirty(false); }
+      notify(`Saved ${obj.basename}`, obj.bucket, {
+        largeBody: `Saved changes to "${obj.key}" in "${obj.bucket}"`,
       });
       return true;
     } catch (e) { toast.err(e); return false; }
@@ -179,8 +234,14 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
                 </div>
               </Show>
               <div class="sheet-modal-actions">
-                <Show when={!sheetEditMode()}>
+                <Show when={readOnly()}>
+                  <span class="muted sheet-readonly-note" title="Saving would strip the workbook's macros">
+                    Read-only (macros)
+                  </span>
+                </Show>
+                <Show when={!sheetEditMode() && !readOnly()}>
                   <button class="btn-secondary sheet-modal-btn"
+                          disabled={!sheetWb()}
                           onClick={() => setSheetEditMode(true)}>
                     Edit
                   </button>
@@ -213,14 +274,14 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
                   <For each={sheetRows()}>
                     {(row, ri) => (
                       <tr>
-                        <For each={row as string[]}>
+                        <For each={row.cells}>
                           {(cell, ci) => ri() === 0
                             ? <th>{String(cell)}</th>
                             : <td contentEditable={sheetEditMode() || undefined}
                                   onBlur={(e) => {
                                     if (!sheetEditMode()) return;
                                     const v = e.currentTarget.textContent ?? "";
-                                    if (v !== String(cell)) sheetCellUpdate(ri(), ci(), v);
+                                    if (v !== String(cell)) sheetCellUpdate(row.rowNum, ci(), v);
                                   }}
                               >{String(cell)}</td>
                           }

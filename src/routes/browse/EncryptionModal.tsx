@@ -9,6 +9,7 @@ import {
   importEncryptionIdentityFromFile,
 } from "../../api/encryption";
 import { toast, errMsg } from "../../state/toast";
+import { confirmDialog } from "../../state/confirm";
 import { IconKey, IconChevronR, IconChevronD } from "../../utils/icons";
 import { pathFromDialog } from "./helpers";
 
@@ -88,6 +89,16 @@ export function EncryptionModal(props: {
   }
 
   async function handleDisable() {
+    // Always prompt (not confirmDestructive): losing the key is unrecoverable.
+    const ok = await confirmDialog({
+      title: "Disable encryption?",
+      body: `This deletes the encryption key for "${props.bucket}" from this device. Objects already encrypted become permanently unreadable unless you have exported the key file.`
+        + (savedPath() ? "" : "\n\nYou have not saved the key in this session. Cancel and use \"Save key to file\" first if you still need access."),
+      confirmLabel: "Delete key and disable",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (ok !== true) return;
     setDisabling(true); setErr("");
     try {
       await disableBucketEncryption(props.accountId, props.bucket);

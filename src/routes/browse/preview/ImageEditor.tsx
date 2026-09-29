@@ -15,6 +15,7 @@ import {
   IconFlipH, IconFlipV, IconCrop, IconSave, IconMaximize, IconDownload,
 } from "../../../utils/icons";
 import Spinner from "../../../utils/Spinner";
+import { useBackHandler } from "../../../utils/androidBack";
 
 // Editing decrypts + rasterizes the whole image in memory and ships the bytes
 // over IPC; cap it so a huge object can't OOM the webview.
@@ -140,6 +141,12 @@ export function ImageEditor(props: {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") requestClose(); };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  useBackHandler(() => true, () => {
+    if (confirmClose()) setConfirmClose(false);
+    else requestClose();
+    return true;
   });
 
   function requestClose() {

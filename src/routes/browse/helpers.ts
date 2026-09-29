@@ -162,32 +162,59 @@ export function editorExtOf(name: string): string {
   return extOf(name);
 }
 
-export function parseCsvIntoSheet(csv: string, ws: ExcelJS.Worksheet) {
-  csv.trim().split("\n").forEach((line) => {
-    const cells: string[] = [];
-    let cur = "", inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
+// RFC 4180-ish: quoted cells may hold commas, CR/LF and "" escapes.
+export function parseCsv(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (inQ) {
       if (ch === '"') {
-        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQ = !inQ;
-      } else if (ch === "," && !inQ) { cells.push(cur); cur = ""; }
-      else cur += ch;
-    }
-    cells.push(cur);
-    ws.addRow(cells);
-  });
+        if (csv[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"' && cur === "") inQ = true; // mid-field quotes stay literal
+    else if (ch === ",") { row.push(cur); cur = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && csv[i + 1] === "\n") i++;
+      row.push(cur); rows.push(row); row = []; cur = "";
+    } else cur += ch;
+  }
+  if (cur !== "" || row.length > 0) { row.push(cur); rows.push(row); }
+  return rows;
 }
 
-export function worksheetToCsv(ws: ExcelJS.Worksheet): string {
+/** Source layout restored on save so a round-trip does not rewrite every line. */
+export type CsvFormat = { eol: "\n" | "\r\n"; trailingEol: boolean; bom: boolean };
+
+export function detectCsvFormat(csv: string): CsvFormat {
+  return {
+    eol: csv.includes("\r\n") ? "\r\n" : "\n",
+    trailingEol: /[\r\n]$/.test(csv),
+    bom: csv.charCodeAt(0) === 0xfeff,
+  };
+}
+
+export function parseCsvIntoSheet(csv: string, ws: ExcelJS.Worksheet) {
+  const body = csv.charCodeAt(0) === 0xfeff ? csv.slice(1) : csv;
+  parseCsv(body).forEach((cells) => ws.addRow(cells));
+}
+
+export function worksheetToCsv(ws: ExcelJS.Worksheet, fmt?: CsvFormat): string {
   const lines: string[] = [];
-  ws.eachRow({ includeEmpty: false }, (row) => {
+  // Walk every row index so blank rows survive a round-trip.
+  for (let r = 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
     const cols: string[] = [];
-    for (let c = 1; c <= (ws.actualColumnCount || 1); c++) {
+    // Per-row width keeps ragged rows as they were (cellCount is the max index).
+    for (let c = 1; c <= Math.max(row.cellCount, 1); c++) {
       const v = String(row.getCell(c).value ?? "");
-      cols.push(v.includes(",") || v.includes('"') || v.includes("\n") ? `"${v.replace(/"/g, '""')}"` : v);
+      cols.push(/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     }
     lines.push(cols.join(","));
-  });
-  return lines.join("\n");
+  }
+  const eol = fmt?.eol ?? "\n";
+  const out = lines.join(eol) + (fmt?.trailingEol && lines.length ? eol : "");
+  return fmt?.bom ? "\ufeff" + out : out;
 }

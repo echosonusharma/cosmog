@@ -279,11 +279,21 @@ export function ObjectBrowser(props: {
     if (!ok) return;
     try {
       const keys = await listKeysUnderPrefix(props.accountId, props.bucket, sub);
-      if (keys.length) {
-        for (let i = 0; i < keys.length; i += 1000)
-          await deleteObjects(props.accountId, props.bucket, keys.slice(i, i + 1000));
+      const errors: Array<{ key: string; message: string }> = [];
+      for (let i = 0; i < keys.length; i += 1000) {
+        const res = await deleteObjects(props.accountId, props.bucket, keys.slice(i, i + 1000));
+        errors.push(...res.errors);
       }
+      if (previewTarget()?.key.startsWith(sub)) setPreviewTarget(null);
+      setSelected((prev) => new Set([...prev].filter((k) => !k.startsWith(sub))));
       setRefresh((n) => n + 1);
+      if (errors.length) {
+        toast.warn(
+          `${keys.length - errors.length} deleted, ${errors.length} failed in "${sub}". First error: ${errors[0].key}: ${errors[0].message}`,
+          "Partial delete",
+        );
+        return;
+      }
       notify("Folder deleted", `${sub} · ${props.bucket}`, {
         largeBody: `Deleted folder "${sub}" and its contents from "${props.bucket}"`,
       });
@@ -320,12 +330,15 @@ export function ObjectBrowser(props: {
     if (!ok) return;
     try {
       const res = await deleteObjects(props.accountId, props.bucket, keys);
-      if (previewTarget() && keys.includes(previewTarget()!.key)) setPreviewTarget(null);
-      setSelected(new Set<string>());
+      const gone = new Set(res.deleted);
+      if (previewTarget() && gone.has(previewTarget()!.key)) setPreviewTarget(null);
+      // Failed keys stay selected so the user can retry.
+      setSelected(new Set(res.errors.map((e) => e.key)));
       setRefresh((n) => n + 1);
       if (res.errors.length) {
+        const first = res.errors[0];
         toast.warn(
-          `${res.deleted.length} deleted, ${res.errors.length} failed in "${props.bucket}"`,
+          `${res.deleted.length} deleted, ${res.errors.length} failed in "${props.bucket}". First error: ${first.key}: ${first.message}`,
           "Partial delete",
         );
       } else {
@@ -658,7 +671,18 @@ export function ObjectBrowser(props: {
 
       <Show when={renameTarget()}>
         {(obj) => <RenameModal obj={obj()} onClose={() => setRenameTarget(null)}
-                                onDone={() => setRefresh((n) => n + 1)} />}
+                                onDone={(newKey) => {
+                                  const cur = previewTarget();
+                                  if (cur?.key === obj().key) {
+                                    const basename = newKey.split("/").pop() || newKey;
+                                    const dot = basename.lastIndexOf(".");
+                                    setPreviewTarget({
+                                      ...cur, key: newKey, basename, version_id: null,
+                                      extension: dot > 0 ? basename.slice(dot + 1).toLowerCase() : null,
+                                    });
+                                  }
+                                  setRefresh((n) => n + 1);
+                                }} />}
       </Show>
 
       <Show when={versionTarget()}>

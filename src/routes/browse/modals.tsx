@@ -329,7 +329,7 @@ export function NewFolderModal(props: {
 export function RenameModal(props: {
   obj: CachedObjectMeta;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (newKey: string) => void;
 }) {
   const [newKey, setNewKey] = createSignal(props.obj.key);
   const [busy, setBusy] = createSignal(false);
@@ -346,7 +346,7 @@ export function RenameModal(props: {
     setBusy(true);
     try {
       await moveObject(props.obj.account_id, props.obj.bucket, props.obj.key, props.obj.bucket, target);
-      props.onDone(); props.onClose();
+      props.onDone(target); props.onClose();
       toast.ok(`Renamed ${props.obj.key.split("/").pop() || props.obj.key}`, `Now at "${target}" in "${props.obj.bucket}"`);
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }

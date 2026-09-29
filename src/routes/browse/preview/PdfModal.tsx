@@ -76,7 +76,11 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
   let prevDist = 0;
   let lastTap = 0;
 
+  let loadGen = 0;
+
   function destroyDoc() {
+    loadGen++;
+    setLoading(false);
     renderTask?.cancel();
     renderTask = null;
     textLayer?.cancel();
@@ -115,21 +119,29 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
 
   async function loadPdf() {
     if (doc() || loading()) return;
+    const gen = ++loadGen;
     setLoading(true);
     setErr(null);
+    let task: PDFDocumentLoadingTask | null = null;
     try {
       const r = await previewObject(props.obj.account_id, props.obj.bucket, props.obj.key, PDF_CAP);
+      if (gen !== loadGen) return;
+      if (r.truncated) throw new Error(`PDF too large to preview (max ${formatBytes(PDF_CAP)}). Download it instead.`);
       const pdfjs = await loadPdfjs();
-      const data = new Uint8Array(r.bytes);
-      loadingTask = pdfjs.getDocument({ data });
-      const loaded = await loadingTask.promise;
+      if (gen !== loadGen) return;
+      task = pdfjs.getDocument({ data: new Uint8Array(r.bytes) });
+      loadingTask = task;
+      const loaded = await task.promise;
+      if (gen !== loadGen) return;
       setDoc(loaded);
       setNumPages(loaded.numPages);
       setPageNum(1);
     } catch (e) {
-      setErr(errMsg(e));
+      if (gen === loadGen) setErr(errMsg(e));
     } finally {
-      setLoading(false);
+      if (gen === loadGen) setLoading(false);
+      // Superseded: destroy the task itself (doc + worker port).
+      else if (task) { if (loadingTask === task) loadingTask = null; void task.destroy(); }
     }
   }
 

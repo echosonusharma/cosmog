@@ -48,15 +48,20 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
   };
 
   let priorBlob: string | null = null;
+  // Superseded/unmounted fetches skip creating a blob URL nobody would revoke.
+  let fetchSeq = 0;
+  let disposed = false;
   const [src] = createResource(
     () =>
       shouldLoad()
         ? { a: props.obj.account_id, b: props.obj.bucket, k: props.obj.key, enc: props.encrypted }
         : null,
     async ({ a, b, k, enc }) => {
+      const seq = ++fetchSeq;
       if (enc) {
         const maxBytes = props.obj.size > 0 ? props.obj.size + 64 : ENCRYPTED_HARD_MAX;
         const r = await previewObject(a, b, k, maxBytes);
+        if (disposed || seq !== fetchSeq) return "";
         const blob = new Blob([new Uint8Array(r.bytes)], { type: audioMime(k, r.content_type) });
         return URL.createObjectURL(blob);
       }
@@ -75,7 +80,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     priorBlob = s.startsWith("blob:") ? s : null;
     setDisplaySrc(s);
   });
-  onCleanup(() => { if (priorBlob) URL.revokeObjectURL(priorBlob); });
+  onCleanup(() => { disposed = true; if (priorBlob) URL.revokeObjectURL(priorBlob); });
 
   let audio: HTMLAudioElement | undefined;
   let trackEl: HTMLDivElement | undefined;

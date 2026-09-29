@@ -671,6 +671,7 @@
 .sheet-modal-loading,
 .pdf-modal-loading { flex: 1; min-height: unset; }
 .sheet-modal-err { margin: 16px; }
+.sheet-readonly-note { font-size: 12px; }
 .sheet-preview-col { flex-direction: column; gap: 8px; }
 .sheet-preview-hint { font-size: 12px; }
 
