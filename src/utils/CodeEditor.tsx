@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createSignal, Show } from "solid-js";
+import { onMount, onCleanup, createEffect, createMemo, createSignal, Show } from "solid-js";
 import { confirmDialog } from "../state/confirm";
 import { toast } from "../state/toast";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
@@ -13,6 +13,9 @@ import type { Diagnostic } from "@codemirror/lint";
 import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/editorTheme";
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
 import { diffGutter, setDiffBase } from "./diffGutter";
+import { useBackHandler } from "./androidBack";
+
+const toLf = (s: string) => s.replace(/\r\n?/g, "\n");
 
 async function langExtension(ext: string): Promise<Extension> {
   switch (ext) {
@@ -231,7 +234,8 @@ export function CodeEditor(props: {
   createEffect(() => {
     const v = props.value;
     if (!view) return;
-    if (view.state.doc.toString() !== v) {
+    // CodeMirror stores lines without \r; compare normalized to skip a no-op replace.
+    if (view.state.doc.toString() !== toLf(v)) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
     }
   });
@@ -270,10 +274,17 @@ export function EditorModal(props: {
   const [saving, setSaving] = createSignal(false);
   const [formatting, setFormatting] = createSignal(false);
   const canFormat = ["json", "jsonc", "yaml", "yml"].includes(props.ext);
-  const isDirty = () => content() !== props.value;
+  const baseLf = createMemo(() => toLf(props.value));
+  const isDirty = () => toLf(content()) !== baseLf();
+  // Pure-CRLF files are saved back as CRLF (the editor emits \n only).
+  const crlf = /\r\n/.test(props.value) && !/(^|[^\r])\n/.test(props.value);
+  // Blocks re-entry (Esc / back pressed again while a prompt is up).
+  let prompting = false;
 
   async function requestClose() {
+    if (prompting || saving()) return;
     if (isDirty()) {
+      prompting = true;
       const action = await confirmDialog({
         title: "Unsaved changes",
         body: "Save changes before closing?",
@@ -281,7 +292,7 @@ export function EditorModal(props: {
         cancelLabel: "Discard",
         dismissLabel: "Keep editing",
         cancelDanger: true,
-      });
+      }).finally(() => { prompting = false; });
       if (action === null) return;
       // Failed save keeps the modal open so the edits are not lost.
       if (action === true && !(await doSave())) return;
@@ -298,13 +309,17 @@ export function EditorModal(props: {
 
   async function doSave(): Promise<boolean> {
     setSaving(true);
-    try { await props.onSave(content()); return true; }
+    const text = crlf ? toLf(content()).replace(/\n/g, "\r\n") : content();
+    try { await props.onSave(text); return true; }
     catch (e) { toast.err(e); return false; }
     finally { setSaving(false); }
   }
 
   async function handleSave() {
-    const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.filename}?`, confirmLabel: "Save", cancelLabel: "Cancel" });
+    if (prompting || saving()) return;
+    prompting = true;
+    const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.filename}?`, confirmLabel: "Save", cancelLabel: "Cancel" })
+      .finally(() => { prompting = false; });
     if (!ok) return;
     if (await doSave()) props.onClose();
   }
@@ -313,6 +328,8 @@ export function EditorModal(props: {
     if (e.key === "Escape") requestClose();
     if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); handleSave(); }
   }
+
+  useBackHandler(() => true, () => { void requestClose(); return true; });
 
   onMount(() => { document.addEventListener("keydown", onKeyDown); });
   onCleanup(() => { document.removeEventListener("keydown", onKeyDown); });

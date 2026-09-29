@@ -1,13 +1,20 @@
-import { Chunk } from "@codemirror/merge";
+import { Chunk, type DiffConfig } from "@codemirror/merge";
 import {
   RangeSetBuilder,
   StateEffect,
   StateField,
   Text,
+  type ChangeDesc,
   type Extension,
   type RangeSet,
 } from "@codemirror/state";
-import { Decoration, EditorView, gutter, GutterMarker } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  gutter,
+  GutterMarker,
+  type DecorationSet,
+} from "@codemirror/view";
 
 /** Retarget the diff baseline without rebuilding the gutter. */
 export const setDiffBase = StateEffect.define<string>();
@@ -15,11 +22,26 @@ export const setDiffBase = StateEffect.define<string>();
 /** Skip diffing above this combined doc size to keep typing smooth. */
 const MAX_DIFF_CHARS = 1_000_000;
 
+/** Bail out to the imprecise diff instead of blocking a keystroke. No
+ * scanLimit: at 500 any change span over ~4k chars goes imprecise and lights
+ * up the whole doc. */
+const DIFF_CONFIG: DiffConfig = { timeout: 100 };
+
 type DiffKind = "add" | "change" | "delete";
 
 const rank = (k: DiffKind) => (k === "change" ? 2 : k === "add" ? 1 : 0);
 
-type DiffResult = { chunks: readonly Chunk[]; precise: boolean };
+/** `reusable`: chunks are exact and safe to update incrementally. */
+type DiffResult = {
+  chunks: readonly Chunk[];
+  precise: boolean;
+  reusable: boolean;
+};
+
+type DiffState = DiffResult & {
+  gutter: RangeSet<GutterMarker>;
+  lines: DecorationSet;
+};
 
 /** Width reference for the gutter spacer: no kind, never counted as a mark. */
 class DiffSpacer extends GutterMarker {
@@ -35,6 +57,9 @@ class DiffMarker extends GutterMarker {
   constructor(readonly kind: DiffKind) {
     super();
   }
+  eq(other: DiffMarker) {
+    return other.kind === this.kind;
+  }
   toDOM() {
     const el = document.createElement("div");
     el.className = `cm-diff-marker cm-diff-${this.kind}`;
@@ -48,23 +73,56 @@ class DiffMarker extends GutterMarker {
   }
 }
 
+const KINDS: DiffKind[] = ["add", "change", "delete"];
+const MARKERS = Object.fromEntries(
+  KINDS.map((k) => [k, new DiffMarker(k)]),
+) as Record<DiffKind, DiffMarker>;
+const LINE_DECOS = Object.fromEntries(
+  KINDS.map((k) => [k, Decoration.line({ class: `cm-diff-line-${k}` })]),
+) as Record<DiffKind, Decoration>;
+
 function toBaseText(base: string): Text {
   // Same split CodeMirror uses for string documents, so CRLF files compare
   // without phantom \r diffs (documents never contain \r).
   return Text.of(base.split(/\r\n?|\n/));
 }
 
-function computeChunks(base: Text, doc: Text): DiffResult {
+function computeChunks(
+  base: Text,
+  doc: Text,
+  prev?: DiffResult,
+  changes?: ChangeDesc,
+): DiffResult {
   // Oversize skip is a deliberate perf tradeoff (reads clean); imprecise
   // results below are handled as broadly changed instead.
-  if (base.length + doc.length > MAX_DIFF_CHARS) return { chunks: [], precise: true };
-  try {
-    if (base.eq(doc)) return { chunks: [], precise: true };
-    const chunks = Chunk.build(base, doc);
-    return { chunks, precise: chunks.every((c) => c.precise) };
-  } catch {
-    return { chunks: [], precise: true };
+  if (base.length + doc.length > MAX_DIFF_CHARS) {
+    return { chunks: [], precise: true, reusable: false };
   }
+  try {
+    if (base.eq(doc)) return { chunks: [], precise: true, reusable: true };
+    const chunks =
+      prev?.reusable && changes
+        ? Chunk.updateB(prev.chunks, base, doc, changes, DIFF_CONFIG)
+        : Chunk.build(base, doc, DIFF_CONFIG);
+    const precise = chunks.every((c) => c.precise);
+    return { chunks, precise, reusable: precise };
+  } catch {
+    // Same policy as imprecise: never silently show clean.
+    return { chunks: [], precise: false, reusable: false };
+  }
+}
+
+function toDiffState(doc: Text, base: Text, result: DiffResult): DiffState {
+  const marks = computeMarks(doc, base, result);
+  const gutterB = new RangeSetBuilder<GutterMarker>();
+  const linesB = new RangeSetBuilder<Decoration>();
+  for (const line of [...marks.keys()].sort((a, b) => a - b)) {
+    const kind = marks.get(line)!;
+    const pos = doc.line(line).from;
+    gutterB.add(pos, pos, MARKERS[kind]);
+    linesB.add(pos, pos, LINE_DECOS[kind]);
+  }
+  return { ...result, gutter: gutterB.finish(), lines: linesB.finish() };
 }
 
 /**
@@ -74,66 +132,48 @@ function computeChunks(base: Text, doc: Text): DiffResult {
  * also flag the previous one as changed).
  *
  * Contract:
- * ADD — a current line holding newly inserted complete line(s).
- * DELETE — removed text held complete line(s); marked on the adjacent
+ * ADD: a current line holding newly inserted complete line(s).
+ * DELETE: removed text held complete line(s); marked on the adjacent
  *   current line (the line after the cut, or the last line at EOF), since a
  *   gutter exists only in the current document.
- * CHANGE — an existing current line was modified.
+ * CHANGE: an existing current line was modified.
  */
 export function diffGutter(initialBase: string): Extension {
   const baseField = StateField.define<Text>({
     create: () => toBaseText(initialBase),
     update: (value, tr) => {
-      for (const e of tr.effects) if (e.is(setDiffBase)) return toBaseText(e.value);
+      for (const e of tr.effects)
+        if (e.is(setDiffBase)) return toBaseText(e.value);
       return value;
     },
   });
 
-  const chunksField = StateField.define<DiffResult>({
-    create: (state) => computeChunks(state.field(baseField), state.doc),
-    update: (result, tr) => {
-      for (const e of tr.effects) {
-        if (e.is(setDiffBase)) return computeChunks(toBaseText(e.value), tr.newDoc);
-      }
-      if (tr.docChanged) {
-        return computeChunks(tr.state.field(baseField), tr.newDoc);
-      }
-      return result;
+  const diffField = StateField.define<DiffState>({
+    create: (state) => {
+      const base = state.field(baseField);
+      return toDiffState(state.doc, base, computeChunks(base, state.doc));
     },
+    update: (prev, tr) => {
+      const base = tr.state.field(baseField);
+      if (base !== tr.startState.field(baseField)) {
+        return toDiffState(tr.newDoc, base, computeChunks(base, tr.newDoc));
+      }
+      if (!tr.docChanged) return prev;
+      return toDiffState(
+        tr.newDoc,
+        base,
+        computeChunks(base, tr.newDoc, prev, tr.changes),
+      );
+    },
+    provide: (f) => EditorView.decorations.from(f, (s) => s.lines),
   });
-
-  const lineHighlight = EditorView.decorations.compute([chunksField], (state) => {
-    const marks = computeMarks(state.doc, state.field(baseField), state.field(chunksField));
-    if (marks.size === 0) return Decoration.none;
-    const builder = new RangeSetBuilder<Decoration>();
-    for (const line of [...marks.keys()].sort((a, b) => a - b)) {
-      const pos = state.doc.line(line).from;
-      builder.add(pos, pos, Decoration.line({ class: `cm-diff-line-${marks.get(line)}` }));
-    }
-    return builder.finish();
-  });
-
-  function markers(view: EditorView): RangeSet<GutterMarker> {
-    const builder = new RangeSetBuilder<GutterMarker>();
-    const marks = computeMarks(
-      view.state.doc,
-      view.state.field(baseField),
-      view.state.field(chunksField),
-    );
-    for (const line of [...marks.keys()].sort((a, b) => a - b)) {
-      const pos = view.state.doc.line(line).from;
-      builder.add(pos, pos, new DiffMarker(marks.get(line)!));
-    }
-    return builder.finish();
-  }
 
   return [
     baseField,
-    chunksField,
-    lineHighlight,
+    diffField,
     gutter({
       class: "cm-diff-gutter",
-      markers,
+      markers: (view) => view.state.field(diffField).gutter,
       // Hidden width reference: keeps the gutter from popping in (and
       // shifting lines) on the first keystroke.
       initialSpacer: () => new DiffSpacer(),
@@ -142,7 +182,11 @@ export function diffGutter(initialBase: string): Extension {
 }
 
 /** Maps chunks to 1-based current-doc line numbers. */
-function computeMarks(doc: Text, base: Text, result: DiffResult): Map<number, DiffKind> {
+function computeMarks(
+  doc: Text,
+  base: Text,
+  result: DiffResult,
+): Map<number, DiffKind> {
   const marks = new Map<number, DiffKind>();
   // Imprecise means the differ gave up: flag everything rather than
   // silently showing clean.
@@ -164,7 +208,8 @@ function computeMarks(doc: Text, base: Text, result: DiffResult): Map<number, Di
       const isIns = fromA === toA;
       const isDel = fromB === toB;
       if (isIns && !isDel) classifyInsertion(doc, fromB, toB, add);
-      else if (isDel && !isIns) classifyDeletion(doc, base, fromA, toA, fromB, add);
+      else if (isDel && !isIns)
+        classifyDeletion(doc, base, fromA, toA, fromB, add);
       else if (!isIns && !isDel) {
         const first = doc.lineAt(fromB).number;
         const last = doc.lineAt(Math.max(fromB, toB - 1)).number;
@@ -220,7 +265,12 @@ function classifyDeletion(
     add(ln, "delete");
     return;
   }
-  if (removed.startsWith("\n") && removed.length > 1) {
+  // Cut must end at a line end, else it joins lines (a change).
+  if (
+    removed.startsWith("\n") &&
+    removed.length > 1 &&
+    fromB === doc.lineAt(fromB).to
+  ) {
     add(Math.min(ln + 1, doc.lines), "delete");
     return;
   }
