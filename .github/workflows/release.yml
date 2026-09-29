@@ -99,6 +99,31 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # Tauri writes .DirIcon as an absolute symlink into the CI build dir, which
+      # dangles once mounted; repack with a real icon file.
+      - name: Fix AppImage .DirIcon
+        if: matrix.platform == 'ubuntu-24.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          ARCH: x86_64
+        run: |
+          set -euo pipefail
+          TAG=${{ github.ref_name }}
+          REPO=${{ github.repository }}
+          NAME="Cosmog_${TAG#v}_amd64.AppImage"
+          cd "$RUNNER_TEMP"
+          gh release download "$TAG" --pattern "$NAME" --repo "$REPO"
+          chmod +x "$NAME"
+          ./"$NAME" --appimage-extract >/dev/null
+          rm -f squashfs-root/.DirIcon
+          cp squashfs-root/Cosmog.png squashfs-root/.DirIcon
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          rm "$NAME"
+          ./appimagetool squashfs-root "$NAME"
+          gh release upload "$TAG" "$NAME" --clobber --repo "$REPO"
+
       - name: Rename versionless macOS bundle
         if: startsWith(matrix.platform, 'macos')
         env:
