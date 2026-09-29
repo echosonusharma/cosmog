@@ -40,6 +40,7 @@ pub struct ImportSummary {
     pub accounts_inserted: usize,
     pub accounts_updated: usize,
     pub settings_applied: bool,
+    pub settings_skipped: Vec<String>,
 }
 
 /// Copies the live SQLite file to `dest_path` after a WAL checkpoint; does NOT
@@ -120,14 +121,20 @@ pub async fn stage_restore(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn clear_app_data(state: State<'_, AppState>) -> AppResult<()> {
+    #[cfg(not(target_os = "android"))]
+    crate::mcp::stop().await;
     let accounts = state.db.list_accounts().await?;
     for account in accounts {
-        let id = account.id.clone();
-        match tokio::task::spawn_blocking(move || crate::secrets::delete_secret(&id)).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!("keyring delete failed for {}: {e}", account.id),
-            Err(e) => tracing::warn!("spawn_blocking failed for {}: {e}", account.id),
-        }
+        let enc_buckets = state
+            .db
+            .list_encrypted_buckets_for_account(&account.id)
+            .await
+            .unwrap_or_default();
+        super::accounts::delete_account_secrets(account.id, enc_buckets).await;
+    }
+    #[cfg(not(target_os = "android"))]
+    if let Err(e) = crate::mcp::delete_token().await {
+        tracing::warn!("MCP token delete failed: {e}");
     }
 
     let app_dir = state
@@ -161,9 +168,14 @@ pub async fn import_config(
             bundle.schema_version
         )));
     }
+    let accounts = bundle
+        .accounts
+        .into_iter()
+        .map(super::accounts::sanitize_imported)
+        .collect::<AppResult<Vec<_>>>()?;
     let mut inserted = 0usize;
     let mut updated = 0usize;
-    for acct in bundle.accounts {
+    for acct in accounts {
         let exists = state.db.get_account(&acct.id).await.is_ok();
         state.db.upsert_account(acct.clone()).await?;
         if exists {
@@ -173,11 +185,49 @@ pub async fn import_config(
         }
         state.invalidate(&acct.id);
     }
-    state.db.settings_save(bundle.settings).await?;
+    let current = state.load_settings().await?;
+    let (settings, skipped) = merge_imported_settings(bundle.settings, &current);
+    let saved = state.db.settings_save(settings).await?;
     state.invalidate_settings().await;
+    state.set_transfer_concurrency(saved.transfer_concurrency as usize);
+    // Data is already imported; a bind failure must not report the import as failed.
+    #[cfg(not(target_os = "android"))]
+    if let Err(e) = crate::mcp::apply(&state).await {
+        tracing::warn!("MCP re-apply after import failed: {e}");
+    }
     Ok(ImportSummary {
         accounts_inserted: inserted,
         accounts_updated: updated,
         settings_applied: true,
+        settings_skipped: skipped,
     })
+}
+
+/// A bundle must not grant MCP access or reroute traffic, so those keep local values.
+fn merge_imported_settings(
+    mut incoming: AppSettings,
+    current: &AppSettings,
+) -> (AppSettings, Vec<String>) {
+    let mut skipped = Vec::new();
+    macro_rules! keep_local {
+        ($($field:ident),*) => {$(
+            if incoming.$field != current.$field {
+                skipped.push(stringify!($field).to_string());
+            }
+            incoming.$field = current.$field.clone();
+        )*};
+    }
+    keep_local!(
+        mcp_enabled,
+        mcp_allow_write,
+        mcp_allow_delete,
+        mcp_bind_all_accounts,
+        mcp_acknowledged,
+        mcp_fs_root,
+        mcp_disabled_accounts,
+        mcp_disabled_tools,
+        http_proxy,
+        custom_ca_path
+    );
+    (incoming, skipped)
 }

@@ -13,6 +13,64 @@ fn validated_optional(field: &str, value: &Option<String>) -> AppResult<Option<S
     value.as_deref().map(|v| validate::require_non_empty(field, v)).transpose()
 }
 
+fn validated_endpoint(value: &Option<String>) -> AppResult<Option<String>> {
+    value.as_deref().map(validate::validate_endpoint).transpose()
+}
+
+fn validated_addressing(value: Option<String>) -> AppResult<Option<String>> {
+    match value.as_deref() {
+        None | Some("auto" | "path" | "virtual") => Ok(value),
+        Some(other) => Err(AppError::InvalidInput(format!("unknown addressing_style: {other}"))),
+    }
+}
+
+/// Ids double as keyring keys, so only UUIDs (all the app ever generated) pass.
+pub(crate) fn sanitize_imported(acct: Account) -> AppResult<Account> {
+    Protocol::parse(&acct.protocol)?;
+    let id = uuid::Uuid::parse_str(&acct.id)
+        .map_err(|_| AppError::InvalidInput(format!("account id is not a UUID: {}", acct.id)))?
+        .to_string();
+    // Pre-validation versions stored bare hosts; the SDK needs a scheme.
+    let endpoint = acct.endpoint.and_then(|e| match e.trim() {
+        "" => None,
+        t if !t.contains("://") => Some(format!("https://{t}")),
+        t => Some(t.to_string()),
+    });
+    let region = match acct.region.trim() {
+        "" => "us-east-1".to_string(),
+        _ => validate::require_non_empty("region", &acct.region)?,
+    };
+    Ok(Account {
+        id,
+        name: validate::require_non_empty("name", &acct.name)?,
+        protocol: acct.protocol,
+        endpoint: validated_endpoint(&endpoint)?,
+        region,
+        access_key_id: validate::require_non_empty("access_key_id", &acct.access_key_id)?,
+        addressing_style: validated_addressing(Some(acct.addressing_style))?
+            .unwrap_or_else(|| "auto".into()),
+        created_at: acct.created_at,
+        updated_at: acct.updated_at,
+    })
+}
+
+pub(crate) async fn delete_account_secrets(id: String, enc_buckets: Vec<String>) {
+    let res = tokio::task::spawn_blocking(move || {
+        if let Err(e) = secrets::delete_secret(&id) {
+            tracing::warn!(account_id = %id, "delete_secret failed: {e}; keyring entry may be orphaned");
+        }
+        for bucket in enc_buckets {
+            if let Err(e) = secrets::delete_enc_identity(&id, &bucket) {
+                tracing::warn!(account_id = %id, bucket, "delete_enc_identity failed: {e}");
+            }
+        }
+    })
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("keyring cleanup task failed: {e}");
+    }
+}
+
 /// Runs the synchronous keyring write off the async runtime; on macOS a
 /// prompt or locked keychain can stall for seconds.
 async fn set_secret_blocking(id: String, secret: String) -> AppResult<()> {
@@ -56,9 +114,10 @@ pub async fn add_account(
 ) -> AppResult<Account> {
     Protocol::parse(&input.protocol)?;
     let name = validate::require_non_empty("name", &input.name)?;
-    let endpoint = validated_optional("endpoint", &input.endpoint)?;
+    let endpoint = validated_endpoint(&input.endpoint)?;
     let region = validated_optional("region", &input.region)?;
     let access_key_id = validate::require_non_empty("access_key_id", &input.access_key_id)?;
+    let addressing_style = validated_addressing(input.addressing_style)?;
     let acct = state
         .db
         .insert_account(NewAccount {
@@ -67,7 +126,7 @@ pub async fn add_account(
             endpoint,
             region: region.unwrap_or_else(|| "us-east-1".to_string()),
             access_key_id,
-            addressing_style: input.addressing_style,
+            addressing_style,
         })
         .await?;
     // Secret written AFTER the DB insert (the id is needed); on keyring
@@ -113,6 +172,7 @@ pub async fn get_account(state: State<'_, AppState>, id: String) -> AppResult<Ac
 #[derive(Deserialize)]
 pub struct UpdateAccountInput {
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "crate::validate::double_option")]
     pub endpoint: Option<Option<String>>,
     pub region: Option<String>,
     pub access_key_id: Option<String>,
@@ -145,12 +205,20 @@ pub async fn update_account(
     let endpoint = match input.endpoint {
         // Double-Option: Some(None) explicitly clears the endpoint; only the
         // inner Some(String) is validated.
-        Some(inner) => Some(validated_optional("endpoint", &inner)?),
+        Some(inner) => Some(validated_endpoint(&inner)?),
         None => None,
     };
     let region = validated_optional("region", &input.region)?;
     let access_key_id = validated_optional("access_key_id", &input.access_key_id)?;
-    let acct = state
+    let addressing_style = validated_addressing(input.addressing_style)?;
+    state.db.get_account(&id).await?;
+    // Secret first so a keyring failure leaves the row untouched.
+    if let Some(secret) = input.secret_access_key {
+        let res = set_secret_blocking(id.clone(), secret).await;
+        state.invalidate(&id);
+        res?;
+    }
+    let res = state
         .db
         .update_account(
             &id,
@@ -159,15 +227,12 @@ pub async fn update_account(
                 endpoint,
                 region,
                 access_key_id,
-                addressing_style: input.addressing_style,
+                addressing_style,
             },
         )
-        .await?;
-    if let Some(secret) = input.secret_access_key {
-        set_secret_blocking(id, secret).await?;
-    }
-    state.invalidate(&acct.id);
-    Ok(acct)
+        .await;
+    state.invalidate(&id);
+    res
 }
 
 #[tracing::instrument(skip_all, err)]
@@ -179,10 +244,17 @@ pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult
         tracing::warn!(account_id = %id, "cancel_for_account failed: {e}");
     }
     state.cancel_all_scans_for_account(&id);
+    // Read encrypted buckets before the cascade drops their rows.
+    let enc_buckets = state
+        .db
+        .list_encrypted_buckets_for_account(&id)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(account_id = %id, "list encrypted buckets failed: {e}");
+            Vec::new()
+        });
     state.db.delete_account(&id).await?;
-    if let Err(e) = secrets::delete_secret(&id) {
-        tracing::warn!(account_id = %id, "delete_secret failed: {e}; keyring entry may be orphaned");
-    }
+    delete_account_secrets(id.clone(), enc_buckets).await;
     state.invalidate(&id);
     Ok(())
 }
@@ -240,4 +312,42 @@ pub async fn detect_account_region(
         false
     };
     Ok(RegionDetectResult { region, updated })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acct(id: &str, endpoint: Option<&str>) -> Account {
+        Account {
+            id: id.into(),
+            name: "n".into(),
+            protocol: "s3".into(),
+            endpoint: endpoint.map(Into::into),
+            region: "".into(),
+            access_key_id: "AK".into(),
+            addressing_style: "auto".into(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn import_rejects_non_uuid_ids() {
+        assert!(sanitize_imported(acct("mcp_bearer_token", None)).is_err());
+        let id = uuid::Uuid::new_v4().to_string();
+        assert_eq!(sanitize_imported(acct(&id, None)).unwrap().id, id);
+    }
+
+    #[test]
+    fn import_repairs_legacy_endpoints() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let a = sanitize_imported(acct(&id, Some("minio.local:9000"))).unwrap();
+        assert_eq!(a.endpoint.as_deref(), Some("https://minio.local:9000"));
+        assert_eq!(a.region, "us-east-1");
+        assert_eq!(sanitize_imported(acct(&id, Some(" "))).unwrap().endpoint, None);
+        let v6 = sanitize_imported(acct(&id, Some("http://[::1]:9000/p"))).unwrap();
+        assert_eq!(v6.endpoint.as_deref(), Some("http://[::1]:9000/p"));
+        assert!(sanitize_imported(acct(&id, Some("ftp://x"))).is_err());
+    }
 }

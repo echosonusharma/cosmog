@@ -99,13 +99,18 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
     const f = form();
     if (isEdit()) {
       const trimmedName = f.name.trim();
+      // Keep a stored (possibly auto-detected) region unless the endpoint moved.
+      const endpointChanged = (f.endpoint ?? null) !== (props.editing!.endpoint ?? null);
+      const region = endpointChanged
+        ? regionFromEndpoint(provider(), f.endpoint ?? "") ?? f.region
+        : f.region;
       try {
         await updateAccount(props.editing!.id, {
           name: trimmedName,
-          region: f.region,
+          region,
           access_key_id: f.access_key_id,
           endpoint: f.endpoint ?? null,
-          addressing_style: f.addressing_style,
+          addressing_style: f.addressing_style ?? "auto",
           secret_access_key: f.secret_access_key ? f.secret_access_key : undefined,
         });
         bumpAccountsRefresh();

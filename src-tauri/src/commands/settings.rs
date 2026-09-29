@@ -1,22 +1,12 @@
 //! Settings commands. The FE loads once at startup and patches on change;
 //! updates merge-and-save — unsupplied fields keep their previous values.
 
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use tauri::State;
 
 use crate::db::settings::AppSettings;
 use crate::error::AppResult;
 use crate::state::AppState;
-
-// serde double-option: distinguishes "field absent" (None) from
-// "field present and null" (Some(None)) so the FE can clear nullable settings.
-fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    Deserialize::deserialize(de).map(Some)
-}
 
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
@@ -28,7 +18,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> AppResult<AppSettings> 
 /// double-Option fields also accept `Some(None)` to explicitly clear.
 #[derive(Debug, Default, Deserialize)]
 pub struct SettingsPatch {
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::validate::double_option")]
     pub default_download_dir: Option<Option<String>>,
     pub transfer_concurrency: Option<u32>,
     pub multipart_parallelism: Option<u32>,
@@ -39,9 +29,9 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub show_hidden: Option<bool>,
     pub confirm_destructive: Option<bool>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::validate::double_option")]
     pub http_proxy: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "crate::validate::double_option")]
     pub custom_ca_path: Option<Option<String>>,
     pub request_log_ttl_days: Option<u32>,
 }
@@ -105,5 +95,9 @@ pub async fn update_settings(
 pub async fn reset_settings(state: State<'_, AppState>) -> AppResult<AppSettings> {
     let s = state.db.settings_reset().await?;
     state.invalidate_settings().await;
+    state.set_transfer_concurrency(s.transfer_concurrency as usize);
+    // Reset turns MCP off; stop a live server so it matches.
+    #[cfg(not(target_os = "android"))]
+    crate::mcp::apply(&state).await?;
     Ok(s)
 }

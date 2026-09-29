@@ -38,7 +38,8 @@ export const endpointUrlSchema = z
   .string()
   .trim()
   .min(1, "Endpoint is required")
-  .url("Enter a valid endpoint URL");
+  .url("Enter a valid endpoint URL")
+  .refine((v) => /^https?:\/\//i.test(v), "Endpoint must start with http:// or https://");
 
 export const bucketNameSchema = z
   .string()

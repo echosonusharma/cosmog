@@ -57,6 +57,7 @@ pub struct McpCtx {
 struct Running {
     cancel: CancellationToken,
     port: u16,
+    task: tokio::task::JoinHandle<()>,
 }
 
 fn slot() -> &'static Mutex<Option<Running>> {
@@ -68,10 +69,15 @@ pub fn running_port() -> Option<u16> {
     slot().lock().ok().and_then(|g| g.as_ref().map(|r| r.port))
 }
 
-pub fn stop() {
-    if let Ok(mut g) = slot().lock() {
-        if let Some(r) = g.take() {
-            r.cancel.cancel();
+/// Waits for the old listener to drop so a rebind on the same port succeeds.
+pub async fn stop() {
+    let running = slot().lock().ok().and_then(|mut g| g.take());
+    if let Some(r) = running {
+        r.cancel.cancel();
+        let mut task = r.task;
+        if tokio::time::timeout(std::time::Duration::from_secs(3), &mut task).await.is_err() {
+            task.abort();
+            let _ = task.await;
         }
     }
 }
@@ -79,6 +85,9 @@ pub fn stop() {
 /// Reconcile the running server with current settings: stops any live server,
 /// restarts when enabled, and reflects state to the background-run gate.
 pub async fn apply(state: &AppState) -> AppResult<()> {
+    // Serialize applies so two restarts can't race on the same port.
+    static APPLY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = APPLY_LOCK.lock().await;
     let s = state.db.settings_load().await?;
     // set_mcp_enabled mutates tray/activation policy, main-thread only on
     // macOS; hop over since apply() runs off-main (mirrors nw_refresh_service).
@@ -87,7 +96,7 @@ pub async fn apply(state: &AppState) -> AppResult<()> {
     let _ = state.app.run_on_main_thread(move || {
         crate::app_lifecycle::set_mcp_enabled(&app, enabled);
     });
-    stop();
+    stop().await;
     if !s.mcp_enabled {
         return Ok(());
     }
@@ -110,24 +119,42 @@ pub async fn apply(state: &AppState) -> AppResult<()> {
         fs_root,
     });
     let cancel = CancellationToken::new();
-    serve(ctx, s.mcp_port, cancel.clone()).await?;
+    let task = serve(ctx, s.mcp_port, cancel.clone()).await?;
     if let Ok(mut g) = slot().lock() {
-        *g = Some(Running { cancel, port: s.mcp_port });
+        *g = Some(Running { cancel, port: s.mcp_port, task });
     }
     Ok(())
 }
 
-async fn serve(ctx: Arc<McpCtx>, port: u16, cancel: CancellationToken) -> AppResult<()> {
+async fn bind(port: u16) -> AppResult<tokio::net::TcpListener> {
+    let mut attempt = 0;
+    loop {
+        match tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && attempt < 5 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            Err(e) => {
+                return Err(AppError::Io(format!("MCP bind on 127.0.0.1:{port} failed: {e}")))
+            }
+        }
+    }
+}
+
+async fn serve(
+    ctx: Arc<McpCtx>,
+    port: u16,
+    cancel: CancellationToken,
+) -> AppResult<tokio::task::JoinHandle<()>> {
     let app = Router::new()
         .route("/mcp", post(handle_post).get(handle_405).delete(handle_405))
         .layer(middleware::from_fn_with_state(ctx.clone(), auth::guard))
         .with_state(ctx);
 
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-        .await
-        .map_err(|e| AppError::Io(format!("MCP bind on 127.0.0.1:{port} failed: {e}")))?;
+    let listener = bind(port).await?;
 
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let shutdown = async move {
             cancel.cancelled().await;
         };
@@ -136,7 +163,7 @@ async fn serve(ctx: Arc<McpCtx>, port: u16, cancel: CancellationToken) -> AppRes
         }
     });
     tracing::info!("MCP server listening on http://127.0.0.1:{port}/mcp");
-    Ok(())
+    Ok(task)
 }
 
 async fn handle_405() -> StatusCode {
@@ -430,6 +457,12 @@ pub async fn regenerate_token() -> AppResult<String> {
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?
+}
+
+pub async fn delete_token() -> AppResult<()> {
+    tokio::task::spawn_blocking(|| crate::secrets::delete_secret(TOKEN_KEY))
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?
 }
 
 fn load_or_create_token() -> AppResult<String> {

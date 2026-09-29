@@ -1,6 +1,8 @@
 //! MCP tools calling the same `AppState` methods as the Tauri commands. Reads
 //! are always advertised; writes/deletes gate on settings. Encrypted buckets and presigned URLs are out of scope for v1.
 
+use std::path::PathBuf;
+
 use serde_json::{json, Value};
 
 use crate::db::cache::{SearchQuery, SearchScope};
@@ -178,10 +180,8 @@ async fn dispatch(ctx: &McpCtx, name: &str, args: &Value) -> Value {
         return format::error(format!("tool {name} is disabled in the MCP settings."));
     }
     if let Some(acct) = args.get("account_id").and_then(|a| a.as_str()) {
-        if ctx.disabled_accounts.iter().any(|d| d == acct) {
-            return format::error(format!(
-                "account {acct} is disabled for MCP access. Enable it in the MCP settings."
-            ));
+        if let Err(e) = check_account(ctx, acct) {
+            return e;
         }
     }
     match name {
@@ -223,7 +223,7 @@ async fn accounts_list(ctx: &McpCtx) -> Result<Value, Value> {
     let accounts = ctx.state.db.list_accounts().await.map_err(map_err)?;
     let rows: Vec<Vec<String>> = accounts
         .iter()
-        .filter(|a| !ctx.disabled_accounts.iter().any(|d| d == &a.id))
+        .filter(|a| check_account(ctx, &a.id).is_ok())
         .map(|a| {
             vec![
                 a.id.clone(),
@@ -382,6 +382,8 @@ async fn bucket_stats(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
 async fn transfer_status(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let id = sreq(args, "transfer_id")?;
     let t = ctx.state.transfers.get(&id).await.map_err(map_err)?;
+    // The transfer id carries no account_id arg, so gate on the stored one.
+    check_account(ctx, &t.account_id)?;
     let mut out = String::new();
     out.push_str(&format!("transfer_id: {}\n", t.id));
     out.push_str(&format!("direction: {}\n", t.direction.as_str()));
@@ -405,7 +407,8 @@ async fn object_upload(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let path = validate::validate_upload_source(&local_path).await.map_err(map_err)?;
     // Confine the source to the configured MCP folder: object keys are
     // untrusted, so an injected key could exfiltrate any file.
-    contained_existing(ctx, &path).await?;
+    // Queue the canonical path so a later symlink swap can't redirect it.
+    let path = contained_existing(ctx, &path).await?;
     let store = ctx.state.store_for(&account).await.map_err(map_err)?;
     let id = ctx
         .state
@@ -436,7 +439,7 @@ async fn object_download(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let dest = validate::validate_download_dest(&local_path).await.map_err(map_err)?;
     // Confine the destination to the MCP folder so downloads can't overwrite
     // arbitrary files on disk.
-    contained_dest(ctx, &dest).await?;
+    let dest = contained_dest(ctx, &dest).await?;
     let store = ctx.state.store_for(&account).await.map_err(map_err)?;
     let id = ctx
         .state
@@ -466,31 +469,46 @@ async fn object_delete(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
 
 /// Confines an existing upload source to the sandbox root, canonicalizing to
 /// defeat symlink/`..` escapes.
-async fn contained_existing(ctx: &McpCtx, path: &std::path::Path) -> Result<(), Value> {
+async fn contained_existing(ctx: &McpCtx, path: &std::path::Path) -> Result<PathBuf, Value> {
     let root = require_root(ctx)?;
     let canon = tokio::fs::canonicalize(path)
         .await
         .map_err(|e| format::error(format!("local_path: {e}")))?;
-    within(root, &canon)
+    within(root, &canon)?;
+    Ok(canon)
 }
 
 /// Confines a download destination: existing paths (planted symlinks included)
 /// resolve fully; new files confine their existing parent instead.
-async fn contained_dest(ctx: &McpCtx, dest: &std::path::Path) -> Result<(), Value> {
+async fn contained_dest(ctx: &McpCtx, dest: &std::path::Path) -> Result<PathBuf, Value> {
     let root = require_root(ctx)?;
     if tokio::fs::symlink_metadata(dest).await.is_ok() {
         let canon = tokio::fs::canonicalize(dest)
             .await
             .map_err(|e| format::error(format!("local_path: {e}")))?;
-        return within(root, &canon);
+        within(root, &canon)?;
+        return Ok(canon);
     }
     let parent = dest
         .parent()
         .ok_or_else(|| format::error("local_path has no parent directory"))?;
+    let name = dest
+        .file_name()
+        .ok_or_else(|| format::error("local_path has no file name"))?;
     let canon = tokio::fs::canonicalize(parent)
         .await
         .map_err(|e| format::error(format!("local_path parent: {e}")))?;
-    within(root, &canon)
+    within(root, &canon)?;
+    Ok(canon.join(name))
+}
+
+fn check_account(ctx: &McpCtx, acct: &str) -> Result<(), Value> {
+    if ctx.disabled_accounts.iter().any(|d| d == acct) {
+        return Err(format::error(format!(
+            "account {acct} is disabled for MCP access. Enable it in the MCP settings."
+        )));
+    }
+    Ok(())
 }
 
 fn require_root(ctx: &McpCtx) -> Result<&std::path::Path, Value> {

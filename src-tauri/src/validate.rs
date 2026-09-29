@@ -20,6 +20,27 @@ pub fn require_non_empty(field: &str, value: &str) -> AppResult<String> {
     Ok(trimmed.to_string())
 }
 
+pub fn validate_endpoint(value: &str) -> AppResult<String> {
+    let v = require_non_empty("endpoint", value)?;
+    let url = tauri::Url::parse(&v)
+        .map_err(|e| AppError::InvalidInput(format!("endpoint is not a valid URL: {e}")))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(AppError::InvalidInput(
+            "endpoint must be an http:// or https:// URL".into(),
+        ));
+    }
+    Ok(v)
+}
+
+/// Absent field = None, explicit null = Some(None).
+pub fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(de).map(Some)
+}
+
 pub(crate) fn expand_home(local_path: &str) -> String {
     if local_path.starts_with("~/") {
         if let Some(home) = std::env::var_os("HOME") {

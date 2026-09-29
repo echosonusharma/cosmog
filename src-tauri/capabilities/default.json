@@ -13,19 +13,14 @@
     "notification:default",
     "store:default",
     "fs:default",
-    "fs:allow-read-file",
     "fs:allow-write-file",
     "fs:allow-mkdir",
     "fs:allow-exists",
-    "fs:allow-read-dir",
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$APPCACHE/**" },
-        { "path": "$APPDATA/**" },
-        { "path": "$DOWNLOAD/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$HOME/**" }
+        { "path": "$APPCACHE" },
+        { "path": "$APPCACHE/**" }
       ]
     }
   ]
