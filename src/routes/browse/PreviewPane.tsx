@@ -10,6 +10,7 @@ import {
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import { resolvedTheme } from "../../state/theme";
+import { autoPreview } from "../../state/settings";
 import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf, isDotEnvName, editorExtOf } from "./helpers";
 import { PdfPreview } from "./preview/PdfModal";
 
@@ -107,9 +108,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   // ciphertext can't balloon the webview (user can still force via Load preview).
   const ENCRYPTED_IMAGE_AUTOLOAD_MAX = 8 * 1024 * 1024;
   const imageAutoLoad = () =>
-    isImage() &&
+    isImage() && autoPreview() &&
     !(props.encrypted && props.obj.size > ENCRYPTED_IMAGE_AUTOLOAD_MAX);
-  const textAutoLoad = () => isText() && props.obj.size <= 512 * 1024;
+  const textAutoLoad = () => isText() && autoPreview() && props.obj.size <= 512 * 1024;
 
   createEffect(() => { void props.obj.key; setLoadRequested(false); setExpanded(false); setEditOpen(false); setEditSrc(null); });
 
@@ -203,9 +204,10 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
   // Cross-format latch: keep showing the previous kind until the new target is
   // ready, so binary↔text / image↔text switches don't blank the stage mid-frame.
+  const imageShouldFetch = () => isImage() && (imageAutoLoad() || loadRequested());
   const isKindReady = (kind: PreviewKind): boolean => {
-    if (kind === "image") return displayKey() === props.obj.key && !!displayUrl();
-    if (kind === "text") return displayText()?.key === props.obj.key;
+    if (kind === "image") return !imageShouldFetch() || (displayKey() === props.obj.key && !!displayUrl());
+    if (kind === "text") return !textShouldFetch() || displayText()?.key === props.obj.key;
     // sheet/pdf/audio/binary render sync from props — always "ready"
     return true;
   };
@@ -223,8 +225,9 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     const t = targetKind();
     if (isKindReady(t)) {
       setPinnedKind(t);
-      if (t !== "text") setDisplayText(null);
-      if (t !== "image") clearImageLatch();
+      // Not-fetching targets are "ready" without content; drop any stale latch.
+      if (t !== "text" || displayText()?.key !== props.obj.key) setDisplayText(null);
+      if (t !== "image" || displayKey() !== props.obj.key) clearImageLatch();
       return;
     }
     if (t === "binary" || t === "sheet" || t === "pdf" || t === "audio") {
@@ -238,8 +241,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     const t = targetKind();
     if (!((t === "text" || t === "image") && !isKindReady(t))) return false;
     // Overlay only while holding prior content — cold load would stack two spinners.
-    const pinned = pinnedKind();
-    return pinned === "text" || pinned === "image";
+    return !!displayText() || !!displayUrl();
   };
 
   // Once warmed, keep CodeEditor mounted (hidden) so format switches don't
@@ -252,8 +254,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   // Truncated previews refetch the whole object so a save never cuts the file.
   async function openEditor() {
     const d = cur();
-    if (!d || editLoading()) return;
-    if (!d.truncated) {
+    if (editLoading()) return;
+    if (d && !d.truncated) {
       setEditSrc({ id: objId(), text: textContent() });
       setEditOpen(true);
       return;
@@ -274,7 +276,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       setEditLoading(false);
     }
   }
-  const editBlocked = () => !!cur()?.truncated && tooBig();
+  const editBlocked = () => (!cur() || !!cur()?.truncated) && tooBig();
 
   async function saveEdit(content: string) {
     if (editSrc()?.id !== objId()) throw new Error("File changed while editing; not saved");
@@ -292,13 +294,13 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         <div class="preview-header">
           <FileIcon name={props.obj.basename} size={20} />
           <span class="preview-title">{props.obj.basename}</span>
-          <Show when={displayKind() === "image" && displayUrl()}>
+          <Show when={displayKind() === "image"}>
             <button class="icon-btn" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
           </Show>
-          <Show when={displayKind() === "text" && cur()}>
+          <Show when={displayKind() === "text"}>
             <button
               class="icon-btn"
-              disabled={editBlocked() || editLoading()}
+              disabled={editBlocked() || editLoading() || preview.loading}
               title={editBlocked() ? "File too large to edit in preview" : "Edit"}
               onClick={openEditor}
             >
@@ -317,9 +319,11 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <div class="preview-img-area rel">
               <Show when={!imageAutoLoad() && !loadRequested() && !displayUrl()}>
                 <div class="preview-load-hint">
-                  <span class="muted text-xs">
-                    Encrypted image ({formatBytes(props.obj.size)}). Decrypts whole into memory.
-                  </span>
+                  <Show when={autoPreview()}>
+                    <span class="muted text-xs">
+                      Encrypted image ({formatBytes(props.obj.size)}). Decrypts whole into memory.
+                    </span>
+                  </Show>
                   <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
                     <IconEye size={15} /> Load preview
                   </button>
@@ -427,7 +431,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
         </div>
       </div>
 
-      <Show when={expanded() && !!displayUrl()}>
+      <Show when={expanded()}>
         <Suspense fallback={chunkSpinner()}>
         <ImageEditor
           obj={props.obj}

@@ -105,6 +105,7 @@ export interface AppSettings {
   theme: "light" | "dark" | "system";
   show_hidden: boolean;
   confirm_destructive: boolean;
+  auto_preview: boolean;
   http_proxy: string | null;
   custom_ca_path: string | null;
   request_log_ttl_days: number;

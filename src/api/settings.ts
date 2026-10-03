@@ -12,6 +12,7 @@ export type SettingsPatch = Partial<{
   theme: string;
   show_hidden: boolean;
   confirm_destructive: boolean;
+  auto_preview: boolean;
   http_proxy: string | null;
   custom_ca_path: string | null;
   request_log_ttl_days: number;

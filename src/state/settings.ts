@@ -49,6 +49,7 @@ export function resetAllSettings(): Promise<AppSettings> {
 }
 
 export const showHiddenFiles = () => appSettings()?.show_hidden ?? false;
+export const autoPreview = () => appSettings()?.auto_preview ?? false;
 
 export function confirmDestructive(opts: Parameters<typeof confirmDialog>[0]): Promise<boolean | null> {
   if (appSettings()?.confirm_destructive === false) return Promise.resolve(true);

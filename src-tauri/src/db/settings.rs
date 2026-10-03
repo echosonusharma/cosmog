@@ -43,6 +43,9 @@ pub struct AppSettings {
 
     pub confirm_destructive: bool,
 
+    /// FE hint: fetch image/text previews on select. Off = load on click.
+    pub auto_preview: bool,
+
     /// Outbound proxy URL, set as HTTPS_PROXY/HTTP_PROXY before SDK client
     /// build. Changes require app restart (SDK reads env once).
     pub http_proxy: Option<String>,
@@ -95,6 +98,7 @@ impl Default for AppSettings {
             theme: "system".into(),
             show_hidden: false,
             confirm_destructive: true,
+            auto_preview: false,
             http_proxy: None,
             custom_ca_path: None,
             request_log_ttl_days: 30,
@@ -220,6 +224,7 @@ fn serialize_settings(s: &AppSettings) -> Vec<(&'static str, String)> {
         ("theme", enc(&s.theme)),
         ("show_hidden", enc(&s.show_hidden)),
         ("confirm_destructive", enc(&s.confirm_destructive)),
+        ("auto_preview", enc(&s.auto_preview)),
         ("http_proxy", enc(&s.http_proxy)),
         ("custom_ca_path", enc(&s.custom_ca_path)),
         ("request_log_ttl_days", enc(&s.request_log_ttl_days)),
@@ -288,6 +293,11 @@ fn apply_setting(s: &mut AppSettings, key: &str, raw: &str) {
         "confirm_destructive" => {
             if let Some(v) = dec(raw) {
                 s.confirm_destructive = v;
+            }
+        }
+        "auto_preview" => {
+            if let Some(v) = dec(raw) {
+                s.auto_preview = v;
             }
         }
         "http_proxy" => {

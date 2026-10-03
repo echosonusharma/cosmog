@@ -29,6 +29,7 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub show_hidden: Option<bool>,
     pub confirm_destructive: Option<bool>,
+    pub auto_preview: Option<bool>,
     #[serde(default, deserialize_with = "crate::validate::double_option")]
     pub http_proxy: Option<Option<String>>,
     #[serde(default, deserialize_with = "crate::validate::double_option")]
@@ -72,6 +73,9 @@ pub async fn update_settings(
     }
     if let Some(v) = patch.confirm_destructive {
         cur.confirm_destructive = v;
+    }
+    if let Some(v) = patch.auto_preview {
+        cur.auto_preview = v;
     }
     if let Some(v) = patch.http_proxy {
         cur.http_proxy = v;

@@ -182,6 +182,10 @@ export function SettingsForm() {
           <label class="settings-label">Confirm destructive ops</label>
           <div><input type="checkbox" checked={field("confirm_destructive") ?? true}
                        onChange={(e) => patch("confirm_destructive", e.currentTarget.checked)} /></div>
+
+          <label class="settings-label">Auto preview images and text</label>
+          <div><input type="checkbox" checked={field("auto_preview") ?? false}
+                       onChange={(e) => patch("auto_preview", e.currentTarget.checked)} /></div>
         </div>
 
         <div class="btn-row mt-4">

@@ -90,6 +90,7 @@ export const settingsPatchSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).optional(),
   show_hidden: z.boolean().optional(),
   confirm_destructive: z.boolean().optional(),
+  auto_preview: z.boolean().optional(),
 }).partial();
 
 export const nightWatchAddSchema = z.object({
