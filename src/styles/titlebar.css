@@ -1,8 +1,8 @@
 /* ── titlebar ───────────────────────────────────────────────────────────── */
 
 .titlebar {
-  height: 40px;
-  flex: 0 0 40px;
+  height: var(--titlebar-h);
+  flex: 0 0 var(--titlebar-h);
   display: flex;
   align-items: center;
   justify-content: space-between;

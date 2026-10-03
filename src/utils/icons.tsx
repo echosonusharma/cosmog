@@ -76,6 +76,7 @@ export const IconFlipH        = I("flip-horizontal");
 export const IconFlipV        = I("flip-vertical");
 export const IconSave         = I("save");
 export const IconMaximize     = I("maximize");
+export const IconMinimize     = I("minimize");
 
 import { resolvedTheme, setTheme } from "../state/theme";
 import { saveSettings } from "../state/settings";

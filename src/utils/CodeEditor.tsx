@@ -14,6 +14,7 @@ import { editorHighlightTheme, type EditorHighlightThemeId } from "../state/edit
 import { loadEditorTheme, editorShellTheme } from "./codemirrorThemes";
 import { diffGutter, setDiffBase } from "./diffGutter";
 import { useBackHandler } from "./androidBack";
+import { IconMaximize, IconMinimize } from "./icons";
 
 const toLf = (s: string) => s.replace(/\r\n?/g, "\n");
 
@@ -273,6 +274,7 @@ export function EditorModal(props: {
   const [content, setContent] = createSignal(props.value);
   const [saving, setSaving] = createSignal(false);
   const [formatting, setFormatting] = createSignal(false);
+  const [full, setFull] = createSignal(false);
   const canFormat = ["json", "jsonc", "yaml", "yml"].includes(props.ext);
   const baseLf = createMemo(() => toLf(props.value));
   const isDirty = () => toLf(content()) !== baseLf();
@@ -335,7 +337,7 @@ export function EditorModal(props: {
   onCleanup(() => { document.removeEventListener("keydown", onKeyDown); });
 
   return (
-    <div class="editor-modal-backdrop" onClick={requestClose}>
+    <div class="editor-modal-backdrop" classList={{ "is-full": full() }} onClick={requestClose}>
       <div class="editor-modal" onClick={(e) => e.stopPropagation()}>
         <div class="editor-modal-header">
           <span class="editor-modal-title">{props.filename}</span>
@@ -345,6 +347,13 @@ export function EditorModal(props: {
                 {formatting() ? "Formatting…" : "Format"}
               </button>
             </Show>
+            <button
+              class="btn-ghost editor-modal-full"
+              title={full() ? "Exit full view" : "Full view"}
+              onClick={() => setFull(!full())}
+            >
+              {full() ? <IconMinimize size={15} /> : <IconMaximize size={15} />}
+            </button>
             <button class="btn-secondary text-xs editor-modal-btn" onClick={requestClose}>Cancel</button>
             <button class="btn-primary text-xs editor-modal-btn" disabled={saving()} onClick={handleSave}>
               {saving() ? "Saving…" : "Save"}

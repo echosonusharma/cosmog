@@ -12,7 +12,7 @@ import { extOf, pathFromDialog } from "../helpers";
 import type { CachedObjectMeta } from "../../../types";
 import {
   IconX, IconZoomIn, IconZoomOut, IconRotateCw, IconRotateCcw,
-  IconFlipH, IconFlipV, IconCrop, IconSave, IconMaximize, IconDownload,
+  IconFlipH, IconFlipV, IconCrop, IconSave, IconMaximize, IconMinimize, IconRefresh, IconDownload,
 } from "../../../utils/icons";
 import Spinner from "../../../utils/Spinner";
 import { useBackHandler } from "../../../utils/androidBack";
@@ -61,6 +61,7 @@ export function ImageEditor(props: {
   let ownBlob: string | null = null;
 
   const [cropMode, setCropMode] = createSignal(false);
+  const [full, setFull] = createSignal(false);
   const [ready, setReady] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [saveAs, setSaveAs] = createSignal(false);
@@ -166,6 +167,12 @@ export function ImageEditor(props: {
   const rotate = (d: number) => { cropper?.rotate(d); setDirty(true); };
   const flipH = () => { const v = !flipX(); setFlipX(v); cropper?.scaleX(v ? -1 : 1); setDirty(true); };
   const flipV = () => { const v = !flipY(); setFlipY(v); cropper?.scaleY(v ? -1 : 1); setDirty(true); };
+  // Cropper only refits on window resize, so nudge it after the layout change.
+  function toggleFull() {
+    setFull(!full());
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  }
+
   function reset() {
     setFlipX(false); setFlipY(false);
     cropper?.reset();
@@ -232,7 +239,7 @@ export function ImageEditor(props: {
   const busy = () => saving();
 
   return (
-    <div class="img-editor" onClick={requestClose}>
+    <div class="img-editor" classList={{ "is-full": full() }} onClick={requestClose}>
       <div class="img-editor-panel" onClick={(e) => e.stopPropagation()}>
         <div class="img-editor-toolbar">
           <span class="img-editor-name">{props.obj.basename}</span>
@@ -245,7 +252,7 @@ export function ImageEditor(props: {
           <div class="img-editor-tools">
             <button class="icon-btn" title="Zoom in" disabled={!ready()} onClick={() => zoom(0.1)}><IconZoomIn size={16} /></button>
             <button class="icon-btn" title="Zoom out" disabled={!ready()} onClick={() => zoom(-0.1)}><IconZoomOut size={16} /></button>
-            <button class="icon-btn" title="Fit / reset" disabled={!ready()} onClick={reset}><IconMaximize size={16} /></button>
+            <button class="icon-btn" title="Fit / reset" disabled={!ready()} onClick={reset}><IconRefresh size={16} /></button>
             <span class="img-editor-sep" />
             <button class="icon-btn" title="Rotate left" disabled={!ready()} onClick={() => rotate(-90)}><IconRotateCcw size={16} /></button>
             <button class="icon-btn" title="Rotate right" disabled={!ready()} onClick={() => rotate(90)}><IconRotateCw size={16} /></button>
@@ -254,6 +261,9 @@ export function ImageEditor(props: {
             <span class="img-editor-sep" />
             <button class="icon-btn" classList={{ active: cropMode() }} title="Crop" disabled={!ready()} onClick={toggleCrop}><IconCrop size={16} /></button>
           </div>
+          <button class="icon-btn img-editor-full" title={full() ? "Exit full view" : "Full view"} onClick={toggleFull}>
+            {full() ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+          </button>
           <button class="icon-btn img-editor-close" title="Close" onClick={requestClose}><IconX size={18} /></button>
         </div>
 

@@ -8,6 +8,10 @@
   padding: 0;
 }
 
+:root {
+  --titlebar-h: 40px;
+}
+
 :root, :root[data-theme="dark"] {
   /* surfaces */
   --bg:           #0c0d12;
