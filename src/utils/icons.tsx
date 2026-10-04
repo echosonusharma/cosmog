@@ -1,4 +1,6 @@
 import { JSX } from "solid-js";
+import { extOf } from "./fmt";
+import { isTextMime } from "./textTypes";
 
 // Icons map to /public/icons/ui/<name>.svg; color comes from CSS `background-color`
 // (parent `color` + mask trick), size inline.
@@ -121,22 +123,42 @@ const EXT_MAP: Record<string, Kind> = {
   html: "code", css: "code", scss: "code", go: "code", rs: "code", py: "code", rb: "code",
   java: "code", c: "code", cpp: "code", h: "code", hpp: "code", sh: "code", sql: "code",
   toml: "code", xml: "code", lock: "code",
+  env: "code", ini: "code", conf: "code", cfg: "code", properties: "code",
+  log: "doc",
 };
 
-export function fileKind(name: string): Kind {
-  const dot = name.lastIndexOf(".");
-  if (dot < 0) return "generic";
-  return EXT_MAP[name.slice(dot + 1).toLowerCase()] ?? "generic";
+const NAME_MAP: Record<string, Kind> = {
+  dockerfile: "code", makefile: "code", license: "doc", readme: "doc",
+};
+
+function kindFromMime(ct: string | null | undefined): Kind | null {
+  const t = (ct ?? "").split(";")[0].trim().toLowerCase();
+  if (t.startsWith("image/")) return "image";
+  if (t.startsWith("video/")) return "video";
+  if (t.startsWith("audio/")) return "audio";
+  if (t === "application/pdf") return "doc";
+  if (/^text\/(x-|html|css|javascript|typescript|xml)/.test(t)) return "code";
+  if (t.startsWith("text/")) return "doc";
+  if (isTextMime(t)) return "code";
+  if (/zip|tar|gzip|x-7z|rar/.test(t)) return "archive";
+  return null;
+}
+
+export function fileKind(name: string, contentType?: string | null): Kind {
+  const ext = extOf(name);
+  const key = ext || name.toLowerCase();
+  const map = ext ? EXT_MAP : NAME_MAP;
+  // own keys only, never Object.prototype
+  const byName = Object.hasOwn(map, key) ? map[key] : undefined;
+  return byName ?? kindFromMime(contentType) ?? "generic";
 }
 
 export function fileTypeLabel(name: string): string {
-  const dot = name.lastIndexOf(".");
-  if (dot < 0) return "File";
-  return name.slice(dot + 1).toUpperCase();
+  return extOf(name).toUpperCase() || "File";
 }
 
-export function FileIcon(props: { name: string; folder?: boolean; size?: number }): JSX.Element {
-  const kind = () => (props.folder ? "folder" : fileKind(props.name));
+export function FileIcon(props: { name: string; contentType?: string | null; folder?: boolean; size?: number }): JSX.Element {
+  const kind = () => (props.folder ? "folder" : fileKind(props.name, props.contentType));
   const size = props.size ?? 18;
   const cls = () => `obj-icon ${kind()}`;
   const url = () => {

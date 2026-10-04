@@ -2,6 +2,7 @@ import type ExcelJS from "exceljs";
 import { mkdir, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appCacheDir, join } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
+import { extOf } from "../../utils/fmt";
 
 function hasStringPath(x: unknown): x is { path: string } {
   return typeof x === "object" && x !== null && "path" in x && typeof (x as { path: unknown }).path === "string";
@@ -140,12 +141,9 @@ export function discardSafDownload(transferId: string): void {
 }
 
 export const IMAGE_EXTS  = new Set(["jpg","jpeg","png","gif","webp","svg","bmp","ico","avif","tiff","tif"]);
-export const TEXT_EXTS   = new Set(["txt","md","json","xml","yaml","yml","toml","log","sh","js","ts","tsx","jsx","css","html","htm","rs","go","py","rb","java","c","cpp","h","sql","env","ini","conf","cfg","properties","dockerfile"]);
 export const SHEET_EXTS  = new Set(["xlsx","xls","xlsm","xlsb","ods","csv"]);
 export const PDF_EXTS    = new Set(["pdf"]);
 export const AUDIO_EXTS  = new Set(["mp3","wav","ogg","oga","m4a","aac","flac","opus","weba"]);
-
-export function extOf(name: string) { const i = name.lastIndexOf("."); return i >= 0 ? name.slice(i + 1).toLowerCase() : ""; }
 
 /** `.env`, `.env.local`, `.env.example`, `foo.env` — last-segment extOf alone misses these. */
 export function isDotEnvName(name: string): boolean {

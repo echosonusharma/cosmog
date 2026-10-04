@@ -75,7 +75,7 @@ function ColumnPaneVirtual(props: {
                             class={`col-pane-item fill-cell ${props.selectedKey === obj().key ? "selected" : ""}`}
                             onClick={() => props.onSelectFile(obj())}
                           >
-                            <FileIcon name={obj().basename} />
+                            <FileIcon name={obj().basename} contentType={obj().content_type} />
                             <span class="col-pane-name">{obj().basename}</span>
                           </button>
                           <button

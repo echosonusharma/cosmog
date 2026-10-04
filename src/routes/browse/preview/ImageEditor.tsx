@@ -3,12 +3,14 @@ import Cropper from "cropperjs";
 import "cropperjs/dist/cropper.css";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
-import { previewObject, putObjectBytes, headObject } from "../../../api/objects";
+import { previewObject, putObjectBytes } from "../../../api/objects";
+import { objectExists } from "../newItem";
 import { notify } from "../../../utils/notify";
 import { errMsg } from "../../../state/toast";
 import { formatBytes } from "../../../utils/fmt";
 import { isMobile } from "../../../utils/breakpoint";
-import { extOf, pathFromDialog } from "../helpers";
+import { extOf } from "../../../utils/fmt";
+import { pathFromDialog } from "../helpers";
 import type { CachedObjectMeta } from "../../../types";
 import {
   IconX, IconZoomIn, IconZoomOut, IconRotateCw, IconRotateCcw,
@@ -198,7 +200,7 @@ export function ImageEditor(props: {
     setSaving(true);
     try {
       if (checkExists) {
-        const exists = await headObject(props.obj.account_id, props.obj.bucket, key).then(() => true).catch(() => false);
+        const exists = await objectExists(props.obj.account_id, props.obj.bucket, key);
         if (exists) { setErr("An object with that key already exists. Choose another name."); return; }
       }
       const { blob, f } = await encodeCanvas();

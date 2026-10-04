@@ -151,6 +151,9 @@
   font-size: 11px; color: var(--muted); margin-bottom: 4px;
 }
 
+/* ── new-file modal ──────────────────────────────────────────────────────── */
+.new-file-modal { overflow: visible; }
+
 /* ── encryption modal ────────────────────────────────────────────────────── */
 .enc-modal {
   min-width: 520px;

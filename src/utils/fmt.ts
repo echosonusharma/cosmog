@@ -29,3 +29,8 @@ export function basename(path: string): string {
   const raw = trimmed.slice(lastSep + 1);
   try { return decodeURIComponent(raw); } catch { return raw; }
 }
+
+export function extOf(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
+}

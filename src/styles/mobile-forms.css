@@ -264,6 +264,15 @@
     box-shadow: 0 -8px 30px -5px rgba(0, 0, 0, 0.55) !important;
   }
 
+  /* inline list: an absolute menu clips inside the scrolling sheet */
+  .new-file-modal .custom-select-menu {
+    position: static;
+    margin-top: 6px;
+    max-height: 40dvh;
+    flex-basis: 100%;
+  }
+  .new-file-modal .custom-select { flex-wrap: wrap; }
+
   /* drag handle at top of sheet */
   .modal::before,
   .cd-modal::before,

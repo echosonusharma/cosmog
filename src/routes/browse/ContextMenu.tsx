@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import {
   IconDownload, IconLink, IconTrash, IconEdit, IconEye,
-  IconPlus, IconUpload, IconChevronR, IconActivity,
+  IconPlus, IconDoc, IconUpload, IconChevronR, IconActivity,
 } from "../../utils/icons";
 import { navigateToPrefix } from "../../state/app";
 import type { CachedObjectMeta } from "../../types";
@@ -15,6 +15,7 @@ export function ContextMenu(props: {
   menu: CtxMenu;
   onClose: () => void;
   onNewFolder: (prefix: string) => void;
+  onNewFile: (prefix: string) => void;
   onUploadHere: (prefix: string) => void;
   onDeleteFolder: (sub: string) => void;
   onPreview: (obj: CachedObjectMeta) => void;
@@ -34,9 +35,14 @@ export function ContextMenu(props: {
          onClick={(e) => e.stopPropagation()}>
       <Show when={pane()}>
         {(p) => (
-          <button class="context-item" onClick={() => { props.onNewFolder(p().prefix); props.onClose(); }}>
-            <span class="context-item-icon"><IconPlus size={14} /></span> New folder here
-          </button>
+          <>
+            <button class="context-item" onClick={() => { props.onNewFolder(p().prefix); props.onClose(); }}>
+              <span class="context-item-icon"><IconPlus size={14} /></span> New folder here
+            </button>
+            <button class="context-item" onClick={() => { props.onNewFile(p().prefix); props.onClose(); }}>
+              <span class="context-item-icon"><IconDoc size={14} /></span> New file here
+            </button>
+          </>
         )}
       </Show>
       <Show when={folder()}>

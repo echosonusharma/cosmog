@@ -189,7 +189,7 @@ export function ListView(props: {
                                          checked={props.selected.has(obj().key)}
                                          onClick={(e) => e.stopPropagation()}
                                          onChange={() => props.onToggleSel(obj().key)} />
-                                  <FileIcon name={obj().basename} />
+                                  <FileIcon name={obj().basename} contentType={obj().content_type} />
                                   <span class="obj-name">{obj().basename}</span>
                                 </div>
                                 <div class="obj-type">{obj().key.endsWith("/") ? "Folder" : fileTypeLabel(obj().basename)}</div>

@@ -61,6 +61,15 @@ export const objectKeySchema = z
   .transform((key) => key.replace(/^\/+/, ""))
   .pipe(z.string().min(1, "Path is required").max(1024, "Path is too long"));
 
+export const mimeTypeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(\s*;\s*[a-z0-9-]+=("[^"]*"|[^\s;"]+))*$/,
+    "Content type must look like type/subtype (optional ; param=value)",
+  );
+
 export const downloadPathSchema = z
   .string()
   .trim()

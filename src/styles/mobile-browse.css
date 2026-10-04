@@ -93,6 +93,7 @@
   .analytics-btn,
   .enc-btn,
   .newfolder-btn,
+  .newfile-btn,
   .sync-badge,
   .mode-badge {
     display: none !important;

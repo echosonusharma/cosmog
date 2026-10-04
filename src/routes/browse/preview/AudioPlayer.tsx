@@ -2,7 +2,7 @@ import { createResource, createSignal, createEffect, Show, onCleanup } from "sol
 import { presignGet, previewObject } from "../../../api/objects";
 import { formatBytes } from "../../../utils/fmt";
 import { IconEye, IconPlay, IconPause, IconVolume, IconMute } from "../../../utils/icons";
-import { extOf } from "../helpers";
+import { extOf } from "../../../utils/fmt";
 import type { CachedObjectMeta } from "../../../types";
 import Spinner from "../../../utils/Spinner";
 

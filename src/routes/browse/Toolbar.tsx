@@ -3,7 +3,7 @@ import type { Resource } from "solid-js";
 import {
   IconBack, IconRefresh, IconUpload,
   IconPlus, IconX, IconColumns, IconList, IconSearch,
-  IconLock, IconLockOpen, IconActivity, IconDatabase,
+  IconLock, IconLockOpen, IconActivity, IconDatabase, IconDoc,
 } from "../../utils/icons";
 import { setBrowseState, goUpPrefix } from "../../state/app";
 import { PathBar } from "./PathBar";
@@ -31,6 +31,7 @@ export function Toolbar(props: {
   onViewMode: (m: "list" | "columns") => void;
   onRefresh: () => void;
   onNewFolder: () => void;
+  onNewFile: () => void;
   onUpload: () => void;
 }) {
   const [showStats, setShowStats] = createSignal(false);
@@ -119,6 +120,9 @@ export function Toolbar(props: {
         <button class="btn-secondary toolbar-btn newfolder-btn" onClick={props.onNewFolder}>
           <IconPlus size={14} /> <span class="btn-label-desktop">New folder</span><span class="btn-label-mobile">Add</span>
         </button>
+        <button class="btn-secondary toolbar-btn newfile-btn" onClick={props.onNewFile}>
+          <IconDoc size={14} /> New file
+        </button>
         <button class="btn-primary toolbar-btn upload-btn" onClick={props.onUpload}>
           <IconUpload size={14} /> Upload
         </button>
@@ -128,6 +132,7 @@ export function Toolbar(props: {
           onAnalytics={() => setShowStats(true)}
           onOpenEncryption={props.onOpenEncryption}
           onNewFolder={props.onNewFolder}
+          onNewFile={props.onNewFile}
         />
       </div>
 

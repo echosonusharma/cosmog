@@ -19,6 +19,7 @@ import {
   uploadKeyPrefixSchema,
 } from "../../validation";
 import Spinner from "../../utils/Spinner";
+import { focusEnd, prefixToPath } from "./newItem";
 
 function displayName(p: string): string {
   if (p.startsWith("content://") || p.startsWith("file://")) return displayNameFromUri(p, "file");
@@ -290,8 +291,7 @@ export function NewFolderModal(props: {
   onClose: () => void;
   onDone: (folderKey: string) => void;
 }) {
-  const initial = props.prefix ? props.prefix.replace(/\/$/, "") + "/" : "";
-  const [path, setPath] = createSignal(initial);
+  const [path, setPath] = createSignal(prefixToPath(props.prefix));
   const [err, setErr] = createSignal("");
 
   function submit() {
@@ -313,7 +313,7 @@ export function NewFolderModal(props: {
                value={path()}
                onInput={(e) => { setPath(e.currentTarget.value); setErr(""); }}
                onKeyDown={(e) => e.key === "Enter" && submit()}
-               ref={(el) => setTimeout(() => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 0)} />
+               ref={focusEnd} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
           <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>

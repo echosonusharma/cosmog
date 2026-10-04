@@ -7,7 +7,8 @@ import { confirmDialog } from "../../../state/confirm";
 import { formatBytes } from "../../../utils/fmt";
 import { IconEye, IconX } from "../../../utils/icons";
 import type { CachedObjectMeta } from "../../../types";
-import { extOf, parseCsvIntoSheet, worksheetToCsv, detectCsvFormat, type CsvFormat } from "../helpers";
+import { extOf } from "../../../utils/fmt";
+import { parseCsvIntoSheet, worksheetToCsv, detectCsvFormat, type CsvFormat } from "../helpers";
 import Spinner from "../../../utils/Spinner";
 import { useBackHandler } from "../../../utils/androidBack";
 

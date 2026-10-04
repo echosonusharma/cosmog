@@ -152,7 +152,7 @@ export function SearchResultsPane(props: {
                 >
                   <div class="obj-name-cell">
                     <span class="obj-checkbox-spacer" />
-                    <FileIcon name={obj.basename} />
+                    <FileIcon name={obj.basename} contentType={obj.content_type} />
                     <span class="obj-name">{highlightText(obj.key, props.searchQuery)}</span>
                   </div>
                   <div class="obj-type">{fileTypeLabel(obj.basename)}</div>

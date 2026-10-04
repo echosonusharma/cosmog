@@ -21,6 +21,8 @@ import { confirmDestructive, isShownKey, showHiddenFiles } from "../../state/set
 import { getPref, setPref } from "../../state/prefs";
 import type { CachedObjectMeta } from "../../types";
 import { DownloadModal, UploadModal, NewFolderModal, RenameModal } from "./modals";
+import { NewFileModal } from "./NewFileModal";
+import { extOf } from "../../utils/fmt";
 import { EncryptionModal } from "./EncryptionModal";
 import { VersionHistoryModal } from "./versionHistory/VersionHistoryModal";
 import { PreviewPane } from "./PreviewPane";
@@ -205,6 +207,8 @@ export function ObjectBrowser(props: {
   const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [showUpload, setShowUpload] = createSignal<string | false>(false);
   const [showNewFolder, setShowNewFolder] = createSignal<string | null>(null);
+  const [showNewFile, setShowNewFile] = createSignal<string | null>(null);
+  const [editNewKey, setEditNewKey] = createSignal<string | null>(null);
   const [downloadTarget, setDownloadTarget] = createSignal<CachedObjectMeta | null>(null);
   const [renameTarget, setRenameTarget] = createSignal<CachedObjectMeta | null>(null);
   const [versionTarget, setVersionTarget] = createSignal<CachedObjectMeta | null>(null);
@@ -226,6 +230,7 @@ export function ObjectBrowser(props: {
     if (renameTarget()) { setRenameTarget(null); return true; }
     if (downloadTarget()) { setDownloadTarget(null); return true; }
     if (showNewFolder() !== null) { setShowNewFolder(null); return true; }
+    if (showNewFile() !== null) { setShowNewFile(null); return true; }
     if (showUpload() !== false) { setShowUpload(false); setPendingDrop([]); return true; }
     if (showEncryption()) { setShowEncryption(false); return true; }
     if (selected().size > 0) { setSelected(new Set<string>()); return true; }
@@ -479,6 +484,7 @@ export function ObjectBrowser(props: {
         onViewMode={saveViewMode}
         onRefresh={handleRefresh}
         onNewFolder={() => setShowNewFolder(props.prefix)}
+        onNewFile={() => setShowNewFile(props.prefix)}
         onUpload={() => setShowUpload(props.prefix)}
       />
 
@@ -612,6 +618,8 @@ export function ObjectBrowser(props: {
             encrypted={(encStatus.latest ?? encStatus())?.enabled}
             reloadToken={previewReload()}
             onListChanged={() => setRefresh((n) => n + 1)}
+            startEditing={editNewKey() === previewTarget()?.key}
+            onEditStarted={() => setEditNewKey(null)}
           />
         </ErrorBoundary>
       </Show>
@@ -628,6 +636,7 @@ export function ObjectBrowser(props: {
             menu={m()}
             onClose={() => setCtxMenu(null)}
             onNewFolder={(prefix) => setShowNewFolder(prefix)}
+            onNewFile={(prefix) => setShowNewFile(prefix)}
             onUploadHere={(sub) => setShowUpload(sub)}
             onDeleteFolder={handleDeleteFolder}
             onPreview={(obj) => setPreviewTarget(obj)}
@@ -665,6 +674,26 @@ export function ObjectBrowser(props: {
                 toast.err(e);
                 setPendingFolders((prev) => prev.filter((f) => f !== folderKey));
               });
+          }}
+        />
+      </Show>
+
+      <Show when={showNewFile() !== null}>
+        <NewFileModal
+          accountId={props.accountId}
+          bucket={props.bucket}
+          prefix={showNewFile()!}
+          onClose={() => setShowNewFile(null)}
+          onCreated={(key, mime) => {
+            const base = key.split("/").pop() || key;
+            setRefresh((n) => n + 1);
+            setEditNewKey(key);
+            setPreviewTarget({
+              account_id: props.accountId, bucket: props.bucket, key,
+              size: 0, etag: null, last_modified: null, storage_class: null,
+              content_type: mime, extension: extOf(base) || null, basename: base,
+              version_id: null, synced_at: 0,
+            });
           }}
         />
       </Show>

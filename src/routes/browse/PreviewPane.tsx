@@ -1,4 +1,4 @@
-import { createSignal, createResource, Show, createEffect, onCleanup, lazy, Suspense } from "solid-js";
+import { createSignal, createResource, Show, createEffect, onCleanup, lazy, Suspense, untrack } from "solid-js";
 import { presignGet, previewObject, putObjectText } from "../../api/objects";
 import { notify } from "../../utils/notify";
 import { errMsg, toast } from "../../state/toast";
@@ -11,7 +11,9 @@ import {
 import type { CachedObjectMeta } from "../../types";
 import { resolvedTheme } from "../../state/theme";
 import { autoPreview } from "../../state/settings";
-import { IMAGE_EXTS, TEXT_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, extOf, isDotEnvName, editorExtOf } from "./helpers";
+import { mimeForExt, extForMime, isTextMime, TEXT_EXTS } from "../../utils/textTypes";
+import { extOf } from "../../utils/fmt";
+import { IMAGE_EXTS, SHEET_EXTS, PDF_EXTS, AUDIO_EXTS, isDotEnvName, editorExtOf } from "./helpers";
 import { PdfPreview } from "./preview/PdfModal";
 
 // Heavy libs (CodeMirror core, cropperjs, exceljs) are code-split: each chunk
@@ -66,17 +68,16 @@ function PreviewErrorCard(props: { err: unknown; storageClass?: string | null })
   );
 }
 
-export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; onListChanged?: () => void; }) {
+export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void; onDownload: () => void; onCopyLink: () => void; encrypted?: boolean; reloadToken?: number; onListChanged?: () => void; startEditing?: boolean; onEditStarted?: () => void; }) {
   const ct = () => props.obj.content_type ?? "";
   const ext = () => extOf(props.obj.basename);
-  const editorExt = () => editorExtOf(props.obj.basename);
+  const editorExt = () => editorExtOf(props.obj.basename) || extForMime(ct());
   const isImage = () => ct().startsWith("image/") || IMAGE_EXTS.has(ext());
   const isSheet = () => SHEET_EXTS.has(ext());
   const isPdf = () => ct() === "application/pdf" || PDF_EXTS.has(ext());
   const isAudio = () => ct().startsWith("audio/") || AUDIO_EXTS.has(ext());
   const isText = () => !isSheet() && !isPdf() && !isAudio() && (
-    ct().startsWith("text/") || ct().includes("json") || ct().includes("xml") || ct().includes("javascript")
-    || TEXT_EXTS.has(ext()) || isDotEnvName(props.obj.basename)
+    isTextMime(ct()) || TEXT_EXTS.has(ext()) || isDotEnvName(props.obj.basename)
   );
 
   type PreviewKind = "image" | "text" | "sheet" | "pdf" | "audio" | "binary";
@@ -118,6 +119,15 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const objId = () => `${props.obj.account_id}\n${props.obj.bucket}\n${props.obj.key}`;
   const [editSrc, setEditSrc] = createSignal<{ id: string; text: string } | null>(null);
   const [editLoading, setEditLoading] = createSignal(false);
+
+  // New files are empty: open the editor without fetching.
+  createEffect(() => {
+    if (!props.startEditing) return;
+    untrack(() => {
+      if (isText() && props.obj.size === 0) { setEditSrc({ id: objId(), text: "" }); setEditOpen(true); }
+      props.onEditStarted?.();
+    });
+  });
 
   // Superseded/unmounted image fetches skip creating an unrevoked blob URL.
   let imgSeq = 0;
@@ -280,7 +290,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
   async function saveEdit(content: string) {
     if (editSrc()?.id !== objId()) throw new Error("File changed while editing; not saved");
-    const ct = props.obj.content_type || `text/${ext() || "plain"}`;
+    const ct = props.obj.content_type || mimeForExt(ext());
     await putObjectText(props.obj.account_id, props.obj.bucket, props.obj.key, content, ct);
     refetchPreview();
     notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
@@ -292,7 +302,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     <>
       <div class="preview-pane">
         <div class="preview-header">
-          <FileIcon name={props.obj.basename} size={20} />
+          <FileIcon name={props.obj.basename} contentType={props.obj.content_type} size={20} />
           <span class="preview-title">{props.obj.basename}</span>
           <Show when={displayKind() === "image"}>
             <button class="icon-btn" onClick={() => setExpanded(true)}><IconArrowUpLine size={15} /></button>
