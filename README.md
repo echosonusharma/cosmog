@@ -1,12 +1,12 @@
 <div align="center">
   <img src="src-tauri/icons/cosmog-icon.svg" width="96" height="96" alt="Cosmog" />
 
-  # Cosmog
+# Cosmog
 
   Your S3 storage, everywhere.  
   A fast, native app for managing files across any S3-compatible provider on desktop and android.
 
-  [Download latest release →](https://github.com/echosonusharma/cosmog/releases/latest)
+  [Download latest release →](https://github.com/echosonusharma/cosmog/releases/latest) · [Join the Discord →](https://discord.gg/kvVQxJJwyx)
 
 </div>
 
@@ -26,7 +26,7 @@
 - 🗂️ **Browse** buckets and folders with fast column navigation
 - 📤 **Upload and download** with a background queue, progress tracking, and retry
 - 👁️ **Preview** images, audio, PDFs, spreadsheets, JSON, XML, text, and code without downloading
-- ✏️ **Edit** text based files (md, json, txt, and more), spreadsheets, and images (crop, rotate, flip) directly in the app
+- ✏️ **Create and edit** text based files (md, json, txt, and more, with a mime type of your choice), spreadsheets, and images (crop, rotate, flip) directly in the app
 - 🔍 **Search** across your entire bucket with full-text search
 - 📊 **Analyze** storage with per-bucket stats: size by file type, growth over time, and largest objects
 - 🔗 **Share** files instantly with presigned links
@@ -38,7 +38,7 @@
 ## Why Cosmog
 
 | | Cosmog | S3 Browser | Cyberduck | Transmit 5 |
-|---|:---:|:---:|:---:|:---:|
+| --- | :---: | :---: | :---: | :---: |
 | macOS | ✅ | ❌ | ✅ | ✅ |
 | Windows | ✅ | ✅ | ✅ | ❌ |
 | Linux | ✅ | ❌ | ❌ | ❌ |
@@ -59,7 +59,7 @@ AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, and any
 ## Download
 
 | Platform | Link | File to download |
-|---|---|---|
+| --- | --- | --- |
 | macOS (Apple Silicon) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_aarch64.dmg` |
 | macOS (Intel) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_x64.dmg` |
 | Windows | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog_*_x64-setup.exe` or `.msi` |
@@ -69,6 +69,10 @@ AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, and any
 | Android (requires 7.0+) | [Download](https://github.com/echosonusharma/cosmog/releases/latest) | `Cosmog-*-android-arm64.apk` (most phones) |
 
 Credentials are stored in the native OS secret store on each platform and never written to disk.
+
+## Community
+
+Questions, feedback, or ideas? Join the [Cosmog Discord](https://discord.gg/kvVQxJJwyx).
 
 ## Development
 
