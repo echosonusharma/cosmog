@@ -5,7 +5,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelecti
 import { EditorState, Compartment } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
-import { lintKeymap, linter, lintGutter } from "@codemirror/lint";
+import { lintKeymap, linter, lintGutter, setDiagnosticsEffect } from "@codemirror/lint";
 import { closeBrackets, autocompletion, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
@@ -23,14 +23,17 @@ async function langExtension(ext: string): Promise<Extension> {
     case "json":
     case "jsonc": {
       const { json, jsonParseLinter } = await import("@codemirror/lang-json");
-      return [json(), linter(jsonParseLinter())];
+      const parse = jsonParseLinter();
+      return [json(), linter((view) => (view.state.doc.length ? parse(view) : []))];
     }
     case "yaml":
     case "yml": {
       const { yaml } = await import("@codemirror/lang-yaml");
       const { load } = await import("js-yaml");
       const yamlLinter = linter((view): Diagnostic[] => {
-        try { load(view.state.doc.toString()); return []; }
+        const text = view.state.doc.toString();
+        if (!text.trim()) return [];
+        try { load(text); return []; }
         catch (e: any) {
           const line = e.mark?.line ?? 0;
           const from = view.state.doc.line(Math.min(line + 1, view.state.doc.lines)).from;
@@ -132,7 +135,8 @@ export function CodeEditor(props: {
       try {
         const lang = await langExtension(ext);
         if (destroyed || !view || gen !== langGen) return;
-        view.dispatch({ effects: langComp.reconfigure(lang) });
+        // drop stale errors from the previous language's linter
+        view.dispatch({ effects: [langComp.reconfigure(lang), setDiagnosticsEffect.of([])] });
       } catch (err) {
         console.warn("[CodeEditor] language load failed:", err);
       }
