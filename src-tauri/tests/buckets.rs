@@ -17,7 +17,7 @@ async fn bucket_lifecycle() {
     // head should now fail with NotFound
     let err = store.head_bucket(&name).await.expect_err("head after delete");
     assert!(
-        matches!(err.code(), "not_found" | "s3"),
+        err.is_not_found() || err.code() == "s3",
         "unexpected code: {} ({})", err.code(), err
     );
 }

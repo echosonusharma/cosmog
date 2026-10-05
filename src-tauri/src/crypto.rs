@@ -61,14 +61,14 @@ pub fn encrypt_bytes(recipient: &x25519::Recipient, plaintext: &[u8]) -> AppResu
 
 pub fn decrypt_bytes(identity: &x25519::Identity, ciphertext: &[u8]) -> AppResult<Vec<u8>> {
     let dec = age::Decryptor::new(ciphertext)
-        .map_err(|e| AppError::Internal(format!("age Decryptor: {e}")))?;
+        .map_err(|e| AppError::DecryptionFailed(format!("age Decryptor: {e}")))?;
     let mut reader = dec
         .decrypt(std::iter::once(identity as &dyn age::Identity))
-        .map_err(|e| AppError::Internal(format!("age decrypt: {e}")))?;
+        .map_err(|e| AppError::DecryptionFailed(format!("age decrypt: {e}")))?;
     let mut out = Vec::new();
     reader
         .read_to_end(&mut out)
-        .map_err(|e| AppError::Internal(format!("age read: {e}")))?;
+        .map_err(|e| AppError::DecryptionFailed(format!("age read: {e}")))?;
     Ok(out)
 }
 
@@ -151,15 +151,22 @@ pub async fn decrypt_file(
             .map_err(|e| AppError::Internal(format!("open {}: {e}", src.display())))?;
         let r = std::io::BufReader::new(f_in);
         let dec = age::Decryptor::new_buffered(r)
-            .map_err(|e| AppError::Internal(format!("age Decryptor: {e}")))?;
+            .map_err(|e| AppError::DecryptionFailed(format!("age Decryptor: {e}")))?;
         let mut reader = dec
             .decrypt(std::iter::once(&identity as &dyn age::Identity))
-            .map_err(|e| AppError::Internal(format!("age decrypt: {e}")))?;
+            .map_err(|e| AppError::DecryptionFailed(format!("age decrypt: {e}")))?;
         let f_out = std::fs::File::create(&dst)
             .map_err(|e| AppError::Internal(format!("create {}: {e}", dst.display())))?;
         let mut w = std::io::BufWriter::new(f_out);
         std::io::copy(&mut reader, &mut w)
-            .map_err(|e| AppError::Internal(format!("age copy: {e}")))?;
+            .map_err(|e| {
+                // The age reader reports bad ciphertext as InvalidData; anything else is the disk.
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    AppError::DecryptionFailed(format!("age copy: {e}"))
+                } else {
+                    AppError::Io(format!("write {}: {e}", dst.display()))
+                }
+            })?;
         w.flush()
             .map_err(|e| AppError::Internal(format!("age flush: {e}")))?;
         Ok(())

@@ -20,11 +20,6 @@ use crate::store::{GetOptions, ObjectStore, PutOptions};
 
 use super::{CompletedPart, ProgressSink, ResumeState, SourceStat, TransferCtx, TransferEvent};
 
-/// Returns `true` for transient S3 errors that are safe to retry.
-fn is_retriable(err: &AppError) -> bool {
-    matches!(err, AppError::RateLimited(_) | AppError::S3(_) | AppError::NetworkUnreachable(_))
-}
-
 /// Semaphore with runtime-adjustable limit; `current` tracks true capacity once in-flight permits release.
 /// Resize-down records only what it reclaimed, otherwise a later resize-up grows capacity past the limit.
 struct ResizableSemaphore {
@@ -576,7 +571,7 @@ impl TransferManager {
                     let _ = tokio::fs::remove_dir_all(dir).await;
                 }
             }
-            let err_text = result.as_ref().err().map(|e| e.to_string());
+            let err_text = result.as_ref().err().map(|e| e.to_wire_string());
             let _ = db
                 .update_transfer_status(&id_for_task, terminal, err_text.clone())
                 .await;
@@ -810,7 +805,7 @@ async fn upload_attempts(
         {
             Ok(r) => return Ok(r.etag),
             Err(e) => {
-                let again = is_retriable(&e) && attempt + 1 < MAX_ATTEMPTS;
+                let again = e.is_retriable() && attempt + 1 < MAX_ATTEMPTS;
                 last_err = Some(e);
                 if !again {
                     break;
@@ -898,7 +893,7 @@ async fn run_download(
                 break;
             }
             Err(e) => {
-                let again = is_retriable(&e) && attempt + 1 < MAX_ATTEMPTS;
+                let again = e.is_retriable() && attempt + 1 < MAX_ATTEMPTS;
                 last_err = Some(e);
                 if !again {
                     break;

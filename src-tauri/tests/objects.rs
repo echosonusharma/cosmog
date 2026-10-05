@@ -33,7 +33,7 @@ async fn put_head_delete_object() {
 
     store.delete_object(&bucket, "greet.txt").await.unwrap();
     let err = store.head_object(&bucket, "greet.txt").await.unwrap_err();
-    assert_eq!(err.code(), "not_found");
+    assert!(err.is_not_found(), "expected a not-found code, got {}", err.code());
 
     common::cleanup_bucket(&store, &bucket).await;
 }

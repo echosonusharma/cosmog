@@ -40,9 +40,9 @@ pub async fn delete_bucket(
     }
     let store = state.store_for(&account_id).await?;
     if let Err(e) = store.delete_bucket(&name).await {
-        // BucketNotEmpty surfaces as Conflict — a routine FE signal ("Empty +
+        // BucketNotEmpty is a routine FE signal ("Empty +
         // delete"), kept at debug so normal usage stays quiet.
-        if e.code() == "conflict" {
+        if matches!(e.code(), "bucket_not_empty" | "conflict") {
             tracing::debug!(account_id = %account_id, bucket = %name, "delete_bucket: not empty");
         } else {
             tracing::error!(account_id = %account_id, bucket = %name, "delete_bucket failed: {e}");

@@ -216,10 +216,7 @@ pub fn set_secret(account_id: &str, secret: &str) -> AppResult<()> {
 
 pub fn get_secret(account_id: &str) -> AppResult<String> {
     backend::get(account_id)?.ok_or_else(|| {
-        AppError::NotFound(
-            "credentials not found in system keychain. Please re-add this account in Settings."
-                .into(),
-        )
+        AppError::CredentialsMissing("no secret in system keychain".into())
     })
 }
 

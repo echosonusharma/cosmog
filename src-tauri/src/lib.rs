@@ -53,7 +53,7 @@ fn notify_ex(
     summary: Option<String>,
     large_body: Option<String>,
     extra: Option<std::collections::HashMap<String, serde_json::Value>>,
-) -> Result<(), String> {
+) -> crate::error::AppResult<()> {
     use tauri_plugin_notification::NotificationExt;
     let mut b = app.notification().builder().id(id).title(title);
     if let Some(v) = body { b = b.body(v); }
@@ -68,19 +68,19 @@ fn notify_ex(
     if ongoing.unwrap_or(false) { b = b.ongoing(); }
     if auto_cancel.unwrap_or(false) { b = b.auto_cancel(); }
     if silent.unwrap_or(false) { b = b.silent(); }
-    b.show().map_err(|e| e.to_string())
+    b.show().map_err(|e| crate::error::AppError::Internal(e.to_string()))
 }
 
 /// Streams a finished download from cache into a SAF content:// URI (chunked, multi-GB safe).
 #[tauri::command]
-async fn finalize_saf_download(cache_path: String, uri: String) -> Result<u64, String> {
-    crate::saf::finalize_saf_download(cache_path, uri).await
+async fn finalize_saf_download(cache_path: String, uri: String) -> crate::error::AppResult<u64> {
+    crate::saf::finalize_saf_download(cache_path, uri).await.map_err(crate::error::AppError::Io)
 }
 
 /// Removes the SAF placeholder document after a canceled/failed download (no 0-byte leftovers).
 #[tauri::command]
-async fn delete_saf_document(uri: String) -> Result<bool, String> {
-    crate::saf::delete_saf_document(uri).await
+async fn delete_saf_document(uri: String) -> crate::error::AppResult<bool> {
+    crate::saf::delete_saf_document(uri).await.map_err(crate::error::AppError::Io)
 }
 
 /// Stages a SAF `content://` URI into app cache; returns a usable fs path plus the display name for the S3 key.
@@ -88,20 +88,20 @@ async fn delete_saf_document(uri: String) -> Result<bool, String> {
 async fn stage_saf_upload(
     uri: String,
     dest_dir: String,
-) -> Result<crate::saf::SafStagedUpload, String> {
-    crate::saf::stage_saf_upload(uri, dest_dir).await
+) -> crate::error::AppResult<crate::saf::SafStagedUpload> {
+    crate::saf::stage_saf_upload(uri, dest_dir).await.map_err(crate::error::AppError::Io)
 }
 
 /// Toggles the Android foreground TransferService (FE polling; no-op off Android).
 #[tauri::command]
-fn set_transfer_service(active: bool) -> Result<(), String> {
-    crate::saf::set_transfer_service(active)
+fn set_transfer_service(active: bool) -> crate::error::AppResult<()> {
+    crate::saf::set_transfer_service(active).map_err(crate::error::AppError::Io)
 }
 
 /// Real OS/arch/model info for bug reports, resolved natively (not the WebView navigator string).
 #[tauri::command]
-fn get_device_info() -> Result<crate::device::DeviceInfo, String> {
-    crate::device::get_device_info()
+fn get_device_info() -> crate::error::AppResult<crate::device::DeviceInfo> {
+    crate::device::get_device_info().map_err(crate::error::AppError::Internal)
 }
 
 /// Guaranteed quit for no-tray hosts: marks quit requested (close-guard stands down), then exits.

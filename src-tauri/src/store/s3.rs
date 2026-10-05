@@ -22,6 +22,7 @@ use futures::stream::StreamExt;
 use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AppError, AppResult};
+use classify::classify_aws;
 use crate::transfer::{
     CompletedPart as SavedPart, DownloadResult, ResumeState, TransferCtx, TransferEvent,
     UploadResult,
@@ -33,6 +34,7 @@ use super::{
     PendingMultipartUpload, PutOptions, Sse,
 };
 
+mod classify;
 mod copy;
 
 /// Per-account config for [`S3Store`]; `endpoint` is `None` for plain AWS.
@@ -91,105 +93,6 @@ impl S3Store {
 /// Wrap a non-SDK failure (no S3 error code available) into [`AppError::S3`].
 fn s3_err<E: std::fmt::Display>(ctx: &str, e: E) -> AppError {
     AppError::S3(format!("{ctx}: {e}"))
-}
-
-/// Flatten an error's `source()` chain into one string; the SDK hides the real
-/// cause (DNS, refused, TLS) behind a generic outer Display.
-fn error_chain<E: std::error::Error>(e: &E) -> String {
-    let mut parts = vec![e.to_string()];
-    let mut src = e.source();
-    while let Some(s) = src {
-        let msg = s.to_string();
-        if !parts.contains(&msg) {
-            parts.push(msg);
-        }
-        src = s.source();
-    }
-    parts.join(": ")
-}
-
-/// Map an AWS SDK error to the most specific [`AppError`] variant; unknown codes
-/// or transport failures fall back to [`AppError::S3`].
-fn classify_aws<E>(
-    ctx: &str,
-    err: SdkError<E, aws_smithy_runtime_api::client::orchestrator::HttpResponse>,
-) -> AppError
-where
-    E: ProvideErrorMetadata + std::fmt::Display + std::fmt::Debug,
-{
-    let mut display = format!("{ctx}: {err}");
-
-    // Transport-level failure before any HTTP response; the outer Display collapses
-    // to "dispatch failure", so surface the source chain's real cause.
-    if let SdkError::DispatchFailure(ref df) = err {
-        let msg = if df.is_timeout() {
-            format!("{ctx}: connection timed out")
-        } else if let Some(ce) = df.as_connector_error() {
-            format!("{ctx}: {}", error_chain(ce))
-        } else {
-            display.clone()
-        };
-        return AppError::NetworkUnreachable(msg);
-    }
-    if let SdkError::TimeoutError(_) = err {
-        return AppError::NetworkUnreachable(format!("{ctx}: request timed out"));
-    }
-
-    if let Some(service_err) = err.as_service_error() {
-        let code = service_err.code().unwrap_or_default();
-        let msg = service_err.message().unwrap_or_default();
-        if !code.is_empty() || !msg.is_empty() {
-            display = format!("{ctx}: {code} {msg}").trim().to_string();
-        }
-        match code {
-            "NoSuchBucket" | "NoSuchKey" | "NoSuchUpload" | "NoSuchVersion"
-            | "NotFound" | "404" => {
-                return AppError::NotFound(display);
-            }
-            // Dedicated variant so the UI can prompt credential re-entry.
-            "SignatureDoesNotMatch" | "InvalidAccessKeyId" => {
-                return AppError::CredentialsInvalid(display);
-            }
-            "AccessDenied" | "AllAccessDisabled" | "UnauthorizedAccess" => {
-                return AppError::AccessDenied(display);
-            }
-            "PreconditionFailed"
-            | "BucketAlreadyExists"
-            | "BucketAlreadyOwnedByYou"
-            | "BucketNotEmpty"
-            | "OperationAborted" => {
-                return AppError::Conflict(display);
-            }
-            "SlowDown" | "TooManyRequests" | "RequestTimeTooSkewed" => {
-                return AppError::RateLimited(display);
-            }
-            "PermanentRedirect" => {
-                return AppError::RegionRedirect(display);
-            }
-            // Op unimplemented on this provider (common on B2/R2); distinct FE code.
-            "NotImplemented" | "501" => {
-                return AppError::Unsupported(display);
-            }
-            // Cold/archive storage class blocks reads until restored; distinct FE code.
-            "InvalidObjectState" => {
-                return AppError::Archived(display);
-            }
-            _ => {}
-        }
-        // Some providers emit only HTTP 501 with an empty/unknown error code.
-        if let SdkError::ServiceError(ref se) = err {
-            if se.raw().status().as_u16() == 501 {
-                return AppError::Unsupported(display);
-            }
-        }
-    }
-    // HEAD carries no XML error body; classify a cross-region 301 from the raw status.
-    if let SdkError::ServiceError(ref se) = err {
-        if se.raw().status().as_u16() == 301 {
-            return AppError::RegionRedirect(display);
-        }
-    }
-    AppError::S3(display)
 }
 
 fn canceled(transfer_id: &str) -> AppError {
@@ -1709,7 +1612,7 @@ impl S3Store {
                     Ok(_) | Err(AppError::Unsupported(_)) => {
                         return Ok((state.upload_id, state.completed_parts, part_size));
                     }
-                    Err(AppError::NotFound(_)) => {}
+                    Err(e) if e.is_not_found() => {}
                     Err(e) => return Err(e),
                 }
             } else if !state.upload_id.is_empty() {

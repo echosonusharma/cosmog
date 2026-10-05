@@ -222,7 +222,7 @@ async fn refresh_cached_key(
 ) {
     let res = match store.head_object(bucket, key).await {
         Ok(meta) => state.db.cache_upsert_object(account_id, bucket, &meta).await,
-        Err(AppError::NotFound(_)) => state.db.cache_remove_object(account_id, bucket, key).await,
+        Err(e) if e.is_not_found() => state.db.cache_remove_object(account_id, bucket, key).await,
         Err(e) => {
             warn!("head after version op failed for {key}: {e}");
             return;
@@ -448,8 +448,8 @@ pub async fn preview_object(
         if marked && !looks_encrypted {
             // Metadata says encrypted, bytes disagree (legacy pre-age upload or
             // stripped header): never serve raw ciphertext — surface an error.
-            return Err(AppError::InvalidInput(
-                "cannot decrypt: payload is not in the expected age format".into(),
+            return Err(AppError::DecryptionFailed(
+                "payload is not in the expected age format".into(),
             ));
         }
         if !marked && looks_encrypted {

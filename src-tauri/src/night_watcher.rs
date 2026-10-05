@@ -180,7 +180,7 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
                 return;
             }
             let res = reconcile_watch(&state, &w, &task_token).await;
-            let err = res.as_ref().err().map(|e| e.to_string());
+            let err = res.as_ref().err().map(|e| e.to_wire_string());
             if let Err(ref e) = res {
                 warn!(watch = %w.id, "night watcher scan failed: {e}");
             }

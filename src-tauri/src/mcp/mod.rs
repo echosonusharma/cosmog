@@ -468,7 +468,7 @@ pub async fn delete_token() -> AppResult<()> {
 fn load_or_create_token() -> AppResult<String> {
     match crate::secrets::get_secret(TOKEN_KEY) {
         Ok(t) => Ok(t),
-        Err(AppError::NotFound(_)) => {
+        Err(e) if e.is_credentials_missing() => {
             let t = gen_token();
             crate::secrets::set_secret(TOKEN_KEY, &t)?;
             Ok(t)

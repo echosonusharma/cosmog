@@ -92,13 +92,15 @@ impl LoggingStore {
 
     fn error_http_status(code: &str) -> Option<i64> {
         match code {
-            "not_found" => Some(404),
-            "access_denied" => Some(403),
-            "credentials_invalid" => Some(403),
-            "conflict" => Some(409),
+            "not_found" | "bucket_not_found" | "object_not_found" | "upload_not_found" => Some(404),
+            "access_denied" | "credentials_invalid" | "access_key_invalid" | "clock_skew" => Some(403),
+            "conflict" | "bucket_exists" | "bucket_not_empty" => Some(409),
+            "entity_too_large" => Some(413),
             "rate_limited" => Some(429),
             "region_redirect" => Some(301),
             "internal" => Some(500),
+            "service_unavailable" => Some(503),
+            "request_timeout" => Some(408),
             _ => None,
         }
     }

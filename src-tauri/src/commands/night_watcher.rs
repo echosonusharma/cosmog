@@ -104,7 +104,7 @@ pub async fn nw_add_watch(
 pub async fn nw_pick_tree(_state: State<'_, AppState>) -> AppResult<crate::saf::SafTree> {
     crate::saf::nw_pick_tree().await.map_err(|e| {
         if e == "canceled" {
-            AppError::InvalidInput("tree pick canceled".into())
+            AppError::Canceled("tree pick canceled".into())
         } else {
             AppError::Internal(e)
         }
