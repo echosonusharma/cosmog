@@ -1,15 +1,17 @@
 // Derive which subsystem emitted a log line; tracing target prefix wins over message keywords.
+import { t } from "../i18n";
 
 export interface LogSource { key: string; label: string; color: string; }
 
-const SRC_NIGHT_WATCHER: LogSource = { key: "night-watcher", label: "Night Watcher", color: "#a45cf0" };
-const SRC_SCHEDULER:     LogSource = { key: "scheduler",     label: "Scheduler",     color: "#06b6d4" };
-const SRC_TRANSFERS:     LogSource = { key: "transfers",     label: "Transfers",     color: "#f59e0b" };
-const SRC_BUCKETS:       LogSource = { key: "buckets",       label: "Buckets/S3",    color: "#14b8a6" };
-const SRC_ENCRYPTION:    LogSource = { key: "encryption",    label: "Encryption",    color: "#ec4899" };
-const SRC_SEARCH:        LogSource = { key: "search",        label: "Search",        color: "#8b5cf6" };
-const SRC_MCP:           LogSource = { key: "mcp",           label: "MCP",           color: "#6366f1" };
-const SRC_APP:           LogSource = { key: "app",           label: "App",           color: "#94a3b8" };
+// label is a getter so it follows the active language.
+const SRC_NIGHT_WATCHER: LogSource = { key: "night-watcher", get label() { return t("logs.source.nightWatcher"); }, color: "#a45cf0" };
+const SRC_SCHEDULER:     LogSource = { key: "scheduler",     get label() { return t("logs.source.scheduler"); },     color: "#06b6d4" };
+const SRC_TRANSFERS:     LogSource = { key: "transfers",     get label() { return t("logs.source.transfers"); },     color: "#f59e0b" };
+const SRC_BUCKETS:       LogSource = { key: "buckets",       get label() { return t("logs.source.buckets"); },    color: "#14b8a6" };
+const SRC_ENCRYPTION:    LogSource = { key: "encryption",    get label() { return t("logs.source.encryption"); },    color: "#ec4899" };
+const SRC_SEARCH:        LogSource = { key: "search",        get label() { return t("logs.source.search"); },        color: "#8b5cf6" };
+const SRC_MCP:           LogSource = { key: "mcp",           get label() { return t("logs.source.mcp"); },           color: "#6366f1" };
+const SRC_APP:           LogSource = { key: "app",           get label() { return t("logs.source.app"); },           color: "#94a3b8" };
 
 // target substring -> source. Checked before keyword matching.
 const TARGET_MAP: Array<[string, LogSource]> = [

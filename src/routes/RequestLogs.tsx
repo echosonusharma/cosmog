@@ -3,6 +3,8 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
 import type { RequestLog } from "../types";
+import { describeError, errMsg } from "../utils/errors";
+import { isKnownCode } from "../utils/errorCodes";
 import { toast } from "../state/toast";
 import { currentView } from "../state/app";
 import { confirmDestructive } from "../state/settings";
@@ -11,11 +13,12 @@ import { Select } from "../utils/Select";
 import { isMobile } from "../utils/breakpoint";
 import { useBackHandler } from "../utils/androidBack";
 
-import { OP_LABELS, opLabel, opColor } from "../utils/requestLogMeta";
+import { OP_KEYS, opLabel, opColor } from "../utils/requestLogMeta";
 import { highlightText } from "../utils/highlight";
 import Spinner from "../utils/Spinner";
+import { language, t } from "../i18n";
 
-// Fixed row height — must match CSS. Detail lives outside the list (right pane
+// Fixed row height: must match CSS. Detail lives outside the list (right pane
 // / bottom sheet), so the virtualizer never measures variable heights.
 const ROW_H_DESKTOP = 40;
 const ROW_H_MOBILE = 64;
@@ -29,12 +32,12 @@ function durationClass(ms: number): string {
 
 function fmtTime(ts: number): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleTimeString(language(), { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function fmtDate(ts: number): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString(language(), { month: "short", day: "numeric" });
 }
 
 function fmtDuration(ms: number): string {
@@ -59,6 +62,11 @@ const PAGE = 100;
 function RequestLogDetail(props: { log: RequestLog }) {
   const color = () => opColor(props.log.operation);
   const isErr = () => props.log.status === "error";
+  // Description from the stable code; the raw message stays below as technical detail.
+  const errInfo = () => {
+    const code = props.log.error_code ?? "";
+    return { desc: isKnownCode(code) ? describeError({ code, detail: "" }).desc : "" };
+  };
   return (
     <div class="req-log-detail">
       <div class="req-log-detail-header" style={{ "border-left-color": color() }}>
@@ -78,7 +86,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
         <span
           class={`req-log-detail-status-badge ${isErr() ? "req-log-detail-err-badge" : "req-log-detail-ok-badge"}`}
         >
-          {isErr() ? "✕ error" : "✓ ok"}
+          {isErr() ? t("logs.req.badgeError") : t("logs.req.badgeOk")}
         </span>
       </div>
 
@@ -88,6 +96,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
           <span class="req-log-url-text">{props.log.request_url}</span>
           <button
             class="req-log-copy-btn"
+            title={t("common.copy")}
             onClick={() => navigator.clipboard.writeText(props.log.request_url!)}
           >⎘</button>
         </div>
@@ -96,29 +105,29 @@ function RequestLogDetail(props: { log: RequestLog }) {
       <div class="req-log-detail-chips">
         <Show when={props.log.account_name}>
           <span class="req-log-chip req-log-chip-account">
-            <span class="req-log-chip-label">account</span>
+            <span class="req-log-chip-label">{t("logs.req.account")}</span>
             {props.log.account_name}
           </span>
         </Show>
         <Show when={props.log.bucket}>
           <span class="req-log-chip req-log-chip-bucket">
-            <span class="req-log-chip-label">bucket</span>
+            <span class="req-log-chip-label">{t("logs.req.bucket")}</span>
             {props.log.bucket}
           </span>
         </Show>
         <span class={`req-log-chip req-log-chip-duration ${durationClass(props.log.duration_ms)}`}>
-          <span class="req-log-chip-label">duration</span>
+          <span class="req-log-chip-label">{t("logs.req.duration")}</span>
           {props.log.duration_ms}ms
         </span>
         <span class="req-log-chip req-log-chip-time">
-          <span class="req-log-chip-label">time</span>
+          <span class="req-log-chip-label">{t("logs.req.time")}</span>
           {new Date(props.log.created_at * 1000).toISOString().replace("T", " ").replace("Z", " UTC")}
         </span>
       </div>
 
       <Show when={props.log.key}>
         <div class="req-log-detail-key-row">
-          <span class="req-log-chip-label req-log-chip-label-nostretch">key</span>
+          <span class="req-log-chip-label req-log-chip-label-nostretch">{t("logs.req.key")}</span>
           <code class="req-log-detail-key">{props.log.key}</code>
         </div>
       </Show>
@@ -126,7 +135,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
       <Show when={props.log.request_params && props.log.request_params !== "null"}>
         <div class="req-log-params-block">
           <div class="req-log-params-header">
-            <span class="req-log-chip-label">request params</span>
+            <span class="req-log-chip-label">{t("logs.req.params")}</span>
           </div>
           <pre class="req-log-params-json">{prettyJson(props.log.request_params!)}</pre>
         </div>
@@ -135,7 +144,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
       <Show when={props.log.response_meta && props.log.response_meta !== "null"}>
         <div class="req-log-params-block">
           <div class="req-log-params-header">
-            <span class="req-log-chip-label">response</span>
+            <span class="req-log-chip-label">{t("logs.req.response")}</span>
           </div>
           <pre class="req-log-params-json">{prettyJson(props.log.response_meta!)}</pre>
         </div>
@@ -147,10 +156,13 @@ function RequestLogDetail(props: { log: RequestLog }) {
             <Show when={props.log.error_code}>
               <span class="req-log-detail-error-code">{props.log.error_code}</span>
             </Show>
-            <span class="req-log-detail-error-label">ERROR</span>
+            <span class="req-log-detail-error-label">{t("logs.req.errorLabel")}</span>
           </div>
+          <Show when={errInfo().desc}>
+            <p class="req-log-detail-error-msg">{errInfo().desc}</p>
+          </Show>
           <Show when={props.log.error_msg}>
-            <p class="req-log-detail-error-msg">{props.log.error_msg}</p>
+            <p class="req-log-detail-error-msg req-log-detail-error-raw">{props.log.error_msg}</p>
           </Show>
         </div>
       </Show>
@@ -273,7 +285,7 @@ export function RequestLogs(props: { active?: boolean }) {
       setFetchError(null);
     } catch (e) {
       if (gen !== loadGen) return;
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = errMsg(e);
       console.error("list_request_logs failed:", e);
       setFetchError(msg);
       setLogs([]);
@@ -397,9 +409,9 @@ export function RequestLogs(props: { active?: boolean }) {
 
   async function doClear() {
     const ok = await confirmDestructive({
-      title: "Clear all request logs?",
-      body: "All recorded S3 API request history will be deleted permanently.",
-      confirmLabel: "Clear",
+      title: t("logs.req.clearConfirmTitle"),
+      body: t("logs.req.clearConfirmBody"),
+      confirmLabel: t("logs.common.clear"),
       danger: true,
     });
     if (!ok) return;
@@ -409,13 +421,13 @@ export function RequestLogs(props: { active?: boolean }) {
       setHasMore(false);
       lastPageOffset = -1;
       setSelectedId(null);
-      toast.ok("Request logs cleared", "All recorded S3 request history was deleted");
+      toast.ok(t("logs.req.clearedTitle"), t("logs.req.clearedDetail"));
     } catch (e) {
       toast.err(e);
     }
   }
 
-  const today = () => new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const today = () => fmtDate(Date.now() / 1000);
 
   function selectRow(id: string) {
     setSelectedId((cur) => (cur === id ? null : id));
@@ -423,8 +435,8 @@ export function RequestLogs(props: { active?: boolean }) {
 
   const detailToolbar = () => (
     <div class="req-log-detail-toolbar">
-      <span class="req-log-detail-toolbar-title">Request detail</span>
-      <button class="icon-btn" aria-label="Close detail" onClick={() => setSelectedId(null)}>
+      <span class="req-log-detail-toolbar-title">{t("logs.req.detailTitle")}</span>
+      <button class="icon-btn" aria-label={t("logs.req.closeDetail")} onClick={() => setSelectedId(null)}>
         <IconX size={16} />
       </button>
     </div>
@@ -437,12 +449,12 @@ export function RequestLogs(props: { active?: boolean }) {
           <IconSearch size={13} class="logs-search-icon" />
           <input
             class="field logs-search-input"
-            placeholder="Search operation, bucket, key…"
+            placeholder={t("logs.req.searchPlaceholder")}
             value={search()}
             onInput={(e) => onSearch(e.currentTarget.value)}
           />
           <Show when={search()}>
-            <button class="logs-search-clear" aria-label="Clear search" onClick={clearSearch}>
+            <button class="logs-search-clear" aria-label={t("logs.common.clearSearch")} onClick={clearSearch}>
               <IconX size={12} />
             </button>
           </Show>
@@ -450,36 +462,36 @@ export function RequestLogs(props: { active?: boolean }) {
 
         <Select
           value={opFilter()}
-          placeholder="All operations"
-          options={Object.keys(OP_LABELS).map((op) => ({ value: op, label: OP_LABELS[op] }))}
+          placeholder={t("logs.req.allOperations")}
+          options={Object.keys(OP_KEYS).map((op) => ({ value: op, label: opLabel(op) }))}
           class="logs-select logs-select-op"
           onChange={(v) => { setOpFilter(v); load(); }}
         />
 
         <Select
           value={statusFilter()}
-          placeholder="All statuses"
+          placeholder={t("logs.req.allStatuses")}
           options={[
-            { value: "ok", label: "Success" },
-            { value: "error", label: "Error" },
+            { value: "ok", label: t("logs.req.statusOk") },
+            { value: "error", label: t("common.error") },
           ]}
           class="logs-select logs-select-status"
           onChange={(v) => { setStatusFilter(v); load(); }}
         />
         <Show when={logs().length > 0}>
           <button class="btn-ghost logs-clear-btn" onClick={doClear}>
-            <IconTrash size={13} /> Clear all
+            <IconTrash size={13} /> {t("logs.req.clearAll")}
           </button>
         </Show>
       </div>
 
       <Show when={loading()}>
-        <div class="loading-row logs-loading"><Spinner /> Loading…</div>
+        <div class="loading-row logs-loading"><Spinner /> {t("common.loading")}</div>
       </Show>
       <Show when={!loading()}>
         <Show when={fetchError()}>
           <div class="empty-state">
-            <span class="logs-fetch-err">Error: {fetchError()}</span>
+            <span class="logs-fetch-err">{t("logs.req.fetchError", { message: fetchError() ?? "" })}</span>
           </div>
         </Show>
         <Show
@@ -488,7 +500,7 @@ export function RequestLogs(props: { active?: boolean }) {
             <Show when={!fetchError()}>
               <div class="empty-state">
                 <span class="logs-empty-text">
-                  {search() || opFilter() || statusFilter() ? "No results" : "No API requests logged yet"}
+                  {search() || opFilter() || statusFilter() ? t("logs.common.noResults") : t("logs.req.empty")}
                 </span>
               </div>
             </Show>
@@ -570,7 +582,7 @@ export function RequestLogs(props: { active?: boolean }) {
                 </Index>
               </div>
               <Show when={loadingMore()}>
-                <div class="req-log-more"><Spinner /> Loading more…</div>
+                <div class="req-log-more"><Spinner /> {t("logs.req.loadingMore")}</div>
               </Show>
             </div>
 

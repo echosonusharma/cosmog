@@ -11,6 +11,7 @@ import {
 import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
 import Spinner from "../../utils/Spinner";
+import { t, tp } from "../../i18n";
 
 export type ListItem =
   | { kind: "folder"; sub: string }
@@ -90,10 +91,10 @@ export function ListView(props: {
   return (
     <>
       <div class="col-header">
-        <button>Name</button>
-        <div>Type</div>
-        <div class="col-num">Size</div>
-        <div>Modified</div>
+        <button>{t("common.name")}</button>
+        <div>{t("common.type")}</div>
+        <div class="col-num">{t("common.size")}</div>
+        <div>{t("common.modified")}</div>
         <div />
       </div>
 
@@ -108,7 +109,7 @@ export function ListView(props: {
           </Show>
 
           <Show when={props.browseData.loading && listItems().length === 0}>
-            <div class="loading-row"><Spinner /> Loading…</div>
+            <div class="loading-row"><Spinner /> {t("common.loading")}</div>
           </Show>
 
           {/* ".." back row — outside virtual list so it's always at top */}
@@ -119,7 +120,7 @@ export function ListView(props: {
                 <IconBack size={16} class="muted" />
                 <span class="obj-name">..</span>
               </div>
-              <div class="obj-type">Folder</div>
+              <div class="obj-type">{t("browse.list.folder")}</div>
               <div class="obj-size" />
               <div class="obj-date" />
               <div />
@@ -129,7 +130,7 @@ export function ListView(props: {
           <Show when={props.browseData.initialLoaded && !props.browseData.loading && !props.browseData.error && listItems().length === 0}>
             <div class="empty-state">
               <span class="empty-icon"><IconBucket size={36} /></span>
-              Empty prefix
+              {t("browse.list.emptyPrefix")}
             </div>
           </Show>
 
@@ -139,7 +140,7 @@ export function ListView(props: {
               disabled={props.browseData.loading}
               onClick={props.onLoadMore}
             >
-              {props.browseData.loading ? "Loading more…" : `Load more (${props.browseData.objects.length} loaded)`}
+              {props.browseData.loading ? t("browse.list.loadingMore") : tp("browse.list.loadMore", props.browseData.objects.length)}
             </button>
           </Show>
 
@@ -166,7 +167,7 @@ export function ListView(props: {
                               <FileIcon name={(item() as { kind: "folder"; sub: string }).sub} folder />
                               <span class="obj-name">{basename((item() as { kind: "folder"; sub: string }).sub.replace(/\/$/, ""))}</span>
                             </div>
-                            <div class="obj-type">Folder</div>
+                            <div class="obj-type">{t("browse.list.folder")}</div>
                             <div class="obj-size" />
                             <div class="obj-date" />
                             <div class="obj-actions" />
@@ -192,7 +193,7 @@ export function ListView(props: {
                                   <FileIcon name={obj().basename} contentType={obj().content_type} />
                                   <span class="obj-name">{obj().basename}</span>
                                 </div>
-                                <div class="obj-type">{obj().key.endsWith("/") ? "Folder" : fileTypeLabel(obj().basename)}</div>
+                                <div class="obj-type">{obj().key.endsWith("/") ? t("browse.list.folder") : fileTypeLabel(obj().basename)}</div>
                                 <div class="obj-size">{formatBytes(obj().size)}</div>
                                 <div class="obj-date">{obj().last_modified ? formatDate(obj().last_modified) : "-"}</div>
                                 <div class="obj-actions" onClick={(e) => e.stopPropagation()}>
@@ -202,7 +203,7 @@ export function ListView(props: {
                                 </div>
                                 <button
                                   class="obj-kebab icon-btn"
-                                  title="Actions"
+                                  title={t("browse.col.actions")}
                                   onClick={(e) => { e.stopPropagation(); props.onCtxFile(e, obj()); }}
                                 >
                                   <IconMore size={16} />

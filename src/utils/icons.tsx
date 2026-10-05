@@ -1,5 +1,6 @@
 import { JSX } from "solid-js";
 import { extOf } from "./fmt";
+import { t } from "../i18n";
 import { isTextMime } from "./textTypes";
 
 // Icons map to /public/icons/ui/<name>.svg; color comes from CSS `background-color`
@@ -154,7 +155,7 @@ export function fileKind(name: string, contentType?: string | null): Kind {
 }
 
 export function fileTypeLabel(name: string): string {
-  return extOf(name).toUpperCase() || "File";
+  return extOf(name).toUpperCase() || t("common.file");
 }
 
 export function FileIcon(props: { name: string; contentType?: string | null; folder?: boolean; size?: number }): JSX.Element {

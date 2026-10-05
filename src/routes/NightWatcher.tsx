@@ -4,6 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { currentView } from "../state/app";
 import { Select } from "../utils/Select";
 import { IconTrash, IconFolder, IconEye, IconAlertCircle } from "../utils/icons";
+import { errCode, errMsg } from "../utils/errors";
 import { toast } from "../state/toast";
 import { confirmDestructive } from "../state/settings";
 import { formatRelative } from "../utils/fmt";
@@ -17,6 +18,7 @@ import {
 import type { NightWatch, WatchStatus } from "../types";
 import { nightWatchAddSchema, parseSchema } from "../validation";
 import Spinner from "../utils/Spinner";
+import { t, tp } from "../i18n";
 
 const DEFAULT_FULL_SCAN_SECS = 300;
 
@@ -116,7 +118,7 @@ export default function NightWatcher() {
       patch("local_dir", display_name);
     } catch (e) {
       // User dismissed the system picker: not an error, stay quiet.
-      if (String(e).toLowerCase().includes("canceled")) return;
+      if (errCode(e) === "canceled") return;
       toast.err(e);
     }
   }
@@ -149,7 +151,7 @@ export default function NightWatcher() {
       setForm({ ...EMPTY_FORM });
       await refetchWatches();
       await refetchStatus();
-      toast.ok("Watch added", "Night Watcher is now syncing this directory");
+      toast.ok(t("nightwatcher.toast.added"), t("nightwatcher.toast.addedBody"));
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
   }
@@ -164,9 +166,9 @@ export default function NightWatcher() {
 
   async function removeWatch(w: NightWatch) {
     const ok = await confirmDestructive({
-      title: "Delete this watch?",
-      body: `Stops syncing "${w.local_dir}". Remote files are left untouched.`,
-      confirmLabel: "Delete",
+      title: t("nightwatcher.delete.title"),
+      body: t("nightwatcher.delete.body", { dir: w.local_dir }),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -174,7 +176,7 @@ export default function NightWatcher() {
       await nwDeleteWatch(w.id);
       await refetchWatches();
       await refetchStatus();
-      toast.ok("Watch deleted", `Stopped syncing "${w.local_dir}"; remote files were left untouched`);
+      toast.ok(t("nightwatcher.toast.deleted"), t("nightwatcher.toast.deletedBody", { dir: w.local_dir }));
     } catch (e) { toast.err(e); }
   }
 
@@ -184,7 +186,7 @@ export default function NightWatcher() {
         <span class="section-title">Night Watcher</span>
         <Show when={!IS_MOBILE_OS && watches.list.length > 0}>
           <button class="nw-quit-btn" onClick={quitBackground}>
-            Quit background sync
+            {t("nightwatcher.quit")}
           </button>
         </Show>
       </div>
@@ -193,23 +195,22 @@ export default function NightWatcher() {
         <div class="nw-intro">
           <div class="nw-intro-badge"><IconEye size={18} /></div>
           <div class="nw-intro-text">
-            <span class="nw-intro-lead">The watch that never sleeps</span>
+            <span class="nw-intro-lead">{t("nightwatcher.intro.lead")}</span>
             <span class="nw-intro-body">
-              Night Watcher guards a directory by keeping a safe copy in your bucket,
-              syncing every change one-way as it happens.
+              {t("nightwatcher.intro.body")}
             </span>
           </div>
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-title">Watched directories</div>
+          <div class="settings-section-title">{t("nightwatcher.watched.title")}</div>
 
           <Show when={!watches.loaded}>
-            <div class="loading-row"><Spinner /> Loading watches…</div>
+            <div class="loading-row"><Spinner /> {t("nightwatcher.watched.loading")}</div>
           </Show>
 
           <Show when={watches.loaded && watches.list.length === 0}>
-            <div class="nw-empty">No directories are being watched yet. Add one below.</div>
+            <div class="nw-empty">{t("nightwatcher.watched.empty")}</div>
           </Show>
 
           <Show when={watches.list.length > 0}>
@@ -228,16 +229,16 @@ export default function NightWatcher() {
                           </Show>
                         </div>
                         <div class="nw-item-meta">
-                          <span class="nw-meta-chip">{st()?.files_tracked ?? 0} files</span>
+                          <span class="nw-meta-chip">{tp("nightwatcher.item.files", st()?.files_tracked ?? 0)}</span>
                           <span class="nw-meta-chip">
-                            Last scan: {st()?.last_scan_at ? formatRelative(st()!.last_scan_at!) : "never"}
+                            {t("nightwatcher.item.lastScan", { when: st()?.last_scan_at ? formatRelative(st()!.last_scan_at!) : t("nightwatcher.item.never") })}
                           </span>
-                          <span class="nw-meta-chip">Scan every {w.full_scan_secs}s</span>
+                          <span class="nw-meta-chip">{t("nightwatcher.item.scanEvery", { n: w.full_scan_secs })}</span>
                         </div>
                         <Show when={st()?.last_error}>
                           <div class="nw-item-error" role="alert">
                             <IconAlertCircle size={13} />
-                            <span>{st()!.last_error}</span>
+                            <span>{errMsg(st()!.last_error)}</span>
                           </div>
                         </Show>
                       </div>
@@ -249,12 +250,13 @@ export default function NightWatcher() {
                             checked={w.enabled}
                             onChange={() => toggleEnabled(w)}
                           />
-                          <span class="nw-toggle-label">{w.enabled ? "On" : "Off"}</span>
+                          <span class="nw-toggle-label">{w.enabled ? t("nightwatcher.on") : t("nightwatcher.off")}</span>
                         </label>
                         <button
                           class="nw-delete-btn"
                           onClick={() => removeWatch(w)}
-                          aria-label="Delete watch"
+                          aria-label={t("nightwatcher.item.delete")}
+                          title={t("nightwatcher.item.delete")}
                         >
                           <IconTrash size={14} />
                         </button>
@@ -268,36 +270,33 @@ export default function NightWatcher() {
 
           <Show when={!IS_MOBILE_OS && watches.list.length > 0}>
             <div class="nw-quit-caption">
-              Closing the window keeps Cosmog syncing in the background. Use
-              "Quit background sync" to fully quit.
+              {t("nightwatcher.quitCaption", { action: t("nightwatcher.quit") })}
             </div>
           </Show>
         </div>
 
         <div class="settings-section">
-          <div class="settings-section-title">Add watch</div>
+          <div class="settings-section-title">{t("nightwatcher.add.title")}</div>
 
           <Show when={IS_MOBILE_OS}>
             <div class="nw-note">
-              On Android, syncing runs on the periodic scan interval below.
-              File changes are picked up on the next scan, not the instant they
-              happen. Ignore files are not supported on Android.
+              {t("nightwatcher.add.androidNote")}
             </div>
           </Show>
 
           <div class="settings-grid">
-            <label class="settings-label">Account</label>
+            <label class="settings-label">{t("nightwatcher.form.account")}</label>
             <Select
               value={field("account_id")}
-              placeholder="Select an account…"
+              placeholder={t("nightwatcher.form.accountPlaceholder")}
               options={(accounts() ?? []).map((a) => ({ value: a.id, label: a.name }))}
               onChange={(v) => { patch("account_id", v); patch("bucket", ""); }}
             />
 
-            <label class="settings-label">Bucket</label>
+            <label class="settings-label">{t("nightwatcher.form.bucket")}</label>
             <Select
               value={field("bucket")}
-              placeholder={field("account_id") ? "Select a bucket…" : "Pick an account first"}
+              placeholder={field("account_id") ? t("nightwatcher.form.bucketPlaceholder") : t("nightwatcher.form.bucketNeedAccount")}
               disabled={!field("account_id")}
               options={(buckets() ?? []).map((b) => ({ value: b.name, label: b.name }))}
               onChange={(v) => patch("bucket", v)}
@@ -307,7 +306,7 @@ export default function NightWatcher() {
               when={IS_MOBILE_OS}
               fallback={
                 <>
-                  <label class="settings-label">Local directory</label>
+                  <label class="settings-label">{t("nightwatcher.form.localDir")}</label>
                   <div class="nw-dir-field">
                     <input
                       class="field"
@@ -316,16 +315,16 @@ export default function NightWatcher() {
                       onInput={(e) => patch("local_dir", e.currentTarget.value)}
                     />
                     <button type="button" class="nw-dir-btn" onClick={pickDir}>
-                      <IconFolder size={14} /> Browse
+                      <IconFolder size={14} /> {t("nightwatcher.form.browse")}
                     </button>
                   </div>
                 </>
               }
             >
-              <label class="settings-label">Folder</label>
+              <label class="settings-label">{t("nightwatcher.form.folder")}</label>
               <div class="nw-pick-field">
                 <button type="button" class="nw-dir-btn" onClick={pickTree}>
-                  <IconFolder size={14} /> Pick folder
+                  <IconFolder size={14} /> {t("nightwatcher.form.pickFolder")}
                 </button>
                 <Show when={field("tree_uri")}>
                   <span class="nw-chosen-folder" title={field("local_dir")}>
@@ -335,26 +334,26 @@ export default function NightWatcher() {
               </div>
             </Show>
 
-            <label class="settings-label">Key prefix</label>
+            <label class="settings-label">{t("nightwatcher.form.keyPrefix")}</label>
             <input
               class="field"
-              placeholder="uploads/ (optional)"
+              placeholder={t("nightwatcher.form.keyPrefixPlaceholder")}
               value={field("key_prefix")}
               onInput={(e) => patch("key_prefix", e.currentTarget.value)}
             />
 
             {/* Ignore rules need a filesystem path; SAF folders on Android have none. */}
             <Show when={!IS_MOBILE_OS}>
-              <label class="settings-label">Ignore file</label>
+              <label class="settings-label">{t("nightwatcher.form.ignoreFile")}</label>
               <input
                 class="field"
-                placeholder="/path/to/.cosmogignore (optional)"
+                placeholder={t("nightwatcher.form.ignoreFilePlaceholder")}
                 value={field("ignore_file")}
                 onInput={(e) => patch("ignore_file", e.currentTarget.value)}
               />
             </Show>
 
-            <label class="settings-label">Full scan interval (seconds)</label>
+            <label class="settings-label">{t("nightwatcher.form.scanInterval")}</label>
             <div class="num-field">
               <input
                 type="number"
@@ -366,15 +365,15 @@ export default function NightWatcher() {
               <button type="button" class="num-field-btn" onClick={() => patch("full_scan_secs", field("full_scan_secs") + 30)}>+</button>
             </div>
 
-            <label class="settings-label">Delete policy</label>
+            <label class="settings-label">{t("nightwatcher.form.deletePolicy")}</label>
             <div class="nw-policy-field">
-              <input class="field" value="Keep (remote files are never deleted)" disabled />
+              <input class="field" value={t("nightwatcher.form.deletePolicyKeep")} disabled />
             </div>
           </div>
 
           <div class="btn-row mt-4">
             <button class="btn-primary" onClick={addWatch} disabled={busy() || !canAdd()}>
-              {busy() ? "Adding…" : "Add watch"}
+              {busy() ? t("nightwatcher.add.adding") : t("nightwatcher.add.title")}
             </button>
           </div>
         </div>

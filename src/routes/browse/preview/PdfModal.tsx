@@ -2,6 +2,7 @@ import { createSignal, createEffect, onCleanup, Show } from "solid-js";
 import { previewObject } from "../../../api/objects";
 import { errMsg } from "../../../state/toast";
 import { formatBytes } from "../../../utils/fmt";
+import { t } from "../../../i18n";
 import { IconEye, IconX } from "../../../utils/icons";
 import { useBackHandler } from "../../../utils/androidBack";
 import type { CachedObjectMeta } from "../../../types";
@@ -9,7 +10,7 @@ import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs
 import Spinner from "../../../utils/Spinner";
 
 // Lazy-loaded (heavy). Legacy build runs on the older WebKit Tauri ships
-// (WebKitGTK on Linux, macOS WKWebView) — no native PDF renderer there.
+// (WebKitGTK on Linux, macOS WKWebView), no native PDF renderer there.
 let pdfjsPromise: Promise<typeof import("pdfjs-dist/legacy/build/pdf.mjs")> | null = null;
 async function loadPdfjs() {
   if (!pdfjsPromise) {
@@ -24,7 +25,7 @@ async function loadPdfjs() {
 }
 
 // Cap IPC bytes: preview_object returns the whole object as number[], so a huge
-// PDF would balloon memory — past this the user downloads instead.
+// PDF would balloon memory, past this the user downloads instead.
 const PDF_CAP = 25 * 1024 * 1024;
 // Display size scales with zoom but the backing buffer is capped at PIX_CAP so
 // a deep zoom can't allocate a gigapixel canvas (gets softer past the cap).
@@ -126,7 +127,7 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
     try {
       const r = await previewObject(props.obj.account_id, props.obj.bucket, props.obj.key, PDF_CAP);
       if (gen !== loadGen) return;
-      if (r.truncated) throw new Error(`PDF too large to preview (max ${formatBytes(PDF_CAP)}). Download it instead.`);
+      if (r.truncated) throw new Error(t("preview.pdf.tooLargeErr", { max: formatBytes(PDF_CAP) }));
       const pdfjs = await loadPdfjs();
       if (gen !== loadGen) return;
       task = pdfjs.getDocument({ data: new Uint8Array(r.bytes) });
@@ -176,8 +177,8 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
   });
 
   async function renderPage(d: PDFDocumentProxy, n: number, retries = 0) {
-    if (!expanded()) return; // modal closed mid-retry — stop (avoids a rAF loop)
-    // The modal may not be laid out on the first open — clientWidth 0 would fit
+    if (!expanded()) return; // modal closed mid-retry, stop (avoids a rAF loop)
+    // The modal may not be laid out on the first open, clientWidth 0 would fit
     // the page to nothing. Wait a frame and retry until the wrapper has width.
     if (!wrap || wrap.clientWidth === 0) {
       if (retries >= 60) return;
@@ -415,11 +416,11 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
     <>
       <div class="preview-img-area sheet-preview-col">
         <Show when={tooBig()}>
-          <span class="muted sheet-preview-hint">File too large to preview ({formatBytes(props.obj.size)} · max {formatBytes(PDF_CAP)})</span>
+          <span class="muted sheet-preview-hint">{t("preview.tooLargeSized", { size: formatBytes(props.obj.size), max: formatBytes(PDF_CAP) })}</span>
         </Show>
         <Show when={!tooBig()}>
           <button class="btn-secondary preview-btn-inline" onClick={open}>
-            <IconEye size={15} /> View PDF
+            <IconEye size={15} /> {t("preview.pdf.view")}
           </button>
         </Show>
       </div>
@@ -431,25 +432,25 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
               <span class="pdf-modal-title">{props.obj.basename}</span>
               <Show when={doc()}>
                 <div class="pdf-modal-nav">
-                  <button class="icon-btn" disabled={pageNum() <= 1} onClick={prev} aria-label="Previous page">‹</button>
+                  <button class="icon-btn" disabled={pageNum() <= 1} onClick={prev} aria-label={t("preview.pdf.prevPage")}>‹</button>
                   <span class="pdf-page-ind">{pageNum()} / {numPages()}</span>
-                  <button class="icon-btn" disabled={pageNum() >= numPages()} onClick={next} aria-label="Next page">›</button>
+                  <button class="icon-btn" disabled={pageNum() >= numPages()} onClick={next} aria-label={t("preview.pdf.nextPage")}>›</button>
                 </div>
               </Show>
-              <button class="icon-btn pdf-modal-close" onClick={close} aria-label="Close"><IconX size={18} /></button>
+              <button class="icon-btn pdf-modal-close" onClick={close} aria-label={t("common.close")}><IconX size={18} /></button>
               <Show when={doc()}>
                 <div class="pdf-header-controls">
                   <div class="pdf-modal-zoom">
-                    <button class="icon-btn" disabled={zoomPct() <= MIN_ZOOM * 100} onClick={() => zoomStep(1 / 1.25)} aria-label="Zoom out">−</button>
+                    <button class="icon-btn" disabled={zoomPct() <= MIN_ZOOM * 100} onClick={() => zoomStep(1 / 1.25)} aria-label={t("preview.zoomOut")}>−</button>
                     <span class="pdf-zoom-ind">{zoomPct()}%</span>
-                    <button class="icon-btn" disabled={zoomPct() >= MAX_ZOOM * 100} onClick={() => zoomStep(1.25)} aria-label="Zoom in">+</button>
+                    <button class="icon-btn" disabled={zoomPct() >= MAX_ZOOM * 100} onClick={() => zoomStep(1.25)} aria-label={t("preview.zoomIn")}>+</button>
                   </div>
                   <button
                     class="btn-ghost pdf-mode-btn"
                     classList={{ active: selecting() }}
                     onClick={() => setSelecting((s) => !s)}
                   >
-                    {selecting() ? "Move" : "Select"}
+                    {selecting() ? t("preview.pdf.move") : t("preview.pdf.select")}
                   </button>
                 </div>
               </Show>
@@ -471,7 +472,7 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
               <Show when={loading()}>
                 <div class="preview-loader pdf-modal-loading">
                   <Spinner size={50} />
-                  <span>Loading PDF…</span>
+                  <span>{t("preview.pdf.loading")}</span>
                 </div>
               </Show>
               <Show when={err()}>
@@ -483,7 +484,7 @@ export function PdfPreview(props: { obj: CachedObjectMeta }) {
               </div>
               <Show when={selecting() && (hasSel() || copied())}>
                 <button class="pdf-copy-fab" onClick={copySelection}>
-                  {copied() ? "Copied!" : "Copy selection"}
+                  {copied() ? t("common.copied") : t("preview.pdf.copySelection")}
                 </button>
               </Show>
             </div>

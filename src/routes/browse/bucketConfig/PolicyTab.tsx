@@ -7,6 +7,8 @@ import { classifyBucketError, deniedMessage } from "./errors";
 import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
 import Spinner from "../../../utils/Spinner";
+import { errMsg } from "../../../utils/errors";
+import { t } from "../../../i18n";
 
 const EMPTY_POLICY = "";
 
@@ -59,17 +61,17 @@ export function PolicyTab(props: {
   async function handleSave() {
     setErr("");
     const raw = content().trim();
-    if (!raw) { setErr("Policy is empty. Use Delete to remove the policy, or paste valid JSON."); return; }
+    if (!raw) { setErr(t("bucketconfig.policy.empty")); return; }
     try {
       JSON.parse(raw);
     } catch (e) {
-      setErr(`Invalid JSON: ${(e as Error).message}`);
+      setErr(t("bucketconfig.policy.invalidJson", { error: (e as Error).message }));
       return;
     }
     setBusy(true);
     try {
       await putBucketPolicy(props.accountId, props.bucket, raw);
-      toast.ok("Policy saved", `Bucket policy for "${props.bucket}" updated`);
+      toast.ok(t("bucketconfig.policy.savedTitle"), t("bucketconfig.policy.savedDetail", { bucket: props.bucket }));
       setSeeded(null);
       await refetch();
       props.onChanged();
@@ -85,7 +87,7 @@ export function PolicyTab(props: {
     setBusy(true);
     try {
       await deleteBucketPolicy(props.accountId, props.bucket);
-      toast.ok("Policy removed", `Bucket policy for "${props.bucket}" deleted`);
+      toast.ok(t("bucketconfig.policy.removedTitle"), t("bucketconfig.policy.removedDetail", { bucket: props.bucket }));
       setContent(EMPTY_POLICY);
       setSeeded(null);
       await refetch();
@@ -105,18 +107,18 @@ export function PolicyTab(props: {
   function errText(e: unknown, op: "get" | "put"): string {
     const kind = classifyBucketError(e);
     if (kind === "denied") return deniedMessage("policy", op);
-    if (kind === "unsupported") return "Not supported by this provider";
-    return (e as Error)?.message ?? String(e);
+    if (kind === "unsupported") return t("bucketconfig.error.unsupported");
+    return errMsg(e);
   }
 
   const snap = () => loaded.latest ?? loaded();
 
   return (
     <div class="bcfg-tab">
-      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>Loading policy…</span></div>}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>{t("bucketconfig.policy.loading")}</span></div>}>
         <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
           <Show when={snap()!.unsupported}>
-            <div class="status-msg warn">Not supported by this provider</div>
+            <div class="status-msg warn">{t("bucketconfig.error.unsupported")}</div>
           </Show>
           <Show when={snap()!.denied}>
             <div class="status-msg err">{deniedMessage("policy", "get")}</div>
@@ -127,8 +129,7 @@ export function PolicyTab(props: {
               {(w) => <div class="status-msg warn bcfg-provider-warn">{w()}</div>}
             </Show>
             <div class="modal-sub bcfg-hint">
-              Raw JSON bucket policy. An empty editor means no policy is set. Editing here overwrites the
-              existing policy on Save. <DocLink providerId={props.providerId} tab="policy" />
+              {t("bucketconfig.policy.hint")} <DocLink providerId={props.providerId} tab="policy" />
             </div>
 
             <div class="bcfg-editor">
@@ -147,18 +148,18 @@ export function PolicyTab(props: {
             <div class="btn-row bcfg-actions">
               <div class="bcfg-actions-grp">
                 <button class="btn-ghost text-xs" disabled={busy()} onClick={() => setContent(prettify(content()))}>
-                  Format
+                  {t("bucketconfig.policy.format")}
                 </button>
                 <button class="btn-secondary text-xs" disabled={busy()} onClick={handleReset}>
-                  Reset
+                  {t("common.reset")}
                 </button>
               </div>
               <div class="bcfg-actions-grp">
                 <button class="enc-disable-btn bcfg-danger-btn" disabled={busy()} onClick={handleDelete}>
-                  {busy() ? "Working…" : "Delete"}
+                  {busy() ? t("bucketconfig.working") : t("common.delete")}
                 </button>
                 <button class="btn-primary text-xs" disabled={busy()} onClick={handleSave}>
-                  {busy() ? "Saving…" : "Save"}
+                  {busy() ? t("common.saving") : t("common.save")}
                 </button>
               </div>
             </div>

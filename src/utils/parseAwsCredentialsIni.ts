@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export interface ParsedAwsProfile {
   name: string;
   access_key_id: string;
@@ -53,7 +55,7 @@ function finalizeSection(draft: SectionDraft): { profile?: ParsedAwsProfile; ski
       skipped: {
         name,
         reason: "session_token",
-        message: "temporary credentials (session token) are not supported",
+        message: t("onboarding.ini.sessionToken"),
       },
     };
   }
@@ -74,7 +76,7 @@ function finalizeSection(draft: SectionDraft): { profile?: ParsedAwsProfile; ski
       skipped: {
         name,
         reason: "sso_only",
-        message: "SSO profiles are not supported. Use static keys or manual entry.",
+        message: t("onboarding.ini.sso"),
       },
     };
   }
@@ -83,7 +85,7 @@ function finalizeSection(draft: SectionDraft): { profile?: ParsedAwsProfile; ski
     skipped: {
       name,
       reason: "no_keys",
-      message: "missing aws_access_key_id and aws_secret_access_key",
+      message: t("onboarding.ini.noKeys"),
     },
   };
 }
@@ -102,7 +104,7 @@ export function validateAwsCredentialsIni(text: string): IniSyntaxError[] {
 
     errors.push({
       line: i + 1,
-      message: "expected a [section] header or key = value line",
+      message: t("onboarding.ini.syntax"),
     });
   }
 
@@ -150,7 +152,7 @@ export function parseAwsCredentialsIni(text: string): ParseAwsCredentialsResult 
       return {
         profiles: [],
         skipped: [],
-        syntaxErrors: [{ line: 1, message: "key = value must appear under a [section] header" }],
+        syntaxErrors: [{ line: 1, message: t("onboarding.ini.noSection") }],
       };
     }
 

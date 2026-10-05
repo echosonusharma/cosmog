@@ -6,12 +6,13 @@ import {
   mcpGetConfig, mcpSetConfig, mcpRegenerateToken,
   type McpConfig, type McpConfigPatch,
 } from "../api/mcp";
+import { t } from "../i18n";
 import { mcpFsRootSchema, mcpPortSchema, parseSchema } from "../validation";
 
 type ClientDef = {
   id: string;
   label: string;
-  hint: string;
+  hint: () => string;
   build: (url: string, token: string) => string;
 };
 
@@ -21,42 +22,42 @@ const CLIENTS: ClientDef[] = [
   {
     id: "claude-code",
     label: "Claude Code",
-    hint: "Run in your terminal. Drop --scope user for project scope.",
+    hint: () => t("mcp.client.claudeCode.hint"),
     build: (url, token) =>
       `claude mcp add --transport http cosmog ${url} \\\n  --header "Authorization: Bearer ${token}" --scope user`,
   },
   {
     id: "claude-desktop",
     label: "Claude Desktop",
-    hint: "Add to claude_desktop_config.json, then restart Claude Desktop.",
+    hint: () => t("mcp.client.claudeDesktop.hint"),
     build: (url, token) =>
       `{\n  "mcpServers": {\n    "cosmog": {\n      "type": "http",\n      "url": "${url}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`,
   },
   {
     id: "codex",
     label: "Codex",
-    hint: "Add to ~/.codex/config.toml, then export COSMOG_MCP_TOKEN in your shell.",
+    hint: () => t("mcp.client.codex.hint"),
     build: (url, token) =>
       `[mcp_servers.cosmog]\nurl = "${url}"\nbearer_token_env_var = "COSMOG_MCP_TOKEN"\n# then in your shell: export COSMOG_MCP_TOKEN=${token}`,
   },
   {
     id: "cursor",
     label: "Cursor",
-    hint: "Add to ~/.cursor/mcp.json (global) or .cursor/mcp.json (project).",
+    hint: () => t("mcp.client.cursor.hint"),
     build: (url, token) =>
       `{\n  "mcpServers": {\n    "cosmog": {\n      "url": "${url}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`,
   },
   {
     id: "vscode",
     label: "VS Code",
-    hint: "Add to .vscode/mcp.json. The top-level key is servers, not mcpServers.",
+    hint: () => t("mcp.client.vscode.hint"),
     build: (url, token) =>
       `{\n  "servers": {\n    "cosmog": {\n      "type": "http",\n      "url": "${url}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`,
   },
   {
     id: "windsurf",
     label: "Windsurf",
-    hint: "Add to ~/.codeium/windsurf/mcp_config.json. HTTP uses serverUrl.",
+    hint: () => t("mcp.client.windsurf.hint"),
     build: (url, token) =>
       `{\n  "mcpServers": {\n    "cosmog": {\n      "serverUrl": "${url}",\n      "headers": { "Authorization": "Bearer ${token}" }\n    }\n  }\n}`,
   },
@@ -95,10 +96,8 @@ export default function Mcp() {
   async function setEnabled(v: boolean) {
     if (await patch({ enabled: v })) {
       toast.ok(
-        v ? "MCP server started" : "MCP server stopped",
-        v
-          ? "Local AI clients can now drive S3 operations"
-          : "The local endpoint is closed; clients can no longer connect",
+        v ? t("mcp.toast.started") : t("mcp.toast.stopped"),
+        v ? t("mcp.toast.startedBody") : t("mcp.toast.stoppedBody"),
       );
     }
   }
@@ -112,7 +111,7 @@ export default function Mcp() {
     const c = cfg();
     if (!c) return;
     const disabled = new Set(
-      c.advertised_tools.filter((t) => !t.enabled).map((t) => t.name),
+      c.advertised_tools.filter((x) => !x.enabled).map((x) => x.name),
     );
     if (enabled) disabled.delete(name);
     else disabled.add(name);
@@ -136,7 +135,7 @@ export default function Mcp() {
       toast.err(result.message);
       return;
     }
-    if (await patch({ port: result.data })) toast.ok("Port updated", `MCP server now listens on port ${result.data}`);
+    if (await patch({ port: result.data })) toast.ok(t("mcp.toast.portUpdated"), t("mcp.toast.portUpdatedBody", { port: result.data }));
   }
 
   async function saveRoot() {
@@ -147,15 +146,18 @@ export default function Mcp() {
     }
     const root = rootDraft().trim();
     if (await patch({ fs_root: root })) {
-      toast.ok("Folder updated", root ? `MCP file operations are now rooted at "${root}"` : "MCP file root cleared");
+      toast.ok(
+        t("mcp.toast.folderUpdated"),
+        root ? t("mcp.toast.folderUpdatedBody", { root }) : t("mcp.toast.folderCleared"),
+      );
     }
   }
 
   async function regenerate() {
     const ok = await confirmDialog({
-      title: "Regenerate token?",
-      body: "Any client using the current token will stop working until reconfigured.",
-      confirmLabel: "Regenerate",
+      title: t("mcp.token.regenTitle"),
+      body: t("mcp.token.regenBody"),
+      confirmLabel: t("mcp.token.regenerate"),
       danger: true,
     });
     if (!ok) return;
@@ -163,7 +165,7 @@ export default function Mcp() {
     try {
       await mcpRegenerateToken();
       await refetch();
-      toast.ok("Token regenerated", "Reconfigure every client with the new token to reconnect");
+      toast.ok(t("mcp.toast.tokenRegen"), t("mcp.toast.tokenRegenBody"));
     } catch (e) {
       toast.err(e);
     } finally {
@@ -171,10 +173,10 @@ export default function Mcp() {
     }
   }
 
-  function copy(text: string, label: string) {
+  function copy(text: string, what: "endpoint" | "token" | "config") {
     navigator.clipboard.writeText(text).then(
-      () => toast.ok(`${label} copied`, "Now on the clipboard"),
-      () => toast.err("Copy failed"),
+      () => toast.ok(t(`mcp.toast.copied.${what}`), t("mcp.toast.copiedBody")),
+      () => toast.err(t("mcp.toast.copyFailed")),
     );
   }
 
@@ -188,17 +190,16 @@ export default function Mcp() {
   return (
     <div class="view-container">
       <div class="view-header">
-        <span class="section-title">MCP Server</span>
+        <span class="section-title">{t("mcp.title")}</span>
       </div>
 
       <div class="mcp-body">
         <div class="mcp-intro">
           <div class="mcp-intro-badge"><IconMcp size={18} /></div>
           <div class="mcp-intro-text">
-            <span class="mcp-intro-lead">Let a local AI drive Cosmog</span>
+            <span class="mcp-intro-lead">{t("mcp.intro.lead")}</span>
             <span class="mcp-intro-body">
-              Exposes a local Model Context Protocol server so an AI client on this
-              machine can list, search, and transfer your objects. Desktop only.
+              {t("mcp.intro.body")}
             </span>
           </div>
         </div>
@@ -209,11 +210,11 @@ export default function Mcp() {
               {/* Consent gate: settings stay hidden until acknowledged, never shown again once accepted. */}
               <Show when={!c().acknowledged}>
                 <div class="mcp-warning">
-                  <div class="mcp-warning-title">Read this before enabling</div>
+                  <div class="mcp-warning-title">{t("mcp.warning.title")}</div>
                   <ul class="mcp-warning-list">
-                    <li>A local AI client can list, search, upload, download, and, if you allow it, delete your objects using your stored credentials.</li>
-                    <li>It opens a localhost port protected by a bearer token. Nothing is exposed to your network.</li>
-                    <li>Write and delete are separate switches, both off by default.</li>
+                    <li>{t("mcp.warning.access")}</li>
+                    <li>{t("mcp.warning.port")}</li>
+                    <li>{t("mcp.warning.switches")}</li>
                   </ul>
                   <label class="mcp-ack">
                     <input
@@ -222,16 +223,16 @@ export default function Mcp() {
                       disabled={busy()}
                       onChange={(e) => acknowledge(e.currentTarget.checked)}
                     />
-                    <span>I understand and want to enable the MCP server.</span>
+                    <span>{t("mcp.warning.ack")}</span>
                   </label>
                 </div>
               </Show>
 
               <Show when={c().acknowledged}>
               <div class="settings-section">
-                <div class="settings-section-title">Server</div>
+                <div class="settings-section-title">{t("mcp.server.title")}</div>
                 <label class="mcp-row">
-                  <span class="mcp-row-label">Enable MCP server</span>
+                  <span class="mcp-row-label">{t("mcp.server.enable")}</span>
                   <span class="mcp-switch">
                     <input
                       type="checkbox"
@@ -239,12 +240,12 @@ export default function Mcp() {
                       disabled={busy()}
                       onChange={(e) => setEnabled(e.currentTarget.checked)}
                     />
-                    <span class="mcp-switch-label">{c().enabled ? "On" : "Off"}</span>
+                    <span class="mcp-switch-label">{c().enabled ? t("mcp.on") : t("mcp.off")}</span>
                   </span>
                 </label>
 
                 <div class="mcp-row">
-                  <span class="mcp-row-label">Port</span>
+                  <span class="mcp-row-label">{t("mcp.server.port")}</span>
                   <span class="mcp-port">
                     <div class="num-field">
                       <input
@@ -258,43 +259,42 @@ export default function Mcp() {
                       <button type="button" class="num-field-btn" disabled={busy()} onClick={() => setPortDraft(Math.max(1024, (portDraft() || 1024) - 1))}>−</button>
                       <button type="button" class="num-field-btn" disabled={busy()} onClick={() => setPortDraft(Math.min(65535, (portDraft() || 1024) + 1))}>+</button>
                     </div>
-                    <button class="btn-secondary" disabled={busy()} onClick={savePort}>Save</button>
+                    <button class="btn-secondary" disabled={busy()} onClick={savePort}>{t("common.save")}</button>
                   </span>
                 </div>
               </div>
 
               <Show when={c().enabled}>
                 <div class="settings-section">
-                  <div class="settings-section-title">Connection</div>
+                  <div class="settings-section-title">{t("mcp.connection.title")}</div>
 
                   <Show when={!c().running}>
                     <div class="mcp-not-running">
-                      The server is enabled but not listening. The port may be in use.
-                      Try a different port.
+                      {t("mcp.connection.notRunning")}
                     </div>
                   </Show>
 
                   <div class="mcp-row">
-                    <span class="mcp-row-label">Endpoint</span>
+                    <span class="mcp-row-label">{t("mcp.connection.endpoint")}</span>
                     <span class="mcp-field">
                       <code class="mcp-code">{c().url}</code>
-                      <button class="icon-btn" title="Copy" onClick={() => copy(c().url, "Endpoint")}>
+                      <button class="icon-btn" title={t("common.copy")} aria-label={t("common.copy")} onClick={() => copy(c().url, "endpoint")}>
                         <IconCopy size={14} />
                       </button>
                     </span>
                   </div>
 
                   <div class="mcp-row">
-                    <span class="mcp-row-label">Bearer token</span>
+                    <span class="mcp-row-label">{t("mcp.connection.token")}</span>
                     <span class="mcp-field">
                       <code class="mcp-code mcp-token">{maskedToken(c())}</code>
                       <button class="btn-secondary" onClick={() => setReveal((v) => !v)}>
-                        {reveal() ? "Hide" : "Reveal"}
+                        {reveal() ? t("mcp.token.hide") : t("mcp.token.reveal")}
                       </button>
-                      <button class="icon-btn" title="Copy" onClick={() => copy(c().token, "Token")}>
+                      <button class="icon-btn" title={t("common.copy")} aria-label={t("common.copy")} onClick={() => copy(c().token, "token")}>
                         <IconCopy size={14} />
                       </button>
-                      <button class="icon-btn" title="Regenerate" disabled={busy()} onClick={regenerate}>
+                      <button class="icon-btn" title={t("mcp.token.regenerate")} aria-label={t("mcp.token.regenerate")} disabled={busy()} onClick={regenerate}>
                         <IconRefresh size={14} />
                       </button>
                     </span>
@@ -303,7 +303,7 @@ export default function Mcp() {
                 </div>
 
                 <div class="settings-section">
-                  <div class="settings-section-title">Connect a client</div>
+                  <div class="settings-section-title">{t("mcp.client.title")}</div>
                   <div class="mcp-tabs">
                     <For each={CLIENTS}>
                       {(cl) => (
@@ -321,24 +321,25 @@ export default function Mcp() {
                     <pre class="mcp-code mcp-block">{activeClient().build(c().url, maskedToken(c()))}</pre>
                     <button
                       class="icon-btn"
-                      title="Copy"
-                      onClick={() => copy(activeClient().build(c().url, c().token), "Config")}
+                      title={t("common.copy")}
+                      aria-label={t("common.copy")}
+                      onClick={() => copy(activeClient().build(c().url, c().token), "config")}
                     >
                       <IconCopy size={14} />
                     </button>
                   </div>
-                  <div class="mcp-row-note mcp-hint">{activeClient().hint}</div>
+                  <div class="mcp-row-note mcp-hint">{activeClient().hint()}</div>
                 </div>
               </Show>
 
               <div class="settings-section">
-                <div class="settings-section-title">Permissions</div>
+                <div class="settings-section-title">{t("mcp.perm.title")}</div>
 
                 <label class="mcp-perm" classList={{ "mcp-perm-on": c().allow_write }}>
                   <span class="mcp-perm-text">
-                    <span class="mcp-perm-title">Allow write</span>
+                    <span class="mcp-perm-title">{t("mcp.perm.write")}</span>
                     <span class="mcp-perm-note">
-                      Adds the upload and download tools. Off removes them from the MCP tool list.
+                      {t("mcp.perm.writeNote")}
                     </span>
                   </span>
                   <span class="mcp-switch">
@@ -348,18 +349,18 @@ export default function Mcp() {
                       disabled={busy()}
                       onChange={(e) => patch({ allow_write: e.currentTarget.checked })}
                     />
-                    <span class="mcp-switch-label">{c().allow_write ? "On" : "Off"}</span>
+                    <span class="mcp-switch-label">{c().allow_write ? t("mcp.on") : t("mcp.off")}</span>
                   </span>
                 </label>
 
                 <label class="mcp-perm mcp-perm-danger" classList={{ "mcp-perm-on": c().allow_delete }}>
                   <span class="mcp-perm-text">
                     <span class="mcp-perm-title">
-                      Allow delete
-                      <span class="mcp-danger-tag">destructive</span>
+                      {t("mcp.perm.delete")}
+                      <span class="mcp-danger-tag">{t("mcp.perm.destructive")}</span>
                     </span>
                     <span class="mcp-perm-note">
-                      Adds the delete tool. Deletions are permanent and not reversible. Off removes it from the MCP tool list.
+                      {t("mcp.perm.deleteNote")}
                     </span>
                   </span>
                   <span class="mcp-switch">
@@ -369,7 +370,7 @@ export default function Mcp() {
                       disabled={busy()}
                       onChange={(e) => patch({ allow_delete: e.currentTarget.checked })}
                     />
-                    <span class="mcp-switch-label">{c().allow_delete ? "On" : "Off"}</span>
+                    <span class="mcp-switch-label">{c().allow_delete ? t("mcp.on") : t("mcp.off")}</span>
                   </span>
                 </label>
               </div>
@@ -378,12 +379,12 @@ export default function Mcp() {
                   an untrusted object key cannot steer a read or write elsewhere on disk. */}
               <Show when={c().allow_write}>
                 <div class="settings-section">
-                  <div class="settings-section-title">File access</div>
+                  <div class="settings-section-title">{t("mcp.file.title")}</div>
                   <div class="mcp-row-note mcp-tools-hint">
-                    The upload and download tools can only touch files inside this folder. Leave it empty to block all file transfers.
+                    {t("mcp.file.hint")}
                   </div>
                   <div class="mcp-row">
-                    <span class="mcp-row-label">Allowed folder</span>
+                    <span class="mcp-row-label">{t("mcp.file.folder")}</span>
                     <span class="mcp-field mcp-field-wide">
                       <input
                         type="text"
@@ -393,12 +394,12 @@ export default function Mcp() {
                         disabled={busy()}
                         onInput={(e) => setRootDraft(e.currentTarget.value)}
                       />
-                      <button class="btn-secondary" disabled={busy()} onClick={saveRoot}>Save</button>
+                      <button class="btn-secondary" disabled={busy()} onClick={saveRoot}>{t("common.save")}</button>
                     </span>
                   </div>
                   <Show when={!c().fs_root}>
                     <div class="mcp-not-running">
-                      No folder set. Upload and download will be refused until you set one.
+                      {t("mcp.file.notSet")}
                     </div>
                   </Show>
                 </div>
@@ -406,9 +407,9 @@ export default function Mcp() {
 
               <Show when={c().accounts.length > 0}>
                 <div class="settings-section">
-                  <div class="settings-section-title">Accounts</div>
+                  <div class="settings-section-title">{t("mcp.accounts.title")}</div>
                   <div class="mcp-row-note mcp-tools-hint">
-                    Turn off any account to hide it from the AI and block all MCP access to it.
+                    {t("mcp.accounts.hint")}
                   </div>
                   <div class="mcp-tools">
                     <For each={c().accounts}>
@@ -434,24 +435,24 @@ export default function Mcp() {
               </Show>
 
               <div class="settings-section">
-                <div class="settings-section-title">Advertised tools</div>
+                <div class="settings-section-title">{t("mcp.tools.title")}</div>
                 <div class="mcp-row-note mcp-tools-hint">
-                  Turn off any tool to remove it from what the AI can call.
+                  {t("mcp.tools.hint")}
                 </div>
                 <div class="mcp-tools">
                   <For each={c().advertised_tools}>
-                    {(t) => (
-                      <label class="mcp-tool-item" classList={{ "mcp-tool-off": !t.enabled }}>
+                    {(tool) => (
+                      <label class="mcp-tool-item" classList={{ "mcp-tool-off": !tool.enabled }}>
                         <span class="mcp-tool-text">
-                          <code class="mcp-tool">{t.name}</code>
-                          <span class="mcp-tool-desc">{t.description}</span>
+                          <code class="mcp-tool">{tool.name}</code>
+                          <span class="mcp-tool-desc">{tool.description}</span>
                         </span>
                         <span class="mcp-switch">
                           <input
                             type="checkbox"
-                            checked={t.enabled}
+                            checked={tool.enabled}
                             disabled={busy()}
-                            onChange={(e) => toggleTool(t.name, e.currentTarget.checked)}
+                            onChange={(e) => toggleTool(tool.name, e.currentTarget.checked)}
                           />
                         </span>
                       </label>

@@ -8,6 +8,7 @@ import { objectExists } from "../newItem";
 import { notify } from "../../../utils/notify";
 import { errMsg } from "../../../state/toast";
 import { formatBytes } from "../../../utils/fmt";
+import { t } from "../../../i18n";
 import { isMobile } from "../../../utils/breakpoint";
 import { extOf } from "../../../utils/fmt";
 import { pathFromDialog } from "../helpers";
@@ -190,7 +191,7 @@ export function ImageEditor(props: {
     const f = fmt();
     const q = f.mime === "image/png" ? undefined : quality();
     const blob: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), f.mime, q));
-    if (!blob) throw new Error("Failed to encode image");
+    if (!blob) throw new Error(t("preview.image.encodeFailed"));
     return { blob, f };
   }
 
@@ -201,13 +202,13 @@ export function ImageEditor(props: {
     try {
       if (checkExists) {
         const exists = await objectExists(props.obj.account_id, props.obj.bucket, key);
-        if (exists) { setErr("An object with that key already exists. Choose another name."); return; }
+        if (exists) { setErr(t("preview.image.exists")); return; }
       }
       const { blob, f } = await encodeCanvas();
       const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
       await putObjectBytes(props.obj.account_id, props.obj.bucket, key, bytes, f.mime);
-      notify(`Saved ${key.split("/").pop()}`, props.obj.bucket, {
-        largeBody: `Saved edited image to "${key}" in "${props.obj.bucket}"`,
+      notify(t("preview.saved", { name: key.split("/").pop() ?? key }), props.obj.bucket, {
+        largeBody: t("preview.image.savedBody", { key, bucket: props.obj.bucket }),
       });
       props.onSaved?.(key === props.obj.key ? "overwrite" : "copy");
       props.onClose();
@@ -227,7 +228,7 @@ export function ImageEditor(props: {
       const sel = await saveDialog({ defaultPath: `${stem}-edited.${f.ext}` });
       if (!sel) return;
       await writeFile(pathFromDialog(sel), new Uint8Array(await blob.arrayBuffer()));
-      notify(`Downloaded ${stem}-edited.${f.ext}`, props.obj.bucket);
+      notify(t("preview.image.downloaded", { name: `${stem}-edited.${f.ext}` }), props.obj.bucket);
     } catch (e) {
       setErr(errMsg(e));
     }
@@ -248,30 +249,30 @@ export function ImageEditor(props: {
           <Show when={natDim()}>
             <span class="img-editor-size muted">
               {natDim()!.w}×{natDim()!.h}
-              <Show when={cropMode() && cropDim()}> · crop {cropDim()!.w}×{cropDim()!.h}</Show>
+              <Show when={cropMode() && cropDim()}> · {t("preview.image.cropSize", { w: cropDim()!.w, h: cropDim()!.h })}</Show>
             </span>
           </Show>
           <div class="img-editor-tools">
-            <button class="icon-btn" title="Zoom in" disabled={!ready()} onClick={() => zoom(0.1)}><IconZoomIn size={16} /></button>
-            <button class="icon-btn" title="Zoom out" disabled={!ready()} onClick={() => zoom(-0.1)}><IconZoomOut size={16} /></button>
-            <button class="icon-btn" title="Fit / reset" disabled={!ready()} onClick={reset}><IconRefresh size={16} /></button>
+            <button class="icon-btn" title={t("preview.zoomIn")} disabled={!ready()} onClick={() => zoom(0.1)}><IconZoomIn size={16} /></button>
+            <button class="icon-btn" title={t("preview.zoomOut")} disabled={!ready()} onClick={() => zoom(-0.1)}><IconZoomOut size={16} /></button>
+            <button class="icon-btn" title={t("preview.image.fitReset")} disabled={!ready()} onClick={reset}><IconRefresh size={16} /></button>
             <span class="img-editor-sep" />
-            <button class="icon-btn" title="Rotate left" disabled={!ready()} onClick={() => rotate(-90)}><IconRotateCcw size={16} /></button>
-            <button class="icon-btn" title="Rotate right" disabled={!ready()} onClick={() => rotate(90)}><IconRotateCw size={16} /></button>
-            <button class="icon-btn" classList={{ active: flipX() }} title="Flip horizontal" disabled={!ready()} onClick={flipH}><IconFlipH size={16} /></button>
-            <button class="icon-btn" classList={{ active: flipY() }} title="Flip vertical" disabled={!ready()} onClick={flipV}><IconFlipV size={16} /></button>
+            <button class="icon-btn" title={t("preview.image.rotateLeft")} disabled={!ready()} onClick={() => rotate(-90)}><IconRotateCcw size={16} /></button>
+            <button class="icon-btn" title={t("preview.image.rotateRight")} disabled={!ready()} onClick={() => rotate(90)}><IconRotateCw size={16} /></button>
+            <button class="icon-btn" classList={{ active: flipX() }} title={t("preview.image.flipH")} disabled={!ready()} onClick={flipH}><IconFlipH size={16} /></button>
+            <button class="icon-btn" classList={{ active: flipY() }} title={t("preview.image.flipV")} disabled={!ready()} onClick={flipV}><IconFlipV size={16} /></button>
             <span class="img-editor-sep" />
-            <button class="icon-btn" classList={{ active: cropMode() }} title="Crop" disabled={!ready()} onClick={toggleCrop}><IconCrop size={16} /></button>
+            <button class="icon-btn" classList={{ active: cropMode() }} title={t("preview.image.crop")} disabled={!ready()} onClick={toggleCrop}><IconCrop size={16} /></button>
           </div>
-          <button class="icon-btn img-editor-full" title={full() ? "Exit full view" : "Full view"} onClick={toggleFull}>
+          <button class="icon-btn img-editor-full" title={full() ? t("preview.exitFullView") : t("preview.fullView")} onClick={toggleFull}>
             {full() ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
           </button>
-          <button class="icon-btn img-editor-close" title="Close" onClick={requestClose}><IconX size={18} /></button>
+          <button class="icon-btn img-editor-close" title={t("common.close")} onClick={requestClose}><IconX size={18} /></button>
         </div>
 
         <Show when={cropMode()}>
           <div class="img-editor-aspects">
-            <button class="btn-secondary btn-xs" onClick={() => setAspect(NaN)}>Free</button>
+            <button class="btn-secondary btn-xs" onClick={() => setAspect(NaN)}>{t("preview.image.aspectFree")}</button>
             <button class="btn-secondary btn-xs" onClick={() => setAspect(1)}>1:1</button>
             <button class="btn-secondary btn-xs" onClick={() => setAspect(16 / 9)}>16:9</button>
             <button class="btn-secondary btn-xs" onClick={() => setAspect(4 / 3)}>4:3</button>
@@ -282,25 +283,25 @@ export function ImageEditor(props: {
         <div class="img-editor-canvas">
           <Show when={tooBig()}>
             <div class="preview-err-inline">
-              <div class="preview-err-inline-title">Too large to edit</div>
-              <div class="preview-err-inline-hint">This image is {formatBytes(props.obj.size)}. Editing is capped at {formatBytes(EDITOR_MAX_BYTES)}.</div>
+              <div class="preview-err-inline-title">{t("preview.image.tooLargeTitle")}</div>
+              <div class="preview-err-inline-hint">{t("preview.image.tooLargeHint", { size: formatBytes(props.obj.size), max: formatBytes(EDITOR_MAX_BYTES) })}</div>
             </div>
           </Show>
           <Show when={!tooBig() && src.loading}>
-            <div class="preview-loader"><Spinner size={50} /><span>{props.encrypted ? "Decrypting…" : "Loading…"}</span></div>
+            <div class="preview-loader"><Spinner size={50} /><span>{props.encrypted ? t("preview.decrypting") : t("common.loading")}</span></div>
           </Show>
           <Show when={src.error}>
-            <div class="preview-err-inline"><div class="preview-err-inline-title">Failed to load</div><div class="preview-err-inline-hint">{errMsg(src.error)}</div></div>
+            <div class="preview-err-inline"><div class="preview-err-inline-title">{t("preview.image.loadFailed")}</div><div class="preview-err-inline-hint">{errMsg(src.error)}</div></div>
           </Show>
           <img ref={imgEl} class="img-editor-img" alt={props.obj.basename} />
 
           <Show when={confirmClose()}>
             <div class="img-editor-confirm">
               <div class="img-editor-confirm-box">
-                <div class="img-editor-confirm-title">Discard changes?</div>
+                <div class="img-editor-confirm-title">{t("preview.image.discardTitle")}</div>
                 <div class="btn-row">
-                  <button class="btn-secondary btn-half" onClick={() => setConfirmClose(false)}>Keep editing</button>
-                  <button class="btn-primary btn-half" onClick={props.onClose}>Discard</button>
+                  <button class="btn-secondary btn-half" onClick={() => setConfirmClose(false)}>{t("preview.keepEditing")}</button>
+                  <button class="btn-primary btn-half" onClick={props.onClose}>{t("preview.discard")}</button>
                 </div>
               </div>
             </div>
@@ -311,7 +312,7 @@ export function ImageEditor(props: {
           <Show when={err()}><span class="img-editor-err">{err()}</span></Show>
           <Show when={ready() && fmt().mime !== "image/png"}>
             <label class="img-editor-quality">
-              Quality
+              {t("preview.image.quality")}
               <input type="range" min="0.3" max="1" step="0.05" value={quality()} disabled={busy()}
                 onInput={(e) => setQuality(+e.currentTarget.value)} />
               <span>{Math.round(quality() * 100)}%</span>
@@ -322,12 +323,12 @@ export function ImageEditor(props: {
             fallback={
               <div class="img-editor-actions">
                 <Show when={!isMobile()}>
-                  <button class="btn-secondary" title="Download to disk" disabled={!ready() || busy()} onClick={download}><IconDownload size={15} /> Download</button>
+                  <button class="btn-secondary" title={t("preview.image.downloadToDisk")} disabled={!ready() || busy()} onClick={download}><IconDownload size={15} /> {t("common.download")}</button>
                 </Show>
-                <button class="btn-secondary" disabled={!ready() || busy()} onClick={startSaveAs}><IconSave size={15} /> Save as copy</button>
-                <button class="btn-primary" title={canOverwrite() ? "" : `Can't overwrite .${ext()} as ${fmt().ext} — use Save as copy`}
+                <button class="btn-secondary" disabled={!ready() || busy()} onClick={startSaveAs}><IconSave size={15} /> {t("preview.image.saveAsCopy")}</button>
+                <button class="btn-primary" title={canOverwrite() ? "" : t("preview.image.cantOverwrite", { ext: ext(), fmt: fmt().ext })}
                   disabled={!ready() || busy() || !canOverwrite()} onClick={() => doSave(props.obj.key, false)}>
-                  {saving() ? "Saving…" : "Overwrite original"}
+                  {saving() ? t("common.saving") : t("preview.image.overwrite")}
                 </button>
               </div>
             }
@@ -337,12 +338,12 @@ export function ImageEditor(props: {
                 class="field img-editor-keyinput"
                 value={newKey()}
                 onInput={(e) => setNewKey(e.currentTarget.value)}
-                placeholder="destination key"
+                placeholder={t("preview.image.destKey")}
                 spellcheck={false}
               />
-              <button class="btn-secondary" disabled={busy()} onClick={() => setSaveAs(false)}>Cancel</button>
+              <button class="btn-secondary" disabled={busy()} onClick={() => setSaveAs(false)}>{t("common.cancel")}</button>
               <button class="btn-primary" disabled={busy() || !newKey().trim()} onClick={() => doSave(newKey().trim(), true)}>
-                {saving() ? "Saving…" : "Save copy"}
+                {saving() ? t("common.saving") : t("preview.image.saveCopy")}
               </button>
             </div>
           </Show>

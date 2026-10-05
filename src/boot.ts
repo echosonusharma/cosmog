@@ -2,6 +2,7 @@ import { listAccounts } from "./api/accounts";
 import { listBuckets } from "./api/buckets";
 import { loadSettings } from "./state/settings";
 import { initPrefs } from "./state/prefs";
+import { initI18n, t } from "./i18n";
 import { initEditorTheme } from "./state/editorTheme";
 import { setTheme } from "./state/theme";
 import { errMsg } from "./utils/errors";
@@ -20,10 +21,11 @@ import {
 export async function boot(setStage: (s: string) => void) {
   setStage("Loading preferences…");
   await initPrefs();
+  await initI18n();
   initEditorTheme();
   restoreBrowseState();
 
-  setStage("Loading accounts…");
+  setStage(t("shell.boot.accounts"));
   let error: unknown = null;
   try {
     setAccounts(await listAccounts());
@@ -40,7 +42,7 @@ export async function boot(setStage: (s: string) => void) {
       setBrowseState({ accountId: first, bucket: null, prefix: "" });
     }
 
-    setStage("Loading settings…");
+    setStage(t("shell.boot.settings"));
     try {
       // Seeds the shared store so hidden-file and confirm prefs apply on first paint.
       const s = await loadSettings();
@@ -52,7 +54,7 @@ export async function boot(setStage: (s: string) => void) {
 
     const accountId = browseState.accountId;
     if (accountId) {
-      setStage("Loading buckets…");
+      setStage(t("shell.boot.buckets"));
       try {
         seedBootBuckets(accountId, await listBuckets(accountId));
         setSidebarBucketsError(null);

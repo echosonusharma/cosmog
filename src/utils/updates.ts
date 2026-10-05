@@ -19,7 +19,7 @@ function isNewer(remote: string, current: string): boolean {
   return false;
 }
 
-// Cached at module level — both Titlebar (desktop) and MobileHeader (mobile)
+// Cached at module level: both Titlebar (desktop) and MobileHeader (mobile)
 // read from the same promise so only one fetch happens per session.
 let _cached: Promise<UpdateInfo | null> | null = null;
 

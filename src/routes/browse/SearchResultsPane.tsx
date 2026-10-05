@@ -9,6 +9,7 @@ import { navigateToPrefix } from "../../state/app";
 import { highlightText } from "../../utils/highlight";
 import type { CachedObjectMeta, BucketIndexStatus } from "../../types";
 import Spinner from "../../utils/Spinner";
+import { t, tp } from "../../i18n";
 
 export function SearchResultsPane(props: {
   searchQuery: string;
@@ -113,7 +114,7 @@ export function SearchResultsPane(props: {
         <Spinner class="corner-spinner" />
       </Show>
       <Show when={props.loading && props.objects.length === 0}>
-        <div class="loading-row"><Spinner /> Searching…</div>
+        <div class="loading-row"><Spinner /> {t("browse.search.searching")}</div>
       </Show>
       <Show when={!props.loading || props.objects.length > 0}>
         <Show when={props.objects.length > 0}
@@ -123,20 +124,20 @@ export function SearchResultsPane(props: {
                         fallback={
                           <div class="empty-state">
                             <span class="empty-icon"><IconSearch size={32} /></span>
-                            No results for "{props.searchQuery}"
+                            {t("browse.search.noResults", { query: props.searchQuery })}
                           </div>
                         }>
                     <div class="empty-state">
                       <span class="empty-icon"><IconSearch size={32} /></span>
-                      <span>Bucket not indexed</span>
+                      <span>{t("browse.search.notIndexed")}</span>
                       <button class="btn-primary search-enable-index-btn" disabled={props.indexBusy} onClick={props.onEnableIndex}>
-                        Enable index
+                        {t("browse.index.enable")}
                       </button>
                     </div>
                   </Show>
                 </Show>
               }>
-          <div class="results-header">{props.total.toLocaleString()} matches</div>
+          <div class="results-header">{tp("browse.search.matches", props.total)}</div>
           <div class="object-list search-results-list" ref={setListEl}>
             <For each={props.objects}>
               {(obj, i) => (
@@ -169,7 +170,7 @@ export function SearchResultsPane(props: {
           <Show when={props.hasMore}>
             <div class="search-load-more">
               <button class="btn-secondary" disabled={props.loadingMore} onClick={props.onLoadMore}>
-                {props.loadingMore ? "Loading…" : "Load more"}
+                {props.loadingMore ? t("common.loading") : t("browse.col.loadMore")}
               </button>
             </div>
           </Show>

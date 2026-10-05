@@ -2,6 +2,7 @@ import { createSignal, createEffect, onMount, For, Show } from "solid-js";
 import { deleteAccount } from "../../api/accounts";
 import { accounts, openAddAccount, setOpenAddAccount, bumpAccountsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
+import { t } from "../../i18n";
 import { confirmDialog } from "../../state/confirm";
 import { ProviderIcon, providerLabel, IconX, IconEdit } from "../../utils/icons";
 import type { Account } from "../../types";
@@ -47,22 +48,22 @@ export function AccountsList() {
   async function handleDelete(id: string, name: string) {
     // Always prompt: removal also destroys encryption keys, which is unrecoverable.
     const ok = await confirmDialog({
-      title: "Remove account?",
-      body: `"${name}": cached objects, transfers, and credentials will be removed. This action is irreversible.`,
-      confirmLabel: "Remove",
+      title: t("settings.accounts.removeTitle"),
+      body: t("settings.accounts.removeBody", { name }),
+      confirmLabel: t("common.remove"),
       danger: true,
     });
     if (!ok) return;
-    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok("Account removed", `"${name}" and its cached data were deleted`); }
+    try { await deleteAccount(id); bumpAccountsRefresh(); toast.ok(t("settings.accounts.removed"), t("settings.accounts.removedDetail", { name })); }
     catch (e) { toast.err(e); }
   }
 
   return (
     <div class="settings-section">
       <div class="settings-section-title">
-        <span>Accounts</span>
+        <span>{t("settings.accounts.title")}</span>
         <button class="btn-ghost" onClick={() => (showAdd() ? closeForm() : openAdd())}>
-          {showAdd() ? "Cancel" : "+ Add account"}
+          {showAdd() ? t("common.cancel") : t("settings.accounts.add")}
         </button>
       </div>
 
@@ -81,7 +82,7 @@ export function AccountsList() {
       </Show>
 
       <Show when={accounts().length > 0}
-            fallback={<div class="empty-state empty-state-accounts">No accounts</div>}>
+            fallback={<div class="empty-state empty-state-accounts">{t("settings.accounts.empty")}</div>}>
         <div class="account-rows">
           <For each={accounts()}>
             {(a) => (
@@ -91,20 +92,21 @@ export function AccountsList() {
                   <span class="account-name">
                     {a.name}
                     <Show when={a.needs_reauth}>
-                      <span class="account-reauth-badge">Reconnect</span>
+                      <span class="account-reauth-badge">{t("settings.accounts.reconnect")}</span>
                     </Show>
                   </span>
                   <span class="account-meta">
                     <Show when={a.needs_reauth}
                           fallback={<>{providerLabel(a)} · {a.region}{a.endpoint ? ` · ${a.endpoint}` : ""}</>}>
-                      Credentials missing on this device. Edit to re-enter the secret key.
+                      {t("settings.accounts.missingCreds")}
                     </Show>
                   </span>
                 </div>
                 <button type="button" class="icon-btn"
-                        aria-label={`Edit ${a.name}`}
+                        aria-label={t("settings.accounts.edit", { name: a.name })}
                         onClick={() => openEdit(a)}><IconEdit size={15} /></button>
                 <button type="button" class="icon-btn danger"
+                        aria-label={t("common.remove")}
                         onClick={() => handleDelete(a.id, a.name)}><IconX size={15} /></button>
               </div>
             )}

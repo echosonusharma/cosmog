@@ -2,6 +2,7 @@ import { For, Show, onMount, onCleanup, createEffect, createSignal } from "solid
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { formatChartCount } from "../../../utils/requestLogMeta";
+import { language } from "../../../i18n";
 
 export interface ChartSeries {
   label: string;
@@ -62,7 +63,7 @@ export function MultiLineChart(props: {
     }
 
     const ts = u.data[0][idx];
-    const date = uPlot.fmtDate("{MM}/{DD}/{YYYY}")(utcDate(ts));
+    const date = new Date(ts * 1000).toLocaleDateString(language(), { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" });
     const rows = props.series
       .map((s) => {
         const n = s.values[idx] ?? 0;

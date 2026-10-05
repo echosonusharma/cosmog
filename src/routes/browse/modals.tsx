@@ -19,6 +19,7 @@ import {
   uploadKeyPrefixSchema,
 } from "../../validation";
 import Spinner from "../../utils/Spinner";
+import { t, tp } from "../../i18n";
 import { focusEnd, prefixToPath } from "./newItem";
 
 function displayName(p: string): string {
@@ -68,7 +69,7 @@ export function DownloadModal(props: {
   async function submit() {
     if (mobile) {
       if (!safUri()) {
-        setErr("Choose a save location first");
+        setErr(t("browse.download.chooseFirst"));
         return;
       }
     } else {
@@ -98,16 +99,16 @@ export function DownloadModal(props: {
   return (
     <div class="modal-backdrop" onClick={close}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">Download</div>
+        <div class="modal-title">{t("common.download")}</div>
         <div class="modal-sub">{props.obj.key}</div>
         <Show
           when={mobile}
           fallback={
             <>
-              <label class="modal-label">Save to</label>
+              <label class="modal-label">{t("browse.download.saveTo")}</label>
               <div class="file-picker-row">
                 <input class="field" value={dest()} onInput={(e) => setDest(e.currentTarget.value.trim())} disabled={busy()} />
-                <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
+                <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>{t("browse.download.browse")}</button>
               </div>
             </>
           }
@@ -116,22 +117,22 @@ export function DownloadModal(props: {
             when={safUri()}
             fallback={
               <button type="button" class="btn-secondary btn-block mt-2" disabled={busy()} onClick={browse}>
-                Choose location
+                {t("browse.download.chooseLocation")}
               </button>
             }
           >
-            <label class="modal-label">Saving to</label>
+            <label class="modal-label">{t("browse.download.savingTo")}</label>
             <div class="file-picker-row">
               <span class="field truncate field-static">{pickedLabel()}</span>
-              <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Change</button>
+              <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>{t("browse.download.change")}</button>
             </div>
           </Show>
         </Show>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={close}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={close}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={!canSubmit()} onClick={submit}>
-            {busy() ? "Queuing…" : "Download"}
+            {busy() ? t("browse.download.queuing") : t("common.download")}
           </button>
         </div>
       </div>
@@ -169,7 +170,7 @@ export function UploadModal(props: {
     if (!list.length) return;
     const prefixResult = uploadKeyPrefixSchema.safeParse(keyPrefix());
     if (!prefixResult.success) {
-      setErr(prefixResult.error.issues[0]?.message ?? "Invalid key prefix");
+      setErr(prefixResult.error.issues[0]?.message ?? t("browse.upload.invalidPrefix"));
       return;
     }
     setBusy(true); setErr(""); setCurrentIdx(0);
@@ -191,53 +192,54 @@ export function UploadModal(props: {
   }
 
   function submitLabel() {
-    if (!busy()) return `Upload${files().length > 1 ? ` (${files().length})` : ""}`;
+    if (!busy()) return files().length > 1 ? t("browse.upload.withCount", { count: files().length }) : t("common.upload");
     if (props.encrypted) {
       const idx = currentIdx();
       const name = files()[idx];
-      const suffix = files().length > 1 ? ` (${idx + 1}/${files().length})` : "";
-      return name ? `Encrypting${suffix}…` : "Encrypting…";
+      return name && files().length > 1
+        ? t("browse.upload.encryptingOf", { index: idx + 1, total: files().length })
+        : t("browse.upload.encrypting");
     }
-    return "Queuing…";
+    return t("browse.upload.queuing");
   }
 
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">Upload files</div>
+        <div class="modal-title">{t("browse.upload.title")}</div>
         <div class="file-picker-row">
           <span class="field truncate field-static">
-            {files().length === 0 ? "No files selected"
+            {files().length === 0 ? t("browse.upload.noFiles")
               : files().length === 1 ? displayName(files()[0])
-              : `${files().length} files selected`}
+              : tp("browse.upload.filesSelected", files().length)}
           </span>
-          <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>Browse</button>
+          <button type="button" class="btn-secondary" disabled={busy()} onClick={browse}>{t("browse.download.browse")}</button>
         </div>
         <Show when={files().length > 1}>
           <div class="upload-file-list">
             <For each={files()}>{(f) => <div class="upload-file-item">{displayName(f)}</div>}</For>
           </div>
         </Show>
-        <label class="modal-label">Key prefix (optional)</label>
+        <label class="modal-label">{t("browse.upload.keyPrefix")}</label>
         <input class="field" placeholder={props.prefix || "folder/"} value={keyPrefix()}
                onInput={(e) => setKeyPrefix(e.currentTarget.value)} disabled={busy()} />
         <Show when={props.encrypted}>
           <div class="upload-encrypted-note">
             <span class="upload-encrypted-note-icon"><IconLock size={18} /></span>
-            <span class="upload-encrypted-note-text">Encrypted bucket. Files lock on this device before upload; large files may take a moment.</span>
+            <span class="upload-encrypted-note-text">{t("browse.upload.encryptedNote")}</span>
           </div>
         </Show>
         <Show when={busy() && props.encrypted && files().length > 0}>
           <div class="upload-encrypting-progress">
             <Spinner size={11} />
             <span class="upload-encrypting-progress-label">
-              Encrypting <code>{displayName(files()[currentIdx()] ?? "")}</code>
+              {t("browse.upload.encryptingFile", { name: displayName(files()[currentIdx()] ?? "") })}
             </span>
           </div>
         </Show>
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose} disabled={busy()}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={props.onClose} disabled={busy()}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={!files().length || busy()} onClick={submit}>
             {submitLabel()}
           </button>
@@ -263,22 +265,22 @@ export function NewBucketModal(props: { accountId: string; onClose: () => void; 
       const bucket = result.data.toLowerCase();
       await createBucket(props.accountId, bucket);
       props.onDone(); props.onClose();
-      toast.ok("Bucket created", `"${bucket}" is ready to use`);
+      toast.ok(t("browse.newBucket.doneTitle"), t("browse.newBucket.doneDetail", { name: bucket }));
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">New bucket</div>
+        <div class="modal-title">{t("browse.newBucket.title")}</div>
         <input class="field" placeholder="bucket-name" value={name()}
                onInput={(e) => { setName(e.currentTarget.value); setErr(""); }} disabled={busy()}
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={!name().trim() || busy()} onClick={submit}>
-            {busy() ? "Creating…" : "Create"}
+            {busy() ? t("browse.creating") : t("common.create")}
           </button>
         </div>
       </div>
@@ -307,8 +309,8 @@ export function NewFolderModal(props: {
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">New folder</div>
-        <div class="modal-sub modal-sub-path-label">Path</div>
+        <div class="modal-title">{t("browse.newFolder.title")}</div>
+        <div class="modal-sub modal-sub-path-label">{t("browse.newFolder.path")}</div>
         <input class="field" placeholder="path/to/folder-name"
                value={path()}
                onInput={(e) => { setPath(e.currentTarget.value); setErr(""); }}
@@ -316,9 +318,9 @@ export function NewFolderModal(props: {
                ref={focusEnd} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={!path().trim().replace(/\//g, "")} onClick={submit}>
-            Create
+            {t("common.create")}
           </button>
         </div>
       </div>
@@ -347,23 +349,23 @@ export function RenameModal(props: {
     try {
       await moveObject(props.obj.account_id, props.obj.bucket, props.obj.key, props.obj.bucket, target);
       props.onDone(target); props.onClose();
-      toast.ok(`Renamed ${props.obj.key.split("/").pop() || props.obj.key}`, `Now at "${target}" in "${props.obj.bucket}"`);
+      toast.ok(t("browse.rename.doneTitle", { name: props.obj.key.split("/").pop() || props.obj.key }), t("browse.rename.doneDetail", { target, bucket: props.obj.bucket }));
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">Rename / Move</div>
+        <div class="modal-title">{t("browse.rename.title")}</div>
         <div class="modal-sub">{props.obj.key}</div>
         <input class="field" value={newKey()}
                onInput={(e) => { setNewKey(e.currentTarget.value); setErr(""); }} disabled={busy()} autofocus
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={busy()} onClick={submit}>
-            {busy() ? "Working…" : "Rename"}
+            {busy() ? t("browse.rename.working") : t("common.rename")}
           </button>
         </div>
       </div>

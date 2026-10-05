@@ -4,11 +4,12 @@ import { CorsTab } from "./CorsTab";
 import { VersioningTab } from "./VersioningTab";
 import { IconX } from "../../../utils/icons";
 import type { BucketConfigTab } from "./errors";
+import { t } from "../../../i18n";
 
-const TABS: { id: BucketConfigTab; label: string }[] = [
-  { id: "policy", label: "Policy" },
-  { id: "cors", label: "CORS" },
-  { id: "versioning", label: "Versioning" },
+const tabs = (): { id: BucketConfigTab; label: string }[] => [
+  { id: "policy", label: t("bucketconfig.tab.policy") },
+  { id: "cors", label: t("bucketconfig.tab.cors") },
+  { id: "versioning", label: t("bucketconfig.tab.versioning") },
 ];
 
 export function BucketConfigModal(props: {
@@ -41,23 +42,23 @@ export function BucketConfigModal(props: {
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal bcfg-modal" onClick={(e) => e.stopPropagation()}>
         <div class="bcfg-header">
-          <div class="modal-title">Bucket config: {props.bucket}</div>
-          <button class="icon-btn bcfg-close-x" title="Close" onClick={props.onClose}>
+          <div class="modal-title">{t("bucketconfig.title", { bucket: props.bucket })}</div>
+          <button class="icon-btn bcfg-close-x" title={t("common.close")} onClick={props.onClose}>
             <IconX size={16} />
           </button>
         </div>
 
         <div class="bcfg-tabs" role="tablist">
-          {TABS.map((t) => (
+          {tabs().map((tb) => (
             <button
               type="button"
               role="tab"
               class="bcfg-tab-btn"
-              classList={{ active: tab() === t.id }}
-              aria-selected={tab() === t.id}
-              onClick={() => selectTab(t.id)}
+              classList={{ active: tab() === tb.id }}
+              aria-selected={tab() === tb.id}
+              onClick={() => selectTab(tb.id)}
             >
-              {t.label}
+              {tb.label}
             </button>
           ))}
         </div>

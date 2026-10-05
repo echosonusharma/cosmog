@@ -2,6 +2,8 @@ import { Show } from "solid-js";
 import { formatBytes, formatRelative, basename } from "../../utils/fmt";
 import { IconArrowUpLine, IconArrowDownLine, IconRefresh, IconX } from "../../utils/icons";
 import type { Transfer } from "../../types";
+import { t as tr } from "../../i18n";
+import { errCode, errMsg } from "../../utils/errors";
 import { actionVerb, pct, shortPath } from "./helpers";
 
 export function TransferRow(props: {
@@ -12,12 +14,7 @@ export function TransferRow(props: {
   onLoadKey?: (accountId: string, bucket: string) => void;
 }) {
   const t = () => props.t;
-  // Backend surfaces missing-key failures via a stable message prefix matching
-  // AppError::EncryptionIdentityMissing's Display impl — avoids a schema change to persist the code.
-  const isKeyMissing = () => {
-    const e = t().error;
-    return !!e && (e.startsWith("encryption identity missing:") || e.includes("identity for bucket"));
-  };
+  const isKeyMissing = () => errCode(t().error) === "encryption_identity_missing";
   const isActive = () => t().status === "active" || t().status === "pending";
   const isTerminal = () =>
     t().status === "done" || t().status === "failed" || t().status === "canceled";
@@ -47,13 +44,13 @@ export function TransferRow(props: {
           </span>
           <div class="transfer-btns">
             <Show when={isActive()}>
-              <button class="icon-btn danger" onClick={props.onCancel}><IconX size={13} /></button>
+              <button class="icon-btn danger" title={tr("common.cancel")} aria-label={tr("common.cancel")} onClick={props.onCancel}><IconX size={13} /></button>
             </Show>
             <Show when={t().status === "failed"}>
-              <button class="icon-btn" onClick={props.onRetry}><IconRefresh size={13} /></button>
+              <button class="icon-btn" title={tr("common.retry")} aria-label={tr("common.retry")} onClick={props.onRetry}><IconRefresh size={13} /></button>
             </Show>
             <Show when={isTerminal()}>
-              <button class="icon-btn" onClick={props.onClear}><IconX size={13} /></button>
+              <button class="icon-btn" title={tr("transfers.row.clear")} aria-label={tr("transfers.row.clear")} onClick={props.onClear}><IconX size={13} /></button>
             </Show>
           </div>
         </div>
@@ -88,12 +85,12 @@ export function TransferRow(props: {
         </Show>
 
         <Show when={t().error}>
-          <Show when={isKeyMissing()} fallback={<div class="transfer-error">{t().error!}</div>}>
+          <Show when={isKeyMissing()} fallback={<div class="transfer-error">{errMsg(t().error)}</div>}>
             <div class="transfer-error transfer-error-keyload">
-              <span class="transfer-error-keyload-text">Encryption key for this bucket is not on this device. Load it to decrypt this download.</span>
+              <span class="transfer-error-keyload-text">{tr("transfers.row.keyMissing")}</span>
               <Show when={props.onLoadKey}>
                 <button class="btn-primary transfer-error-keyload-btn" onClick={() => props.onLoadKey!(t().account_id, t().bucket)}>
-                  Load key
+                  {tr("transfers.row.loadKey")}
                 </button>
               </Show>
             </div>

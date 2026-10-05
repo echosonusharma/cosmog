@@ -3,13 +3,15 @@ import { SettingsForm } from "./settings/SettingsForm";
 import { AccountsList } from "./settings/AccountsList";
 import { clearAppData } from "../api/portable";
 import { toast } from "../state/toast";
+import { t } from "../i18n";
 
-const CONFIRM_PHRASE = "i understand"; // compared lowercase; input is lowercased before match
+// Localized phrase, compared lowercase; input is lowercased before match.
+const confirmPhrase = () => t("settings.clear.phrase").toLowerCase();
 
 function ClearDataModal(props: { onClose: () => void }) {
   const [input, setInput] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const confirmed = () => input().trim().toLowerCase() === CONFIRM_PHRASE;
+  const confirmed = () => input().trim().toLowerCase() === confirmPhrase();
   const mismatch = () => input().length > 0 && !confirmed();
 
   async function doDelete() {
@@ -28,8 +30,8 @@ function ClearDataModal(props: { onClose: () => void }) {
     <div class="modal-backdrop" onClick={() => !busy() && props.onClose()}>
       <div class="cd-modal" onClick={(e) => e.stopPropagation()}>
         <div class="cd-modal-header">
-          <span class="cd-modal-title">Clear all app data</span>
-          <button class="cd-modal-close" onClick={props.onClose} aria-label="Close">✕</button>
+          <span class="cd-modal-title">{t("settings.clear.title")}</span>
+          <button class="cd-modal-close" onClick={props.onClose} aria-label={t("common.close")}>✕</button>
         </div>
 
         <div class="cd-modal-body">
@@ -40,20 +42,20 @@ function ClearDataModal(props: { onClose: () => void }) {
               <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
             <div>
-              <div class="cd-warning-title">This action is irreversible.</div>
-              <div class="cd-warning-desc">All local data will be permanently deleted and the app will close immediately.</div>
+              <div class="cd-warning-title">{t("settings.clear.irreversible")}</div>
+              <div class="cd-warning-desc">{t("settings.clear.warning")}</div>
             </div>
           </div>
 
           <ul class="cd-consequence-list">
-            <li>Database, transfer history, and search indexes will be deleted</li>
-            <li>All credentials will be removed from the OS keychain</li>
-            <li>Log files will be deleted</li>
-            <li>The app will close automatically once deletion is complete</li>
+            <li>{t("settings.clear.item.db")}</li>
+            <li>{t("settings.clear.item.credentials")}</li>
+            <li>{t("settings.clear.item.logs")}</li>
+            <li>{t("settings.clear.item.close")}</li>
           </ul>
 
           <div class="cd-confirm-section">
-            <p class="cd-confirm-label">Please type <strong>I understand</strong> to confirm.</p>
+            <p class="cd-confirm-label">{t("settings.clear.typePrompt")} <strong>{t("settings.clear.phrase")}</strong></p>
             <input
               class="cd-confirm-input"
               classList={{ "cd-confirm-input-error": mismatch() }}
@@ -70,7 +72,7 @@ function ClearDataModal(props: { onClose: () => void }) {
             onClick={doDelete}
             disabled={!confirmed() || busy()}
           >
-            {busy() ? "Deleting…" : "I understand, delete all app data"}
+            {busy() ? t("settings.clear.deleting") : t("settings.clear.confirm")}
           </button>
         </div>
       </div>
@@ -84,13 +86,13 @@ function DangerZone() {
   return (
     <>
       <div class="settings-section settings-danger-zone">
-        <div class="settings-section-title">Danger zone</div>
+        <div class="settings-section-title">{t("settings.danger.title")}</div>
         <div class="settings-danger-row">
           <div class="settings-danger-text">
-            <span class="settings-danger-label">Clear all app data</span>
-            <span class="settings-danger-desc">Permanently deletes the local database, transfer history, search indexes, logs, and all credentials from the OS keychain. The app will close immediately. Use this before uninstalling to leave no files behind.</span>
+            <span class="settings-danger-label">{t("settings.clear.title")}</span>
+            <span class="settings-danger-desc">{t("settings.danger.desc")}</span>
           </div>
-          <button class="btn-danger" onClick={() => setShowModal(true)}>Clear all data</button>
+          <button class="btn-danger" onClick={() => setShowModal(true)}>{t("settings.danger.button")}</button>
         </div>
       </div>
       <Show when={showModal()}>
@@ -104,7 +106,7 @@ export default function Settings() {
   return (
     <div class="view-container">
       <div class="view-header">
-        <span class="section-title">Settings</span>
+        <span class="section-title">{t("settings.title")}</span>
       </div>
       <div class="settings-body">
         <SettingsForm />

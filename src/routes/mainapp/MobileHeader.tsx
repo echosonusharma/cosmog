@@ -2,16 +2,17 @@ import { createSignal, onMount, Show } from "solid-js";
 import { IconSidebar, SunIcon, MoonIcon, toggleTheme } from "../../utils/icons";
 import { resolvedTheme } from "../../state/theme";
 import { currentView } from "../../state/app";
+import { t } from "../../i18n";
 import { checkLatestVersion, type UpdateInfo } from "../../utils/updates";
 import { UpdateModal } from "./UpdateModal";
 
 function viewTitle() {
   switch (currentView()) {
-    case "dashboard": return "Dashboard";
-    case "browse":    return "Browser";
-    case "transfers": return "Transfers";
-    case "logs":      return "Logs";
-    case "settings":  return "Settings";
+    case "dashboard": return t("shell.nav.dashboard");
+    case "browse":    return t("shell.nav.browse");
+    case "transfers": return t("shell.nav.transfers");
+    case "logs":      return t("shell.nav.logs");
+    case "settings":  return t("shell.nav.settings");
     default:          return "";
   }
 }
@@ -34,7 +35,7 @@ export function MobileHeader(props: { onOpenSidebar: () => void }) {
         <button
           class="mobile-header-btn"
           onClick={props.onOpenSidebar}
-          aria-label="Open sidebar"
+          aria-label={t("shell.nav.openSidebar")}
         >
           <IconSidebar size={18} />
         </button>
@@ -44,14 +45,14 @@ export function MobileHeader(props: { onOpenSidebar: () => void }) {
         </div>
         <Show when={updateInfo()}>
           <button class="mobile-header-update-badge" onClick={() => setModalOpen(true)}>
-            v{updateInfo()!.version} available
+            {t("shell.update.available", { version: updateInfo()!.version })}
           </button>
         </Show>
         <div class="mobile-header-section">{viewTitle()}</div>
         <button
           class="mobile-header-btn"
           onClick={toggleTheme}
-          aria-label="Toggle theme"
+          aria-label={t("shell.nav.toggleTheme")}
         >
           {resolvedTheme() === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />}
         </button>

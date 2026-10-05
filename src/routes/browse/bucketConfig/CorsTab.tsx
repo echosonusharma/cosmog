@@ -9,6 +9,8 @@ import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
 import { validateCorsRules } from "../../../validation";
 import Spinner from "../../../utils/Spinner";
+import { errMsg } from "../../../utils/errors";
+import { t } from "../../../i18n";
 
 const METHODS = ["GET", "PUT", "POST", "DELETE", "HEAD"] as const;
 
@@ -132,7 +134,7 @@ export function CorsTab(props: {
     setBusy(true);
     try {
       await putBucketCors(props.accountId, props.bucket, config);
-      toast.ok("CORS saved", `CORS configuration for "${props.bucket}" updated`);
+      toast.ok(t("bucketconfig.cors.savedTitle"), t("bucketconfig.cors.savedDetail", { bucket: props.bucket }));
       await refetch();
       props.onChanged();
     } catch (e) {
@@ -147,7 +149,7 @@ export function CorsTab(props: {
     setBusy(true);
     try {
       await deleteBucketCors(props.accountId, props.bucket);
-      toast.ok("CORS removed", `CORS configuration for "${props.bucket}" deleted`);
+      toast.ok(t("bucketconfig.cors.removedTitle"), t("bucketconfig.cors.removedDetail", { bucket: props.bucket }));
       setRules([]);
       await refetch();
       props.onChanged();
@@ -166,18 +168,18 @@ export function CorsTab(props: {
   function errText(e: unknown, op: "get" | "put"): string {
     const kind = classifyBucketError(e);
     if (kind === "denied") return deniedMessage("cors", op);
-    if (kind === "unsupported") return "Not supported by this provider";
-    return (e as Error)?.message ?? String(e);
+    if (kind === "unsupported") return t("bucketconfig.error.unsupported");
+    return errMsg(e);
   }
 
   const snap = () => loaded.latest ?? loaded();
 
   return (
     <div class="bcfg-tab">
-      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>Loading CORS…</span></div>}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>{t("bucketconfig.cors.loading")}</span></div>}>
         <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
           <Show when={snap()!.unsupported}>
-            <div class="status-msg warn">Not supported by this provider</div>
+            <div class="status-msg warn">{t("bucketconfig.error.unsupported")}</div>
           </Show>
           <Show when={snap()!.denied}>
             <div class="status-msg err">{deniedMessage("cors", "get")}</div>
@@ -188,22 +190,21 @@ export function CorsTab(props: {
               {(w) => <div class="status-msg warn bcfg-provider-warn">{w()}</div>}
             </Show>
             <div class="modal-sub bcfg-hint">
-              Cross-origin rules control which web origins may call this bucket from a browser.
-              No rules means CORS is not configured. <DocLink providerId={props.providerId} tab="cors" />
+              {t("bucketconfig.cors.hint")} <DocLink providerId={props.providerId} tab="cors" />
             </div>
 
             <div class="bcfg-cors-rules">
               <Show when={rules.length === 0}>
-                <div class="empty-state bcfg-cors-empty">No CORS rules. Add one below.</div>
+                <div class="empty-state bcfg-cors-empty">{t("bucketconfig.cors.empty")}</div>
               </Show>
               <For each={rules}>
                 {(rule, i) => (
                   <div class="bcfg-cors-rule">
                     <div class="bcfg-cors-rule-head">
-                      <span class="bcfg-cors-rule-title">Rule {i() + 1}</span>
+                      <span class="bcfg-cors-rule-title">{t("bucketconfig.cors.rule", { n: i() + 1 })}</span>
                       <button
                         class="icon-btn danger"
-                        title="Remove rule"
+                        title={t("bucketconfig.cors.removeRule")}
                         disabled={busy()}
                         onClick={() => removeRule(i())}
                       >
@@ -212,7 +213,7 @@ export function CorsTab(props: {
                     </div>
 
                     <label class="bcfg-field">
-                      <span class="bcfg-field-label">Allowed origins (one per line or comma-separated)</span>
+                      <span class="bcfg-field-label">{t("bucketconfig.cors.origins")}</span>
                       <textarea
                         class="bcfg-textarea"
                         rows={2}
@@ -223,7 +224,7 @@ export function CorsTab(props: {
                     </label>
 
                     <div class="bcfg-field">
-                      <span class="bcfg-field-label">Allowed methods</span>
+                      <span class="bcfg-field-label">{t("bucketconfig.cors.methods")}</span>
                       <div class="bcfg-methods">
                         <For each={METHODS}>
                           {(m) => (
@@ -241,7 +242,7 @@ export function CorsTab(props: {
                     </div>
 
                     <label class="bcfg-field">
-                      <span class="bcfg-field-label">Allowed headers</span>
+                      <span class="bcfg-field-label">{t("bucketconfig.cors.headers")}</span>
                       <textarea
                         class="bcfg-textarea"
                         rows={2}
@@ -252,7 +253,7 @@ export function CorsTab(props: {
                     </label>
 
                     <label class="bcfg-field">
-                      <span class="bcfg-field-label">Expose headers</span>
+                      <span class="bcfg-field-label">{t("bucketconfig.cors.exposeHeaders")}</span>
                       <textarea
                         class="bcfg-textarea"
                         rows={2}
@@ -264,7 +265,7 @@ export function CorsTab(props: {
 
                     <div class="bcfg-cors-row">
                       <label class="bcfg-field bcfg-field-inline">
-                        <span class="bcfg-field-label">Max age (seconds)</span>
+                        <span class="bcfg-field-label">{t("bucketconfig.cors.maxAge")}</span>
                         <div class="bcfg-stepper">
                           <input
                             class="bcfg-input bcfg-stepper-input"
@@ -278,7 +279,7 @@ export function CorsTab(props: {
                             <button
                               type="button"
                               class="bcfg-step-btn"
-                              title="Increase"
+                              title={t("bucketconfig.cors.increase")}
                               disabled={busy()}
                               onClick={() => stepMaxAge(i(), 60)}
                             >
@@ -287,7 +288,7 @@ export function CorsTab(props: {
                             <button
                               type="button"
                               class="bcfg-step-btn"
-                              title="Decrease"
+                              title={t("bucketconfig.cors.decrease")}
                               disabled={busy()}
                               onClick={() => stepMaxAge(i(), -60)}
                             >
@@ -297,7 +298,7 @@ export function CorsTab(props: {
                         </div>
                       </label>
                       <label class="bcfg-field bcfg-field-inline">
-                        <span class="bcfg-field-label">ID (optional)</span>
+                        <span class="bcfg-field-label">{t("bucketconfig.cors.idOptional")}</span>
                         <input
                           class="bcfg-input"
                           type="text"
@@ -313,21 +314,21 @@ export function CorsTab(props: {
             </div>
 
             <button class="btn-secondary text-xs bcfg-add-rule" disabled={busy()} onClick={addRule}>
-              <IconPlus size={13} /> Add rule
+              <IconPlus size={13} /> {t("bucketconfig.cors.addRule")}
             </button>
 
             <Show when={err()}><div class="status-msg err bcfg-status">{err()}</div></Show>
 
             <div class="btn-row bcfg-actions">
               <div class="bcfg-actions-grp">
-                <button class="btn-secondary text-xs" disabled={busy()} onClick={handleReset}>Reset</button>
+                <button class="btn-secondary text-xs" disabled={busy()} onClick={handleReset}>{t("common.reset")}</button>
                 <button class="enc-disable-btn bcfg-danger-btn" disabled={busy()} onClick={handleDelete}>
-                  {busy() ? "Working…" : "Delete all"}
+                  {busy() ? t("bucketconfig.working") : t("bucketconfig.cors.deleteAll")}
                 </button>
               </div>
               <div class="bcfg-actions-grp">
                 <button class="btn-primary text-xs" disabled={busy() || rules.length === 0} onClick={handleSave}>
-                  {busy() ? "Saving…" : "Save"}
+                  {busy() ? t("common.saving") : t("common.save")}
                 </button>
               </div>
             </div>

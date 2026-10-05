@@ -1,8 +1,6 @@
-import { Show, For, createSignal, createMemo, createResource, createEffect, onCleanup } from "solid-js";
+import { Show, For, createSignal, createMemo, createResource } from "solid-js";
 import { Portal } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
-import { getVersion, getTauriVersion } from "@tauri-apps/api/app";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   currentView, setCurrentView,
   accounts, browseState, selectAccount, navigateToBucket,
@@ -20,153 +18,17 @@ import type { JSX } from "solid-js";
 import type { View } from "../../state/app";
 import type { Account } from "../../types";
 import { ProviderTile } from "./ProviderTile";
-import Spinner from "../../utils/Spinner";
+import { BugReportModal } from "./BugReportModal";
+import { t } from "../../i18n";
 
-const GITHUB_ISSUES_URL = "https://github.com/echosonusharma/cosmog/issues";
-
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-type DeviceInfo = { os: string; os_version: string; arch: string; model: string | null };
-
-async function loadBugInfo() {
-  const appVersion = isTauri ? await getVersion() : "unknown";
-  const tauriVersion = isTauri ? await getTauriVersion() : "unknown";
-  // navigator only knows the WebView runtime (e.g. "Linux aarch64" on Android),
-  // so pull the real OS/arch/device from the native backend when available.
-  const device: DeviceInfo | null = isTauri
-    ? await invoke<DeviceInfo>("get_device_info").catch(() => null)
-    : null;
-  const ua = navigator.userAgent;
-  const os = device ? `${device.os} ${device.os_version}` : navigator.platform;
-  const arch = device?.arch ?? "unknown";
-  const model = device?.model ?? null;
-  const screen = `${window.screen.width}x${window.screen.height} @${window.devicePixelRatio}x`;
-  const locale = navigator.language;
-  return { appVersion, tauriVersion, ua, os, arch, model, screen, locale };
-}
-
-function BugReportModal(props: { onClose: () => void }) {
-  const [info] = createResource(loadBugInfo);
-  const [copied, setCopied] = createSignal(false);
-  const [showLoader, setShowLoader] = createSignal(true);
-  const loadStartedAt = Date.now();
-
-  createEffect(() => {
-    if (info.error) {
-      setShowLoader(false);
-      return;
-    }
-    const data = info.latest;
-    if (!data) return;
-    const remaining = Math.max(0, 450 - (Date.now() - loadStartedAt));
-    const t = setTimeout(() => setShowLoader(false), remaining);
-    onCleanup(() => clearTimeout(t));
-  });
-
-  const infoReady = createMemo(() => !showLoader() && !!info.latest);
-
-  const infoText = () => {
-    const d = info.latest;
-    if (!d) return "";
-    const rows = [
-      `App Version:   ${d.appVersion}`,
-      `Tauri Version: ${d.tauriVersion}`,
-      `OS:            ${d.os}`,
-      `Arch:          ${d.arch}`,
-    ];
-    if (d.model) rows.push(`Device:        ${d.model}`);
-    rows.push(
-      `Screen:        ${d.screen}`,
-      `Locale:        ${d.locale}`,
-      `User Agent:    ${d.ua}`,
-    );
-    return rows.join("\n");
-  };
-
-  function copyInfo() {
-    navigator.clipboard.writeText(infoText()).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  return (
-    <div class="modal-backdrop" onClick={props.onClose}>
-      <div class="bug-modal" onClick={(e) => e.stopPropagation()}>
-        <div class="bug-modal-header">
-          <span class="bug-modal-title">
-            <span class="bug-modal-icon-wrap"><IconBug size={15} /></span>
-            Report a Bug
-          </span>
-          <button class="cd-modal-close" onClick={props.onClose} aria-label="Close">✕</button>
-        </div>
-
-        <div class="bug-modal-body">
-          <p class="bug-modal-desc">
-            Found something broken? Open an issue on GitHub and include the system info below so we can reproduce it faster.
-          </p>
-
-          <div class="bug-info-section">
-            <div class="bug-info-header">
-              <span class="bug-info-label">System Info</span>
-              <button class="bug-copy-btn" disabled={!infoReady()} onClick={copyInfo}>
-                {copied() ? "Copied!" : "Copy"}
-              </button>
-            </div>
-            <Show when={infoReady()}>
-              <dl class="bug-info-grid">
-                <dt>App Version</dt><dd>{info.latest!.appVersion}</dd>
-                <dt>Tauri Version</dt><dd>{info.latest!.tauriVersion}</dd>
-                <dt>OS</dt><dd>{info.latest!.os}</dd>
-                <dt>Arch</dt><dd>{info.latest!.arch}</dd>
-                <Show when={info.latest!.model}>
-                  <dt>Device</dt><dd>{info.latest!.model}</dd>
-                </Show>
-                <dt>Screen</dt><dd>{info.latest!.screen}</dd>
-                <dt>Locale</dt><dd>{info.latest!.locale}</dd>
-                <dt>User Agent</dt><dd>{info.latest!.ua}</dd>
-              </dl>
-            </Show>
-            <Show when={showLoader() && !info.error}>
-              <div class="bug-info-loading" aria-busy="true">
-                <Spinner size={50} />
-                <span>Loading system info…</span>
-              </div>
-            </Show>
-            <Show when={info.error}>
-              <div class="bug-info-error">Couldn't load system info. Try closing and reopening this dialog.</div>
-            </Show>
-          </div>
-
-          <div class="bug-steps">
-            <div class="bug-steps-title">How to report</div>
-            <ol class="bug-steps-list">
-              <li>Click <strong>Copy</strong> above to copy system info</li>
-              <li>Click <strong>Open Issue</strong> below to go to GitHub</li>
-              <li>Describe the bug and paste the copied info in the <em>Additional context</em> section</li>
-            </ol>
-          </div>
-
-          <button
-            class="bug-open-btn"
-            onClick={() => openUrl(GITHUB_ISSUES_URL).catch(() => {})}
-          >
-            Open Issue on GitHub
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const NAV: { view: View; label: string; icon: () => JSX.Element; desktopOnly?: boolean; beta?: boolean }[] = [
-  { view: "dashboard", label: "Dashboard", icon: () => <IconDashboard size={16} /> },
-  { view: "browse",    label: "Browser",   icon: () => <IconBrowse size={16} /> },
-  { view: "transfers", label: "Transfers", icon: () => <IconTransfer size={16} /> },
-  { view: "night-watcher", label: "Night Watcher", icon: () => <IconEye size={16} />, beta: true },
-  { view: "mcp",       label: "MCP Server", icon: () => <IconMcp size={16} />, desktopOnly: true, beta: true },
-  { view: "logs",      label: "Logs",      icon: () => <IconActivity size={16} /> },
-  { view: "settings",  label: "Settings",  icon: () => <IconSettings size={16} /> },
+const NAV: { view: View; label: () => string; icon: () => JSX.Element; desktopOnly?: boolean; beta?: boolean }[] = [
+  { view: "dashboard", label: () => t("shell.nav.dashboard"), icon: () => <IconDashboard size={16} /> },
+  { view: "browse",    label: () => t("shell.nav.browse"),    icon: () => <IconBrowse size={16} /> },
+  { view: "transfers", label: () => t("shell.nav.transfers"), icon: () => <IconTransfer size={16} /> },
+  { view: "night-watcher", label: () => t("shell.nav.nightWatcher"), icon: () => <IconEye size={16} />, beta: true },
+  { view: "mcp",       label: () => t("shell.nav.mcp"),       icon: () => <IconMcp size={16} />, desktopOnly: true, beta: true },
+  { view: "logs",      label: () => t("shell.nav.logs"),      icon: () => <IconActivity size={16} /> },
+  { view: "settings",  label: () => t("shell.nav.settings"),  icon: () => <IconSettings size={16} /> },
 ];
 
 export function Sidebar(props: {
@@ -242,13 +104,13 @@ export function Sidebar(props: {
               class={`sidebar-item ${currentView() === item.view ? "active" : ""}`}
               onClick={() => { setCurrentView(item.view); props.onCloseMobile?.(); }}
 
-              aria-label={item.label}
+              aria-label={item.label()}
             >
               <span class="sidebar-item-icon">{item.icon()}</span>
               <Show when={!props.collapsed}>
-                <span class="sidebar-item-label">{item.label}</span>
+                <span class="sidebar-item-label">{item.label()}</span>
                 <Show when={item.beta}>
-                  <span class="sidebar-item-beta">beta</span>
+                  <span class="sidebar-item-beta">{t("shell.nav.beta")}</span>
                 </Show>
                 <Show when={item.view === "transfers" && props.activeCount > 0}>
                   <span class="sidebar-item-badge">{props.activeCount}</span>
@@ -261,7 +123,7 @@ export function Sidebar(props: {
         <Show when={!props.collapsed && sidebarBuckets().length > 0}>
           <div class="sidebar-group sidebar-group-flex">
             <div class="sidebar-group-header">
-              Buckets
+              {t("shell.sidebar.buckets")}
               <span class="sidebar-group-count">{filteredBuckets().length}{bucketFilter() ? `/${sidebarBuckets().length}` : ""}</span>
             </div>
             <Show when={sidebarBuckets().length > 8}>
@@ -269,7 +131,7 @@ export function Sidebar(props: {
                 <IconSearch size={11} class="sidebar-bucket-search-icon" />
                 <input
                   class="sidebar-bucket-search-input"
-                  placeholder="Filter buckets…"
+                  placeholder={t("shell.sidebar.filterBuckets")}
                   value={bucketFilter()}
                   onInput={(e) => setBucketFilter(e.currentTarget.value)}
                 />
@@ -305,7 +167,7 @@ export function Sidebar(props: {
         </Show>
         <Show when={!props.collapsed && sidebarBucketsError()}>
           <div class="sidebar-buckets-error" title={sidebarBucketsError() ?? ""}>
-            Couldn't load buckets. {sidebarBucketsError()}
+            {t("shell.sidebar.bucketsError", { error: sidebarBucketsError() ?? "" })}
           </div>
         </Show>
       </div>
@@ -313,7 +175,7 @@ export function Sidebar(props: {
       <Show when={!props.collapsed && accounts().length > 0}>
         <div class="sidebar-accounts">
           <div class="sidebar-group-header">
-            Accounts
+            {t("shell.sidebar.accounts")}
             <span class="sidebar-group-count">{accounts().length}</span>
           </div>
           <For each={accounts()}>
@@ -334,7 +196,7 @@ export function Sidebar(props: {
           </For>
           <button class="sidebar-add-btn" onClick={() => { setOpenAddAccount(true); setCurrentView("settings"); props.onCloseMobile?.(); }}>
             <IconPlus size={12} />
-            Add account
+            {t("shell.sidebar.addAccount")}
           </button>
         </div>
       </Show>
@@ -346,7 +208,7 @@ export function Sidebar(props: {
       >
         <span class="sidebar-bug-icon"><IconBug size={14} /></span>
         <Show when={!props.collapsed}>
-          <span class="sidebar-bug-label">Report Bug</span>
+          <span class="sidebar-bug-label">{t("shell.sidebar.reportBug")}</span>
         </Show>
       </button>
 

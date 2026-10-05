@@ -6,7 +6,10 @@ import { notify } from "../../utils/notify";
 import { accounts, setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { detectProvider } from "../../providers";
 import { toast, errMsg } from "../../state/toast";
-import { parseWireError } from "../../utils/errors";
+import { errCode } from "../../utils/errors";
+
+// Some providers answer a non-empty delete with a bare 409, which classifies as plain conflict.
+const isNotEmptyErr = (e: unknown) => ["bucket_not_empty", "conflict"].includes(errCode(e));
 import { confirmDialog } from "../../state/confirm";
 import { confirmDestructive } from "../../state/settings";
 import {
@@ -17,6 +20,7 @@ import { ErrorPopup } from "../../utils/ErrorPopup";
 import { NewBucketModal } from "./modals";
 import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
 import Spinner from "../../utils/Spinner";
+import { t } from "../../i18n";
 
 export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [refresh, setRefresh] = createSignal(0);
@@ -63,9 +67,9 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
 
   async function handleDelete(name: string) {
     const ok = await confirmDestructive({
-      title: "Delete bucket?",
-      body: `"${name}": all objects and the bucket itself will be removed. This action is irreversible.`,
-      confirmLabel: "Delete",
+      title: t("browse.buckets.deleteTitle"),
+      body: t("browse.buckets.deleteBody", { name }),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -73,16 +77,16 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
       await deleteBucket(props.accountId, name);
       setRefresh((n) => n + 1);
       bumpBucketsRefresh();
-      notify("Bucket deleted", `"${name}" was removed`, {
-        largeBody: `Bucket "${name}" was deleted`,
+      notify(t("browse.buckets.deletedTitle"), t("browse.buckets.deletedDetail", { name }), {
+        largeBody: t("browse.buckets.deletedLarge", { name }),
       });
     } catch (e) {
-      // S3 refuses DeleteBucket on non-empty buckets — guide the user.
-      if (parseWireError(e).code === "conflict") {
+      // S3 refuses DeleteBucket on non-empty buckets: guide the user.
+      if (isNotEmptyErr(e)) {
         const emptyAndDelete = await confirmDialog({
-          title: "Bucket is not empty",
-          body: `"${name}" still has objects. S3 refuses to delete a non-empty bucket.\n\nEmpty it (delete all objects, including old versions) and then delete the bucket? This action is irreversible.`,
-          confirmLabel: "Empty + delete",
+          title: t("browse.buckets.notEmptyTitle"),
+          body: t("browse.buckets.notEmptyBody", { name }),
+          confirmLabel: t("browse.buckets.emptyDelete"),
           danger: true,
         });
         if (!emptyAndDelete) return;
@@ -90,8 +94,8 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
           await emptyAndDeleteBucket(props.accountId, name);
           setRefresh((n) => n + 1);
           bumpBucketsRefresh();
-          notify("Bucket deleted", `"${name}" emptied and deleted`, {
-            largeBody: `All objects in "${name}" were deleted, then the bucket itself was removed`,
+          notify(t("browse.buckets.deletedTitle"), t("browse.buckets.emptiedDetail", { name }), {
+            largeBody: t("browse.buckets.emptiedLarge", { name }),
           });
         } catch (e2) {
           toast.err(e2);
@@ -103,7 +107,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
   }
 
   function failMsg(failed: number, done: number, first: { key: string; message: string }) {
-    return `${failed} of ${failed + done} deletes failed; bucket not deleted. First error: ${first.key}: ${first.message}`;
+    return t("browse.buckets.deleteFailed", { failed, total: failed + done, key: first.key, message: first.message });
   }
 
   // Versioned buckets keep old versions + delete markers after a plain delete;
@@ -140,7 +144,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
     try {
       await deleteBucket(accountId, name);
     } catch (e) {
-      if (parseWireError(e).code !== "conflict") throw e;
+      if (!isNotEmptyErr(e)) throw e;
       await purgeVersions(accountId, name);
       await deleteBucket(accountId, name);
     }
@@ -154,12 +158,12 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
             <button
               class="icon-btn refresh-btn"
               classList={{ spinning: refreshing() }}
-              title={refreshing() ? "Refreshing…" : "Refresh"}
+              title={refreshing() ? t("browse.toolbar.refreshing") : t("common.refresh")}
               aria-busy={refreshing()}
               onClick={handleRefresh}
             >
               <IconRefresh size={16} />
-              <span class="btn-label-mobile">Refresh</span>
+              <span class="btn-label-mobile">{t("common.refresh")}</span>
             </button>
           </div>
           <div class="path-bar">
@@ -171,7 +175,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
           <IconSearch size={13} class="toolbar-search-icon" />
           <input
             class="toolbar-search-input"
-            placeholder="Filter buckets…"
+            placeholder={t("browse.buckets.filterPlaceholder")}
             value={filter()}
             onInput={(e) => setFilter(e.currentTarget.value)}
           />
@@ -181,14 +185,14 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
         </div>
         <div class="toolbar-actions">
           <button class="btn-secondary toolbar-btn" onClick={() => setShowNew(true)}>
-            <IconPlus size={14} /> <span class="btn-label-desktop">New bucket</span><span class="btn-label-mobile">Add Bucket</span>
+            <IconPlus size={14} /> <span class="btn-label-desktop">{t("browse.buckets.new")}</span><span class="btn-label-mobile">{t("browse.buckets.add")}</span>
           </button>
         </div>
       </div>
 
       <div class="bucket-grid-body">
         <Show when={buckets.loading && buckets.latest == null}>
-          <div class="loading-row"><Spinner /> Loading buckets…</div>
+          <div class="loading-row"><Spinner /> {t("browse.buckets.loading")}</div>
         </Show>
         <Show when={buckets.error && !errDismissed()}>
           <ErrorPopup error={buckets.error} onClose={() => setErrDismissed(true)} />
@@ -198,13 +202,13 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                 fallback={
                   <div class="empty-state">
                     <span class="empty-icon"><IconBucket size={40} /></span>
-                    No buckets yet
+                    {t("browse.buckets.none")}
                   </div>
                 }>
             <Show when={filtered().length === 0 && filter()}>
               <div class="empty-state">
                 <span class="empty-icon"><IconBucket size={40} /></span>
-                No buckets match "{filter()}"
+                {t("browse.buckets.noMatch", { filter: filter() })}
               </div>
             </Show>
             <div class="bucket-grid" classList={{ loading: buckets.loading }}>
@@ -224,7 +228,7 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                       <span class="truncate">{b.name}</span>
                     </button>
                     <button class="icon-btn bucket-cfg"
-                            title="Bucket config"
+                            title={t("browse.buckets.config")}
                             onClick={() => setConfigBucket(b.name)}><IconSettings size={15} /></button>
                     <button class="icon-btn danger bucket-del"
                             onClick={() => handleDelete(b.name)}><IconTrash size={15} /></button>

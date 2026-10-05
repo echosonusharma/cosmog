@@ -1,16 +1,17 @@
 import { createSignal, Show, For } from "solid-js";
 import { PICKABLE_PROVIDERS as PROVIDERS, type ProviderDef } from "../../providers";
 import { IconCheck } from "../../utils/icons";
+import { t, type TKey } from "../../i18n";
 import { ProviderIconTile } from "./shared";
 
-const PROVIDER_DESCS: Record<string, string> = {
-  aws:          "s3.amazonaws.com",
-  backblaze:    "Low cost",
-  r2:           "Zero egress fees",
-  wasabi:       "Hot cloud storage",
-  digitalocean: "Managed object storage",
-  minio:        "Self-hosted S3",
-  s3:           "Any S3-compatible endpoint",
+const PROVIDER_DESCS: Record<string, TKey> = {
+  aws:          "onboarding.provider.desc.aws",
+  backblaze:    "onboarding.provider.desc.backblaze",
+  r2:           "onboarding.provider.desc.r2",
+  wasabi:       "onboarding.provider.desc.wasabi",
+  digitalocean: "onboarding.provider.desc.digitalocean",
+  minio:        "onboarding.provider.desc.minio",
+  s3:           "onboarding.provider.desc.s3",
 };
 
 export function ProviderStep(props: {
@@ -40,8 +41,8 @@ export function ProviderStep(props: {
   return (
     <form class="card" onSubmit={submit}>
       <div>
-        <div class="card-title">Choose a provider</div>
-        <div class="card-subtitle">Connect any S3-compatible storage backend.</div>
+        <div class="card-title">{t("onboarding.provider.title")}</div>
+        <div class="card-subtitle">{t("onboarding.provider.subtitle")}</div>
       </div>
       <div
         class="provider-list"
@@ -62,7 +63,7 @@ export function ProviderStep(props: {
               <div class="provider-row-info">
                 <div class="provider-row-name">{p.label}</div>
                 <Show when={PROVIDER_DESCS[p.id]}>
-                  <div class="provider-row-desc">{PROVIDER_DESCS[p.id]}</div>
+                  <div class="provider-row-desc">{t(PROVIDER_DESCS[p.id])}</div>
                 </Show>
               </div>
               <Show when={selected() === p.id}>
@@ -75,7 +76,7 @@ export function ProviderStep(props: {
         </For>
       </div>
       <button type="submit" class="btn-primary">
-        Continue
+        {t("onboarding.provider.continue")}
       </button>
     </form>
   );

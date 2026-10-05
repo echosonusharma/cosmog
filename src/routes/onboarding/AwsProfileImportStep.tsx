@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { addAccount, deleteAccount, testAccount } from "../../api/accounts";
 import { errMsg, toast } from "../../state/toast";
+import { t, tp } from "../../i18n";
 import { type ProviderDef } from "../../providers";
 import { parseAwsCredentialsIni } from "../../utils/parseAwsCredentialsIni";
 import { accountNameSchema } from "../../validation";
@@ -34,7 +35,7 @@ export function AwsProfileImportStep(props: {
       try {
         const nameResult = accountNameSchema.safeParse(profile.name);
         if (!nameResult.success) {
-          throw new Error(nameResult.error.issues[0]?.message ?? "Invalid profile name");
+          throw new Error(nameResult.error.issues[0]?.message ?? t("onboarding.import.invalidName"));
         }
         const acct = await addAccount({
           name: nameResult.data,
@@ -59,13 +60,13 @@ export function AwsProfileImportStep(props: {
     if (imported > 0) {
       if (failures.length) {
         toast.warn(
-          `${imported} imported, ${failures.length} failed`,
+          t("onboarding.import.partial", { imported, failed: failures.length }),
           failures.join(" · "),
         );
       } else {
         toast.ok(
-          imported === 1 ? "1 account imported" : `${imported} accounts imported`,
-          "All profiles connected successfully",
+          tp("onboarding.import.done", imported),
+          t("onboarding.import.doneDetail"),
         );
       }
       props.onDone();
@@ -76,7 +77,7 @@ export function AwsProfileImportStep(props: {
       kind: "err",
       msg: failures.length === 1
         ? failures[0]
-        : `Import failed for all profiles:\n${failures.join("\n")}`,
+        : t("onboarding.import.allFailed", { errors: failures.join("\n") }),
     });
   }
 
@@ -86,31 +87,31 @@ export function AwsProfileImportStep(props: {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
           <path d="M19 12H5M12 5l-7 7 7 7"/>
         </svg>
-        Back
+        {t("common.back")}
       </button>
 
       <div class="provider-badge">
         <ProviderIconTile provider={props.provider} size={36} />
         <div>
-          <div class="provider-badge-title">Import AWS profiles</div>
-          <div class="provider-sub">Paste your credentials file, profiles become separate accounts.</div>
+          <div class="provider-badge-title">{t("onboarding.import.title")}</div>
+          <div class="provider-sub">{t("onboarding.import.subtitle")}</div>
         </div>
       </div>
 
       <ol class="aws-import-steps">
         <li>
-          Open <code class="aws-import-path">~/.aws/credentials</code>
-          <span class="aws-import-path-hint"> (Windows: <code>%USERPROFILE%\.aws\credentials</code>)</span>
+          {t("onboarding.import.step1")} <code class="aws-import-path">~/.aws/credentials</code>
+          <span class="aws-import-path-hint"> ({t("onboarding.import.windows")} <code>%USERPROFILE%\.aws\credentials</code>)</span>
         </li>
-        <li>Copy the entire file and paste it below</li>
-        <li>Click Import - keys are saved to your OS keychain, not kept in the app</li>
+        <li>{t("onboarding.import.step2")}</li>
+        <li>{t("onboarding.import.step3")}</li>
       </ol>
 
       <div class="aws-import-note">
-        Paste the <strong>credentials</strong> file, not <code>config</code>. SSO-only profiles are skipped.
+        {t("onboarding.import.note")}
       </div>
 
-      <div class="field-label">Credentials file</div>
+      <div class="field-label">{t("onboarding.import.fileLabel")}</div>
       <div class="ini-editor-wrap">
         <IniEditor value={text()} onChange={setText} disabled={busy()} />
       </div>
@@ -119,16 +120,14 @@ export function AwsProfileImportStep(props: {
         <div class="aws-import-summary">
           <Show when={parsed().syntaxErrors.length > 0}>
             <div class="status-msg err">
-              Fix {parsed().syntaxErrors.length} syntax {parsed().syntaxErrors.length === 1 ? "error" : "errors"} before importing.
+              {tp("onboarding.import.fixErrors", parsed().syntaxErrors.length)}
             </div>
           </Show>
 
           <Show when={parsed().syntaxErrors.length === 0}>
             <Show when={parsed().profiles.length > 0}>
               <div class="status-msg ok">
-                {parsed().profiles.length} profile{parsed().profiles.length === 1 ? "" : "s"} ready:
-                {" "}
-                {parsed().profiles.map((p) => p.name).join(", ")}
+                {tp("onboarding.import.ready", parsed().profiles.length, { names: parsed().profiles.map((p) => p.name).join(", ") })}
               </div>
             </Show>
 
@@ -136,7 +135,7 @@ export function AwsProfileImportStep(props: {
               <For each={parsed().skipped}>
                 {(s) => (
                   <div class="status-msg warn">
-                    Skipped <strong>{s.name}</strong>: {s.message}
+                    {t("onboarding.import.skipped", { name: s.name, message: s.message })}
                   </div>
                 )}
               </For>
@@ -144,7 +143,7 @@ export function AwsProfileImportStep(props: {
 
             <Show when={parsed().profiles.length === 0 && parsed().skipped.length === 0}>
               <div class="status-msg err">
-                No importable profiles found. Each section needs aws_access_key_id and aws_secret_access_key.
+                {t("onboarding.import.none")}
               </div>
             </Show>
           </Show>
@@ -157,7 +156,7 @@ export function AwsProfileImportStep(props: {
 
       <div class="btn-row">
         <button type="button" class="btn-secondary" onClick={props.onBack} disabled={busy()}>
-          Manual entry
+          {t("onboarding.import.manual")}
         </button>
         <button
           type="button"
@@ -166,10 +165,10 @@ export function AwsProfileImportStep(props: {
           onClick={doImport}
         >
           {busy()
-            ? "Importing…"
+            ? t("onboarding.import.importing")
             : parsed().profiles.length > 0
-            ? `Import ${parsed().profiles.length} account${parsed().profiles.length === 1 ? "" : "s"}`
-            : "Import"}
+            ? tp("onboarding.import.action", parsed().profiles.length)
+            : t("onboarding.import.actionIdle")}
         </button>
       </div>
     </div>

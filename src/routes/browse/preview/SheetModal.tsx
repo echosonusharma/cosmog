@@ -5,6 +5,7 @@ import { notify } from "../../../utils/notify";
 import { toast, errMsg } from "../../../state/toast";
 import { confirmDialog } from "../../../state/confirm";
 import { formatBytes } from "../../../utils/fmt";
+import { t } from "../../../i18n";
 import { IconEye, IconX } from "../../../utils/icons";
 import type { CachedObjectMeta } from "../../../types";
 import { extOf } from "../../../utils/fmt";
@@ -70,7 +71,7 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
     try {
       const r = await previewObject(props.obj.account_id, props.obj.bucket, key, SHEET_CAP);
       if (gen !== loadGen) return;
-      if (r.truncated) throw new Error(`File too large to open here (max ${formatBytes(SHEET_CAP)})`);
+      if (r.truncated) throw new Error(t("preview.sheet.tooLargeErr", { max: formatBytes(SHEET_CAP) }));
       const bytes = new Uint8Array(r.bytes);
       const wb = await buildWorkbook(bytes, x);
       if (gen !== loadGen) return;
@@ -104,11 +105,11 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
   async function closeSheet() {
     if (sheetDirty()) {
       const action = await confirmDialog({
-        title: "Unsaved changes",
-        body: "Save changes to the spreadsheet?",
-        confirmLabel: "Save",
-        cancelLabel: "Discard",
-        dismissLabel: "Keep editing",
+        title: t("preview.unsavedTitle"),
+        body: t("preview.sheet.unsavedBody"),
+        confirmLabel: t("common.save"),
+        cancelLabel: t("preview.discard"),
+        dismissLabel: t("preview.keepEditing"),
         cancelDanger: true,
       });
       if (action === null) return;
@@ -125,14 +126,14 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
   }
 
   async function saveSheet() {
-    const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.obj.basename}?`, confirmLabel: "Save", cancelLabel: "Cancel" });
+    const ok = await confirmDialog({ title: t("preview.saveChangesTitle"), body: t("preview.saveChangesBody", { name: props.obj.basename }), confirmLabel: t("common.save"), cancelLabel: t("common.cancel") });
     if (!ok) return;
     if (await doSaveSheet()) setSheetEditMode(false);
   }
 
   async function discardSheet() {
     if (sheetDirty()) {
-      const ok = await confirmDialog({ title: "Discard changes", body: "Discard unsaved changes?", confirmLabel: "Discard", cancelLabel: "Keep editing", danger: true });
+      const ok = await confirmDialog({ title: t("preview.sheet.discardTitle"), body: t("preview.sheet.discardBody"), confirmLabel: t("preview.discard"), cancelLabel: t("preview.keepEditing"), danger: true });
       if (!ok) return;
       await revertWorkbook();
     }
@@ -198,8 +199,8 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
       }
       await putObjectBytes(obj.account_id, obj.bucket, obj.key, bytes, ct);
       if (loadedKey === obj.key) { origBytes = new Uint8Array(bytes); setSheetDirty(false); }
-      notify(`Saved ${obj.basename}`, obj.bucket, {
-        largeBody: `Saved changes to "${obj.key}" in "${obj.bucket}"`,
+      notify(t("preview.saved", { name: obj.basename }), obj.bucket, {
+        largeBody: t("preview.savedBody", { key: obj.key, bucket: obj.bucket }),
       });
       return true;
     } catch (e) { toast.err(e); return false; }
@@ -210,11 +211,11 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
     <>
       <div class="preview-img-area sheet-preview-col">
         <Show when={sheetTooBig()}>
-          <span class="muted sheet-preview-hint">File too large to preview ({formatBytes(props.obj.size)} · max {formatBytes(SHEET_CAP)})</span>
+          <span class="muted sheet-preview-hint">{t("preview.tooLargeSized", { size: formatBytes(props.obj.size), max: formatBytes(SHEET_CAP) })}</span>
         </Show>
         <Show when={!sheetTooBig()}>
           <button class="btn-secondary preview-btn-inline" onClick={openSheet}>
-            <IconEye size={15} /> View spreadsheet
+            <IconEye size={15} /> {t("preview.sheet.view")}
           </button>
         </Show>
       </div>
@@ -236,25 +237,25 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
               </Show>
               <div class="sheet-modal-actions">
                 <Show when={readOnly()}>
-                  <span class="muted sheet-readonly-note" title="Saving would strip the workbook's macros">
-                    Read-only (macros)
+                  <span class="muted sheet-readonly-note" title={t("preview.sheet.readOnlyHint")}>
+                    {t("preview.sheet.readOnly")}
                   </span>
                 </Show>
                 <Show when={!sheetEditMode() && !readOnly()}>
                   <button class="btn-secondary sheet-modal-btn"
                           disabled={!sheetWb()}
                           onClick={() => setSheetEditMode(true)}>
-                    Edit
+                    {t("common.edit")}
                   </button>
                 </Show>
                 <Show when={sheetEditMode()}>
                   <button class="btn-ghost sheet-modal-btn"
                           onClick={discardSheet}>
-                    Discard
+                    {t("preview.discard")}
                   </button>
                   <button class="btn-primary sheet-modal-btn"
                           disabled={sheetSaving()} onClick={saveSheet}>
-                    {sheetSaving() ? "Saving…" : "Save"}
+                    {sheetSaving() ? t("common.saving") : t("common.save")}
                   </button>
                 </Show>
                 <button class="icon-btn" onClick={closeSheet}><IconX size={18} /></button>
@@ -263,7 +264,7 @@ export function SheetPreview(props: { obj: CachedObjectMeta }) {
             <Show when={sheetLoading()}>
               <div class="preview-loader sheet-modal-loading">
                 <Spinner size={50} />
-                <span>Loading spreadsheet…</span>
+                <span>{t("preview.sheet.loading")}</span>
               </div>
             </Show>
             <Show when={sheetErr()}>

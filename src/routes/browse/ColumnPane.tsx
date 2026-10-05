@@ -7,6 +7,7 @@ import { basename } from "../../utils/fmt";
 import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import Spinner from "../../utils/Spinner";
+import { t } from "../../i18n";
 
 export const COL_ITEM_H = 30; // px — must match .col-pane-item height in CSS
 
@@ -80,7 +81,7 @@ function ColumnPaneVirtual(props: {
                           </button>
                           <button
                             class="col-kebab icon-btn"
-                            title="Actions"
+                            title={t("browse.col.actions")}
                             onClick={(e) => { e.stopPropagation(); props.onCtxFile?.(e, obj()); }}
                           >
                             <IconMore size={16} />
@@ -95,7 +96,7 @@ function ColumnPaneVirtual(props: {
                       onClick={props.onLoadMore}
                       disabled={props.loading}
                     >
-                      {props.loading ? "Loading…" : "Load more"}
+                      {props.loading ? t("common.loading") : t("browse.col.loadMore")}
                     </button>
                   </Show>
                 </div>
@@ -157,7 +158,7 @@ export function ColumnPane(props: {
           <Show when={!state.loading} fallback={
             <div class="col-pane-inline-spinner"><Spinner size={28} /></div>
           }>
-            <span class="col-pane-empty-text">Empty folder</span>
+            <span class="col-pane-empty-text">{t("browse.col.empty")}</span>
           </Show>
         </div>
       }>

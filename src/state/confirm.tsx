@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { t } from "../i18n";
 
 interface ConfirmReq {
   title: string;
@@ -47,14 +48,14 @@ export function ConfirmHost() {
                   class={p().cancelDanger ? "btn-danger" : "btn-secondary"}
                   onClick={() => finish(false)}
                 >
-                  {p().cancelLabel ?? "Cancel"}
+                  {p().cancelLabel ?? t("common.cancel")}
                 </button>
                 <button
                   type="button"
                   class={p().danger ? "btn-danger" : "btn-primary"}
                   onClick={() => finish(true)}
                 >
-                  {p().confirmLabel ?? "Confirm"}
+                  {p().confirmLabel ?? t("common.confirm")}
                 </button>
               </div>
             </div>

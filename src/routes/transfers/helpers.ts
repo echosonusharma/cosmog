@@ -1,16 +1,17 @@
 import type { Transfer, TransferStatus } from "../../types";
+import { t as tr } from "../../i18n";
 
 export const STATUS_ORDER: TransferStatus[] = ["active", "pending", "failed", "paused", "done", "canceled"];
 
 export function actionVerb(t: Transfer): string {
   const up = t.direction === "upload";
   switch (t.status) {
-    case "active":   return up ? "Uploading" : "Downloading";
-    case "pending":  return "Queued";
-    case "done":     return up ? "Uploaded" : "Downloaded";
-    case "failed":   return up ? "Upload failed" : "Download failed";
-    case "canceled": return "Canceled";
-    case "paused":   return "Paused";
+    case "active":   return up ? tr("transfers.status.uploading") : tr("transfers.status.downloading");
+    case "pending":  return tr("transfers.status.queued");
+    case "done":     return up ? tr("transfers.status.uploaded") : tr("transfers.status.downloaded");
+    case "failed":   return up ? tr("transfers.status.uploadFailed") : tr("transfers.status.downloadFailed");
+    case "canceled": return tr("transfers.status.canceled");
+    case "paused":   return tr("transfers.status.paused");
   }
 }
 

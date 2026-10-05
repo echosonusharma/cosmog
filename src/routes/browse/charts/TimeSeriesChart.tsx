@@ -11,7 +11,7 @@ export function TimeSeriesChart(props: { data: [number[], number[]]; height?: nu
 
   function build(width: number) {
     plot?.destroy();
-    // Canvas can't read CSS vars — resolve theme colors to strings.
+    // Canvas can't read CSS vars, resolve theme colors to strings.
     const css = getComputedStyle(document.documentElement);
     const muted = css.getPropertyValue("--muted").trim() || "#959aab";
     const border = css.getPropertyValue("--border").trim() || "rgba(255,255,255,0.07)";

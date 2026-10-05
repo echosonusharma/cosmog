@@ -1,37 +1,40 @@
-export const OP_LABELS: Record<string, string> = {
-  list_buckets: "List Buckets",
-  create_bucket: "Create Bucket",
-  delete_bucket: "Delete Bucket",
-  head_bucket: "Head Bucket",
-  put_bucket_acl: "Set Bucket ACL",
-  get_bucket_versioning: "Get Versioning",
-  put_bucket_versioning: "Set Versioning",
-  get_bucket_policy: "Get Policy",
-  put_bucket_policy: "Set Policy",
-  delete_bucket_policy: "Delete Policy",
-  get_bucket_cors: "Get CORS",
-  put_bucket_cors: "Set CORS",
-  delete_bucket_cors: "Delete CORS",
-  head_object: "Head Object",
-  create_folder: "Create Folder",
-  delete_object: "Delete Object",
-  delete_objects: "Batch Delete",
-  delete_object_version: "Delete Version",
-  restore_object_version: "Restore Version",
-  list_objects: "List Objects",
-  list_object_versions: "List Versions",
-  copy_object: "Copy Object",
-  put_object_acl: "Set Object ACL",
-  presign_get: "Presign URL",
-  read_object_range: "Preview Object",
-  read_object_full: "Read Object",
-  get_object_tagging: "Get Tags",
-  put_object_tagging: "Set Tags",
-  delete_object_tagging: "Delete Tags",
-  put_object: "Upload",
-  put_object_bytes: "Save Object",
-  get_object: "Download",
-  abort_multipart_upload: "Abort Multipart",
+import { t, type TKey } from "../i18n";
+
+// Label keys per operation; translated lazily in opLabel().
+export const OP_KEYS: Record<string, TKey> = {
+  list_buckets: "logs.op.list_buckets",
+  create_bucket: "logs.op.create_bucket",
+  delete_bucket: "logs.op.delete_bucket",
+  head_bucket: "logs.op.head_bucket",
+  put_bucket_acl: "logs.op.put_bucket_acl",
+  get_bucket_versioning: "logs.op.get_bucket_versioning",
+  put_bucket_versioning: "logs.op.put_bucket_versioning",
+  get_bucket_policy: "logs.op.get_bucket_policy",
+  put_bucket_policy: "logs.op.put_bucket_policy",
+  delete_bucket_policy: "logs.op.delete_bucket_policy",
+  get_bucket_cors: "logs.op.get_bucket_cors",
+  put_bucket_cors: "logs.op.put_bucket_cors",
+  delete_bucket_cors: "logs.op.delete_bucket_cors",
+  head_object: "logs.op.head_object",
+  create_folder: "logs.op.create_folder",
+  delete_object: "logs.op.delete_object",
+  delete_objects: "logs.op.delete_objects",
+  delete_object_version: "logs.op.delete_object_version",
+  restore_object_version: "logs.op.restore_object_version",
+  list_objects: "logs.op.list_objects",
+  list_object_versions: "logs.op.list_object_versions",
+  copy_object: "logs.op.copy_object",
+  put_object_acl: "logs.op.put_object_acl",
+  presign_get: "logs.op.presign_get",
+  read_object_range: "logs.op.read_object_range",
+  read_object_full: "logs.op.read_object_full",
+  get_object_tagging: "logs.op.get_object_tagging",
+  put_object_tagging: "logs.op.put_object_tagging",
+  delete_object_tagging: "logs.op.delete_object_tagging",
+  put_object: "logs.op.put_object",
+  put_object_bytes: "logs.op.put_object_bytes",
+  get_object: "logs.op.get_object",
+  abort_multipart_upload: "logs.op.abort_multipart_upload",
 };
 
 export const OP_COLORS: Record<string, string> = {
@@ -81,7 +84,7 @@ export const CHART_PALETTE = [
 ];
 
 export function opLabel(op: string): string {
-  return OP_LABELS[op] ?? op.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return OP_KEYS[op] ? t(OP_KEYS[op]) : op.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function opColor(op: string, fallbackIndex = 0): string {
@@ -100,7 +103,7 @@ export function accountLabel(
   accountId: string | null | undefined,
   accountName: string | null | undefined,
 ): string {
-  return accountName ?? accountId ?? "Unknown";
+  return accountName ?? accountId ?? t("logs.account.unknown");
 }
 
 type AccountRef = {

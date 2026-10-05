@@ -1,5 +1,6 @@
 import { Index, Show } from "solid-js";
 import { activeTransfers, setCurrentView } from "../../state/app";
+import { tp } from "../../i18n";
 import { formatBytes, basename } from "../../utils/fmt";
 import { pct } from "../transfers/helpers";
 import { IconArrowUpLine, IconArrowDownLine } from "../../utils/icons";
@@ -12,7 +13,7 @@ export function ActiveTransfersBar() {
       <div class="active-xfer-bar" role="button" tabIndex={0} onClick={() => setCurrentView("transfers")}>
         <div class="active-xfer-summary">
           <span class="active-xfer-count">
-            {list().length} transfer{list().length === 1 ? "" : "s"}
+            {tp("shell.xfer.count", list().length)}
           </span>
         </div>
 

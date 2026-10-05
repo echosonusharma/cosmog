@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { levelClass, type ParsedLine } from "../utils/parseLine";
 import { highlightText } from "../utils/highlight";
+import { t } from "../i18n";
 
 export function LogRow(props: {
   line: ParsedLine;
@@ -23,7 +24,7 @@ export function LogRow(props: {
       <button
         class={`log-source${isActive() ? " active" : ""}`}
         style={{ "--src-color": source().color }}
-        title={isActive() ? "Clear filter" : `Filter to ${source().label}`}
+        title={isActive() ? t("logs.row.clearFilter") : t("logs.row.filterTo", { source: source().label })}
         onClick={() => props.onSourceClick(source().key)}
       >
         {source().label}

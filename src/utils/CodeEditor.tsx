@@ -1,6 +1,8 @@
 import { onMount, onCleanup, createEffect, createMemo, createSignal, Show } from "solid-js";
 import { confirmDialog } from "../state/confirm";
 import { toast } from "../state/toast";
+import { t } from "../i18n";
+import { cmPhrases } from "./editorPhrases";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -109,6 +111,7 @@ export function CodeEditor(props: {
   const shellComp = new Compartment();
   const editorThemeComp = new Compartment();
   const diffComp = new Compartment();
+  const phrasesComp = new Compartment();
   let diffActive = false;
 
   let destroyed = false;
@@ -158,6 +161,7 @@ export function CodeEditor(props: {
         extensions: [
           shellComp.of(editorShellTheme(dark)),
           editorThemeComp.of([]),
+          phrasesComp.of(EditorState.phrases.of(cmPhrases())),
           langComp.of([]),
           roComp.of(EditorState.readOnly.of(props.readOnly ?? false)),
           ...gutterExts,
@@ -205,6 +209,12 @@ export function CodeEditor(props: {
     const ext = props.ext;
     if (!view) return;
     loadLang(ext);
+  });
+
+  // Search, lint and fold panels read their labels from this facet.
+  createEffect(() => {
+    const phrases = cmPhrases();
+    view?.dispatch({ effects: phrasesComp.reconfigure(EditorState.phrases.of(phrases)) });
   });
 
   createEffect(() => {
@@ -292,11 +302,11 @@ export function EditorModal(props: {
     if (isDirty()) {
       prompting = true;
       const action = await confirmDialog({
-        title: "Unsaved changes",
-        body: "Save changes before closing?",
-        confirmLabel: "Save",
-        cancelLabel: "Discard",
-        dismissLabel: "Keep editing",
+        title: t("preview.unsavedTitle"),
+        body: t("preview.editor.saveBeforeClose"),
+        confirmLabel: t("common.save"),
+        cancelLabel: t("preview.discard"),
+        dismissLabel: t("preview.keepEditing"),
         cancelDanger: true,
       }).finally(() => { prompting = false; });
       if (action === null) return;
@@ -324,7 +334,7 @@ export function EditorModal(props: {
   async function handleSave() {
     if (prompting || saving()) return;
     prompting = true;
-    const ok = await confirmDialog({ title: "Save changes", body: `Save changes to ${props.filename}?`, confirmLabel: "Save", cancelLabel: "Cancel" })
+    const ok = await confirmDialog({ title: t("preview.saveChangesTitle"), body: t("preview.saveChangesBody", { name: props.filename }), confirmLabel: t("common.save"), cancelLabel: t("common.cancel") })
       .finally(() => { prompting = false; });
     if (!ok) return;
     if (await doSave()) props.onClose();
@@ -348,19 +358,19 @@ export function EditorModal(props: {
           <div class="editor-modal-actions">
             <Show when={canFormat}>
               <button class="btn-ghost text-xs" disabled={formatting()} onClick={handleFormat}>
-                {formatting() ? "Formatting…" : "Format"}
+                {formatting() ? t("preview.editor.formatting") : t("preview.editor.format")}
               </button>
             </Show>
             <button
               class="btn-ghost editor-modal-full"
-              title={full() ? "Exit full view" : "Full view"}
+              title={full() ? t("preview.exitFullView") : t("preview.fullView")}
               onClick={() => setFull(!full())}
             >
               {full() ? <IconMinimize size={15} /> : <IconMaximize size={15} />}
             </button>
-            <button class="btn-secondary text-xs editor-modal-btn" onClick={requestClose}>Cancel</button>
+            <button class="btn-secondary text-xs editor-modal-btn" onClick={requestClose}>{t("common.cancel")}</button>
             <button class="btn-primary text-xs editor-modal-btn" disabled={saving()} onClick={handleSave}>
-              {saving() ? "Saving…" : "Save"}
+              {saving() ? t("common.saving") : t("common.save")}
             </button>
           </div>
         </div>
@@ -376,12 +386,12 @@ export function EditorModal(props: {
           />
         </div>
         <div class="editor-modal-footer">
-          <span class="muted text-xxs">Ctrl+S to save · Esc to close</span>
+          <span class="muted text-xxs">{t("preview.editor.shortcuts")}</span>
           <Show when={isDirty()}>
-            <span class="muted text-xxs editor-diff-legend" title="Changed lines vs the saved file">
-              <i class="diff-swatch diff-add" />added
-              <i class="diff-swatch diff-change" />changed
-              <i class="diff-swatch diff-delete" />deleted
+            <span class="muted text-xxs editor-diff-legend" title={t("preview.editor.diffLegend")}>
+              <i class="diff-swatch diff-add" />{t("preview.editor.added")}
+              <i class="diff-swatch diff-change" />{t("preview.editor.changed")}
+              <i class="diff-swatch diff-delete" />{t("preview.editor.deleted")}
             </span>
           </Show>
         </div>

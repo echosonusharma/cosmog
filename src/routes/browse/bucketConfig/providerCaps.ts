@@ -1,6 +1,7 @@
 import { getProviderById } from "../../../providers";
 import type { Support } from "../../../providers";
 import type { BucketConfigTab } from "./errors";
+import { t } from "../../../i18n";
 
 // Preemptive hint from providers.json `caps`; the backend's `Unsupported` error
 // stays source of truth, so a stale/missing entry never blocks a supported op.
@@ -16,20 +17,16 @@ export function docUrl(providerId: string, tab: BucketConfigTab): string {
   return getProviderById("aws")!.docs![tab]!;
 }
 
-const TAB_LABEL: Record<BucketConfigTab, string> = {
-  policy: "Bucket policy",
-  cors: "CORS configuration",
-  versioning: "Versioning",
-};
+const featureLabel = (tab: BucketConfigTab) => t(`bucketconfig.feature.${tab}`);
 
 /** Warning text for a non-supported/unknown capability, or "" when supported. */
 export function capWarning(providerId: string, providerLabel: string, tab: BucketConfigTab): string {
   const s = capFor(providerId, tab);
   if (s === "yes") return "";
-  const feature = TAB_LABEL[tab];
-  const who = providerLabel || "this provider";
+  const feature = featureLabel(tab);
+  const who = providerLabel || t("bucketconfig.caps.thisProvider");
   if (s === "no") {
-    return `${feature} is not supported by ${who}. Saving will likely fail.`;
+    return t("bucketconfig.caps.no", { feature, provider: who });
   }
-  return `${feature} support is unverified for ${who}. It may not work.`;
+  return t("bucketconfig.caps.unknown", { feature, provider: who });
 }

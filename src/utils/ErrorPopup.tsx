@@ -1,16 +1,15 @@
 import { Show } from "solid-js";
 import { IconAlertCircle, IconX } from "./icons";
-import { parseWireError, isCredentialError, isNetworkError } from "./errors";
+import { describeError, isCredentialError, isNetworkError } from "./errors";
+import { ErrorBody } from "./ErrorBody";
+import { t } from "../i18n";
 import { setCurrentView } from "../state/app";
 
 /** Dismissable popup; floats over the nearest `position:relative` ancestor (every `.view-container`). */
 export function ErrorPopup(props: { error: unknown; onClose: () => void }) {
-  const { code, message } = parseWireError(props.error);
+  const { code, title } = describeError(props.error);
   const credErr = isCredentialError(code);
   const netErr  = isNetworkError(code);
-  const title = credErr ? "Credentials not found"
-              : netErr  ? "Service unreachable"
-              : "Something went wrong";
 
   return (
     <div class="err-popup-backdrop" onClick={props.onClose}>
@@ -22,21 +21,16 @@ export function ErrorPopup(props: { error: unknown; onClose: () => void }) {
             <IconX size={15} />
           </button>
         </div>
-        <p class="err-popup-msg">{message}</p>
-        <Show when={netErr}>
-          <p class="err-popup-msg err-popup-hint">
-            Check that the endpoint is running and reachable, then try again.
-          </p>
-        </Show>
+        <ErrorBody error={props.error} />
         <div class="err-popup-actions">
           <Show when={credErr || netErr}>
             <button class="btn-primary text-xs"
                     onClick={() => { setCurrentView("settings"); props.onClose(); }}>
-              Open Settings
+              {t("shell.error.openSettings")}
             </button>
           </Show>
           <button class="btn-secondary text-xs" onClick={props.onClose}>
-            Dismiss
+            {t("shell.dismiss")}
           </button>
         </div>
       </div>

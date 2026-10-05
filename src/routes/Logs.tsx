@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { RequestLogs } from "./RequestLogs";
 import { SystemLog } from "./SystemLog";
+import { t } from "../i18n";
 
 type Tab = "requests" | "system";
 
@@ -9,18 +10,18 @@ export default function Logs() {
   return (
     <div class="view-container">
       <div class="logs-header logs-tabbar">
-        <h2 class="logs-tabbar-title">Logs</h2>
+        <h2 class="logs-tabbar-title">{t("logs.title")}</h2>
         <button
           class={`logs-tab${tab() === "requests" ? " active" : ""}`}
           onClick={() => setTab("requests")}
         >
-          API Requests
+          {t("logs.tab.requests")}
         </button>
         <button
           class={`logs-tab${tab() === "system" ? " active" : ""}`}
           onClick={() => setTab("system")}
         >
-          System
+          {t("logs.tab.system")}
         </button>
       </div>
 

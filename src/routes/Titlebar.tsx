@@ -2,6 +2,7 @@ import { createResource, createSignal, createEffect, Show } from "solid-js";
 import { resolvedTheme } from "../state/theme";
 import { isMobile } from "../utils/breakpoint";
 import { SunIcon, MoonIcon, toggleTheme } from "../utils/icons";
+import { t } from "../i18n";
 import { checkLatestVersion, type UpdateInfo } from "../utils/updates";
 import { UpdateModal } from "./mainapp/UpdateModal";
 
@@ -36,7 +37,7 @@ export default function Titlebar() {
           <span class="titlebar-version">v{version()}</span>
           <Show when={updateInfo()}>
             <button class="titlebar-update-badge" onClick={() => setModalOpen(true)}>
-              v{updateInfo()!.version} available
+              {t("shell.update.available", { version: updateInfo()!.version })}
             </button>
           </Show>
         </div>

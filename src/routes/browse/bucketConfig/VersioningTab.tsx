@@ -5,6 +5,8 @@ import { classifyBucketError, deniedMessage } from "./errors";
 import { capWarning } from "./providerCaps";
 import { DocLink } from "./DocLink";
 import Spinner from "../../../utils/Spinner";
+import { errMsg } from "../../../utils/errors";
+import { t } from "../../../i18n";
 
 export function VersioningTab(props: {
   accountId: string;
@@ -41,8 +43,8 @@ export function VersioningTab(props: {
     try {
       await putBucketVersioning(props.accountId, props.bucket, next);
       toast.ok(
-        next ? "Versioning enabled" : "Versioning suspended",
-        `Versioning for "${props.bucket}" ${next ? "enabled" : "suspended"}`,
+        t(next ? "bucketconfig.versioning.enabledTitle" : "bucketconfig.versioning.suspendedTitle"),
+        t(next ? "bucketconfig.versioning.enabledDetail" : "bucketconfig.versioning.suspendedDetail", { bucket: props.bucket }),
       );
       await refetch();
       props.onChanged();
@@ -56,18 +58,18 @@ export function VersioningTab(props: {
   function errText(e: unknown, op: "get" | "put"): string {
     const kind = classifyBucketError(e);
     if (kind === "denied") return deniedMessage("versioning", op);
-    if (kind === "unsupported") return "Not supported by this provider";
-    return (e as Error)?.message ?? String(e);
+    if (kind === "unsupported") return t("bucketconfig.error.unsupported");
+    return errMsg(e);
   }
 
   const snap = () => loaded.latest ?? loaded();
 
   return (
     <div class="bcfg-tab">
-      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>Loading versioning…</span></div>}>
+      <Show when={!(loaded.loading && loaded.latest == null)} fallback={<div class="bcfg-loading"><Spinner size={50} /><span>{t("bucketconfig.versioning.loading")}</span></div>}>
         <Show when={!(loaded.error && loaded.latest == null)} fallback={<div class="status-msg err">{errText(loaded.error, "get")}</div>}>
           <Show when={snap()!.unsupported}>
-            <div class="status-msg warn">Not supported by this provider</div>
+            <div class="status-msg warn">{t("bucketconfig.error.unsupported")}</div>
           </Show>
           <Show when={snap()!.denied}>
             <div class="status-msg err">{deniedMessage("versioning", "get")}</div>
@@ -78,16 +80,14 @@ export function VersioningTab(props: {
               {(w) => <div class="status-msg warn bcfg-provider-warn">{w()}</div>}
             </Show>
             <div class="modal-sub bcfg-hint">
-              Versioning keeps previous copies of an object when it is overwritten or deleted. Once enabled,
-              S3 versioning can be <strong>suspended</strong> but never fully removed, and existing versions
-              are retained. <DocLink providerId={props.providerId} tab="versioning" />
+              {t("bucketconfig.versioning.hint")} <DocLink providerId={props.providerId} tab="versioning" />
             </div>
 
             <div class="bcfg-versioning-row">
               <div class="bcfg-versioning-state">
-                Current state:{" "}
+                {t("bucketconfig.versioning.state")}{" "}
                 <strong classList={{ "bcfg-on": snap()!.enabled, "bcfg-off": !snap()!.enabled }}>
-                  {snap()!.enabled ? "Enabled" : "Suspended"}
+                  {snap()!.enabled ? t("common.enabled") : t("bucketconfig.versioning.suspended")}
                 </strong>
               </div>
               <button

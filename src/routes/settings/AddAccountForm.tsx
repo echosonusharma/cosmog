@@ -4,6 +4,7 @@ import {
   type AddAccountInput, type Account,
 } from "../../api/accounts";
 import { toast } from "../../state/toast";
+import { t } from "../../i18n";
 import { bumpBucketsRefresh, bumpAccountsRefresh } from "../../state/app";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
@@ -118,11 +119,11 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         props.onDone();
         try {
           await testAccount(props.editing!.id);
-          toast.ok("Account updated", `"${trimmedName}" saved and connection verified`);
+          toast.ok(t("settings.account.updated"), t("settings.account.updatedDetail", { name: trimmedName }));
         } catch {
           toast.warn(
-            `"${trimmedName}" was saved but the connection test failed. Check credentials in Settings.`,
-            "Account saved",
+            t("settings.account.savedTestFailed", { name: trimmedName }),
+            t("settings.account.saved"),
           );
         }
       } catch (e) {
@@ -141,9 +142,9 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
       props.onDone();
       try {
         await testAccount(acct.id);
-        toast.ok("Account added", `"${acct.name}" connected successfully`);
+        toast.ok(t("settings.account.added"), t("settings.account.addedDetail", { name: acct.name }));
       } catch {
-        toast.warn(`"${acct.name}" was saved but the connection test failed. Check credentials in Settings.`, "Account saved");
+        toast.warn(t("settings.account.savedTestFailed", { name: acct.name }), t("settings.account.saved"));
       }
     } catch (e) {
       toast.err(e);
@@ -152,7 +153,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
 
   return (
     <div class="add-account-form">
-      <div class="settings-section-title settings-section-title-flat">{isEdit() ? "Edit account" : "Add account"}</div>
+      <div class="settings-section-title settings-section-title-flat">{isEdit() ? t("settings.account.editTitle") : t("settings.account.addTitle")}</div>
 
       <div class="provider-picker">
         <For each={providers}>
@@ -176,7 +177,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
           <input
             class="field"
             classList={{ "field-error": !!errors().name }}
-            placeholder="Name"
+            placeholder={t("common.name")}
             value={form().name}
             maxlength={nameMaxLength()}
             onInput={(e) => set("name", clampAccountName(e.currentTarget.value, nameMaxLength()))}
@@ -189,7 +190,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
             <input
               class="field"
               classList={{ "field-error": !!errors().endpoint }}
-              placeholder={provider().endpoint_placeholder ?? "Endpoint URL"}
+              placeholder={provider().endpoint_placeholder ?? t("settings.account.endpointUrl")}
               value={form().endpoint ?? ""}
               onInput={(e) => set("endpoint", e.currentTarget.value.trim() || undefined)}
               disabled={busy()}
@@ -201,7 +202,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
           <input
             class="field"
             classList={{ "field-error": !!errors().access_key_id }}
-            placeholder="Access Key ID"
+            placeholder={t("onboarding.field.accessKeyId")}
             value={form().access_key_id}
             onInput={(e) => set("access_key_id", e.currentTarget.value.trim())}
             disabled={busy()}
@@ -213,7 +214,7 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
             class="field"
             classList={{ "field-error": !!errors().secret_access_key }}
             type="password"
-            placeholder={isEdit() ? "Secret Access Key (leave blank to keep)" : "Secret Access Key"}
+            placeholder={isEdit() ? t("settings.account.secretKeep") : t("onboarding.field.secretAccessKey")}
             value={form().secret_access_key}
             onInput={(e) => set("secret_access_key", e.currentTarget.value.trim())}
             disabled={busy()}
@@ -222,9 +223,9 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
         </div>
       </div>
       <div class="btn-row mt-2 add-account-btn-row">
-        <button class="btn-secondary add-account-btn" onClick={props.onCancel}>Cancel</button>
+        <button class="btn-secondary add-account-btn" onClick={props.onCancel}>{t("common.cancel")}</button>
         <button class="btn-primary add-account-btn" disabled={!valid() || busy()} onClick={save}>
-          {busy() ? "Testing…" : (isEdit() ? "Update" : "Save")}
+          {busy() ? t("settings.account.testing") : (isEdit() ? t("settings.account.update") : t("common.save"))}
         </button>
       </div>
     </div>

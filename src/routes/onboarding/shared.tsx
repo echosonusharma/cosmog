@@ -1,5 +1,6 @@
 import { Show, For } from "solid-js";
 import { type ProviderDef } from "../../providers";
+import { t, type TKey } from "../../i18n";
 import { IconCheck } from "../../utils/icons";
 
 export type Step = "provider" | "account-setup";
@@ -17,9 +18,9 @@ export function ProviderIconTile(props: { provider: ProviderDef; size?: number }
 }
 
 export function Stepper(props: { step: Step }) {
-  const steps: { id: Step; label: string }[] = [
-    { id: "provider", label: "Provider" },
-    { id: "account-setup", label: "Account" },
+  const steps: { id: Step; label: TKey }[] = [
+    { id: "provider", label: "onboarding.step.provider" },
+    { id: "account-setup", label: "onboarding.step.account" },
   ];
   const idx = () => steps.findIndex((s) => s.id === props.step);
 
@@ -35,7 +36,7 @@ export function Stepper(props: { step: Step }) {
                 </Show>
               </div>
               <span class={`step-label ${i() < idx() ? "done" : i() === idx() ? "active" : ""}`}>
-                {s.label}
+                {t(s.label)}
               </span>
             </div>
             <Show when={i() < steps.length - 1}>
@@ -64,7 +65,7 @@ export function LabeledField(props: {
       <div class="field-label">
         {props.label}
         <Show when={props.optional}>
-          <span class="field-optional">(optional)</span>
+          <span class="field-optional">{t("onboarding.field.optional")}</span>
         </Show>
       </div>
       <input

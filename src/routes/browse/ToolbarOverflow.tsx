@@ -1,4 +1,5 @@
 import { Show, createSignal } from "solid-js";
+import { t } from "../../i18n";
 import { IconMore, IconActivity, IconLock, IconLockOpen, IconPlus, IconDoc } from "../../utils/icons";
 
 // Mobile overflow menu for browse-toolbar actions that don't warrant a visible
@@ -16,7 +17,7 @@ export function ToolbarOverflow(props: {
 
   return (
     <div class="toolbar-overflow">
-      <button class="icon-btn toolbar-kebab" title="More" onClick={() => setOpen((v) => !v)}>
+      <button class="icon-btn toolbar-kebab" title={t("browse.toolbar.more")} onClick={() => setOpen((v) => !v)}>
         <IconMore size={18} />
       </button>
       <Show when={open()}>
@@ -24,21 +25,21 @@ export function ToolbarOverflow(props: {
         <div class="context-menu toolbar-overflow-menu" onClick={(e) => e.stopPropagation()}>
           <Show when={props.indexed}>
             <button class="context-item" onClick={run(props.onAnalytics)}>
-              <span class="context-item-icon"><IconActivity size={14} /></span> Storage analytics
+              <span class="context-item-icon"><IconActivity size={14} /></span> {t("browse.toolbar.analytics")}
             </button>
           </Show>
           <button class="context-item" onClick={run(props.onOpenEncryption)}>
             <span class="context-item-icon">
               <Show when={props.encryptionEnabled} fallback={<IconLockOpen size={14} />}><IconLock size={14} /></Show>
             </span>
-            Encryption{props.encryptionEnabled ? " (on)" : ""}
+            {props.encryptionEnabled ? t("browse.toolbar.encryptionOn") : t("browse.toolbar.encryption")}
           </button>
           <div class="context-sep" />
           <button class="context-item" onClick={run(props.onNewFolder)}>
-            <span class="context-item-icon"><IconPlus size={14} /></span> New folder
+            <span class="context-item-icon"><IconPlus size={14} /></span> {t("browse.toolbar.newFolder")}
           </button>
           <button class="context-item" onClick={run(props.onNewFile)}>
-            <span class="context-item-icon"><IconDoc size={14} /></span> New file
+            <span class="context-item-icon"><IconDoc size={14} /></span> {t("browse.toolbar.newFile")}
           </button>
         </div>
       </Show>

@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show } from "solid-js";
 import { Select } from "../../utils/Select";
+import { t } from "../../i18n";
 import { setTheme, themePref, type Theme } from "../../state/theme";
 import { appSettings, loadSettings, saveSettings, resetAllSettings } from "../../state/settings";
 import { editorHighlightTheme, setEditorHighlightTheme, EDITOR_HIGHLIGHT_THEMES, type EditorHighlightThemeId } from "../../state/editorTheme";
@@ -8,6 +9,7 @@ import { confirmDialog } from "../../state/confirm";
 import { parseSchema, settingsPatchSchema } from "../../validation";
 import type { AppSettings } from "../../types";
 import Spinner from "../../utils/Spinner";
+import { LanguageSelect } from "./LanguageSelect";
 
 type NumKey = { [K in keyof AppSettings]: AppSettings[K] extends number ? K : never }[keyof AppSettings];
 
@@ -37,9 +39,9 @@ export function SettingsForm() {
   }
 
   // Persist immediately, matching the titlebar toggle.
-  async function chooseTheme(t: Theme) {
-    setTheme(t);
-    try { await saveSettings({ theme: t }); } catch (e) { toast.err(e); }
+  async function chooseTheme(theme: Theme) {
+    setTheme(theme);
+    try { await saveSettings({ theme }); } catch (e) { toast.err(e); }
   }
 
   async function save() {
@@ -55,16 +57,16 @@ export function SettingsForm() {
     try {
       await saveSettings(patch);
       setForm({});
-      toast.ok("Settings saved", "Your preferences were updated");
+      toast.ok(t("settings.form.saved"), t("settings.form.savedDetail"));
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
   }
 
   async function doReset() {
     const ok = await confirmDialog({
-      title: "Reset all settings?",
-      body: "Returns every preference to default.",
-      confirmLabel: "Reset",
+      title: t("settings.form.resetTitle"),
+      body: t("settings.form.resetBody"),
+      confirmLabel: t("common.reset"),
       danger: true,
     });
     if (!ok) return;
@@ -73,7 +75,7 @@ export function SettingsForm() {
       const s = await resetAllSettings();
       setTheme(s.theme ?? "system");
       setForm({});
-      toast.ok("Defaults restored", "Every preference was reset to its default");
+      toast.ok(t("settings.form.restored"), t("settings.form.restoredDetail"));
     } catch (e) { toast.err(e); }
     finally { setBusy(false); }
   }
@@ -82,36 +84,39 @@ export function SettingsForm() {
 
   return (
     <div class="settings-section">
-      <div class="settings-section-title">General</div>
+      <div class="settings-section-title">{t("settings.form.general")}</div>
       <Show when={loading() && !appSettings()}>
-        <div class="loading-row"><Spinner /> Loading settings…</div>
+        <div class="loading-row"><Spinner /> {t("settings.form.loading")}</div>
       </Show>
       <Show when={appSettings()}>
         <div class="settings-grid">
-          <label class="settings-label">Theme</label>
+          <label class="settings-label">{t("settings.form.theme")}</label>
           <Select
             value={themePref()}
             options={[
-              { value: "system", label: "System" },
-              { value: "dark", label: "Dark" },
-              { value: "light", label: "Light" },
+              { value: "system", label: t("settings.theme.system") },
+              { value: "dark", label: t("settings.theme.dark") },
+              { value: "light", label: t("settings.theme.light") },
             ]}
             onChange={(v) => chooseTheme(v as Theme)}
           />
 
-          <label class="settings-label">Editor highlight theme</label>
+          <label class="settings-label">{t("settings.language")}</label>
+          <LanguageSelect />
+
+          <label class="settings-label">{t("settings.form.editorTheme")}</label>
           <Select
             value={editorHighlightTheme()}
-            options={EDITOR_HIGHLIGHT_THEMES.map((t) => ({ value: t.id, label: t.label }))}
+            options={EDITOR_HIGHLIGHT_THEMES.map((th) => ({ value: th.id, label: th.label }))}
             onChange={(v) => setEditorHighlightTheme(v as EditorHighlightThemeId)}
           />
 
-          <label class="settings-label">Default download directory</label>
+          <label class="settings-label">{t("settings.form.downloadDir")}</label>
           <input class="field" placeholder="~/Downloads"
                  value={field("default_download_dir") ?? ""}
                  onInput={(e) => patch("default_download_dir", (e.currentTarget.value.trim() || null) as string | null)} />
 
-          <label class="settings-label">Transfer concurrency</label>
+          <label class="settings-label">{t("settings.form.concurrency")}</label>
           <div class="num-field">
             <input type="number" min={1} max={16}
                    value={field("transfer_concurrency") ?? 3}
@@ -120,7 +125,7 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("transfer_concurrency", Math.min(16, (field("transfer_concurrency") ?? 3) + 1))}>+</button>
           </div>
 
-          <label class="settings-label">Multipart parallelism</label>
+          <label class="settings-label">{t("settings.form.parallelism")}</label>
           <div class="num-field">
             <input type="number" min={1} max={16}
                    value={field("multipart_parallelism") ?? 4}
@@ -129,7 +134,7 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_parallelism", Math.min(16, (field("multipart_parallelism") ?? 4) + 1))}>+</button>
           </div>
 
-          <label class="settings-label">Multipart threshold (MB)</label>
+          <label class="settings-label">{t("settings.form.multipartThreshold")}</label>
           <div class="num-field">
             <input type="number" min={5}
                    value={Math.round((field("multipart_threshold_bytes") ?? 8388608) / 1048576)}
@@ -138,7 +143,7 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("multipart_threshold_bytes", (field("multipart_threshold_bytes") ?? 8388608) + 1048576)}>+</button>
           </div>
 
-          <label class="settings-label">Part size (MB)</label>
+          <label class="settings-label">{t("settings.form.partSize")}</label>
           <div class="num-field">
             <input type="number" min={5}
                    value={Math.round((field("part_size_bytes") ?? 8388608) / 1048576)}
@@ -147,7 +152,7 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("part_size_bytes", (field("part_size_bytes") ?? 8388608) + 1048576)}>+</button>
           </div>
 
-          <label class="settings-label">Presign expires (seconds)</label>
+          <label class="settings-label">{t("settings.form.presignExpires")}</label>
           <div class="num-field">
             <input type="number" min={60} max={604800}
                    value={field("presign_default_expires_secs") ?? 3600}
@@ -156,17 +161,17 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("presign_default_expires_secs", Math.min(604800, (field("presign_default_expires_secs") ?? 3600) + 60))}>+</button>
           </div>
 
-          <label class="settings-label">HTTP proxy</label>
-          <input class="field" placeholder="http://host:port (optional)"
+          <label class="settings-label">{t("settings.form.proxy")}</label>
+          <input class="field" placeholder={t("settings.form.proxyPlaceholder")}
                  value={field("http_proxy") ?? ""}
                  onInput={(e) => patch("http_proxy", (e.currentTarget.value.trim() || null) as string | null)} />
 
-          <label class="settings-label">Custom CA cert path</label>
-          <input class="field" placeholder="/path/to/cert.pem (optional)"
+          <label class="settings-label">{t("settings.form.caPath")}</label>
+          <input class="field" placeholder={t("settings.form.caPlaceholder")}
                  value={field("custom_ca_path") ?? ""}
                  onInput={(e) => patch("custom_ca_path", (e.currentTarget.value.trim() || null) as string | null)} />
 
-          <label class="settings-label">Request log retention (days)</label>
+          <label class="settings-label">{t("settings.form.logRetention")}</label>
           <div class="num-field">
             <input type="number" min={1} max={365}
                    value={field("request_log_ttl_days") ?? 30}
@@ -175,23 +180,23 @@ export function SettingsForm() {
             <button type="button" class="num-field-btn" onClick={() => patch("request_log_ttl_days", Math.min(365, (field("request_log_ttl_days") ?? 30) + 1))}>+</button>
           </div>
 
-          <label class="settings-label">Show hidden files</label>
+          <label class="settings-label">{t("settings.form.showHidden")}</label>
           <div><input type="checkbox" checked={field("show_hidden") ?? false}
                        onChange={(e) => patch("show_hidden", e.currentTarget.checked)} /></div>
 
-          <label class="settings-label">Confirm destructive ops</label>
+          <label class="settings-label">{t("settings.form.confirmDestructive")}</label>
           <div><input type="checkbox" checked={field("confirm_destructive") ?? true}
                        onChange={(e) => patch("confirm_destructive", e.currentTarget.checked)} /></div>
 
-          <label class="settings-label">Auto preview images and text</label>
+          <label class="settings-label">{t("settings.form.autoPreview")}</label>
           <div><input type="checkbox" checked={field("auto_preview") ?? false}
                        onChange={(e) => patch("auto_preview", e.currentTarget.checked)} /></div>
         </div>
 
         <div class="btn-row mt-4">
-          <button class="btn-secondary" onClick={doReset} disabled={busy()}>Reset defaults</button>
+          <button class="btn-secondary" onClick={doReset} disabled={busy()}>{t("settings.form.resetDefaults")}</button>
           <button class="btn-primary" onClick={save} disabled={busy() || !dirty()}>
-            {busy() ? "Saving…" : "Save changes"}
+            {busy() ? t("common.saving") : t("settings.form.saveChanges")}
           </button>
         </div>
       </Show>

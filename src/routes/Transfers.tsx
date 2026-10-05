@@ -14,6 +14,7 @@ import { TransferRow } from "./transfers/TransferRow";
 import { EncryptionModal } from "./browse/EncryptionModal";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
 import Spinner from "../utils/Spinner";
+import { t } from "../i18n";
 
 type Filter = "all" | "active" | "done" | "failed" | "canceled";
 
@@ -107,9 +108,9 @@ export default function Transfers() {
   }
   async function clearAll() {
     const ok = await confirmDialog({
-      title: "Clear completed transfers?",
-      body: "All finished, failed, and canceled entries will be removed.",
-      confirmLabel: "Clear",
+      title: t("transfers.clear.title"),
+      body: t("transfers.clear.body"),
+      confirmLabel: t("transfers.clear.confirm"),
     });
     if (!ok) return;
     for (const t of transfers) {
@@ -143,41 +144,52 @@ export default function Transfers() {
     return c;
   });
 
+  const summary = () => {
+    const c = counts();
+    if (c.all === 0) return t("transfers.footer.none");
+    const parts: string[] = [];
+    if (c.active > 0) parts.push(t("transfers.footer.active", { n: c.active }));
+    if (c.done > 0) parts.push(t("transfers.footer.done", { n: c.done }));
+    if (c.failed > 0) parts.push(t("transfers.footer.failed", { n: c.failed }));
+    if (c.canceled > 0) parts.push(t("transfers.footer.canceled", { n: c.canceled }));
+    return parts.join(" · ");
+  };
+
   const hasDone = () =>
     transfers.some((t) => ["done", "failed", "canceled"].includes(t.status));
 
   return (
     <div class="view-container">
       <div class="transfer-filterbar">
-        <h2 class="transfer-filterbar-title">Transfers</h2>
+        <h2 class="transfer-filterbar-title">{t("transfers.title")}</h2>
         <div class="filter-chips">
           <button class={`chip ${filter() === "all"    ? "active" : ""}`} onClick={() => setFilter("all")}>
-            All <span class="chip-count">{counts().all}</span>
+            {t("transfers.filter.all")} <span class="chip-count">{counts().all}</span>
           </button>
           <button class={`chip ${filter() === "active" ? "active" : ""}`} onClick={() => setFilter("active")}>
-            Active <span class="chip-count">{counts().active}</span>
+            {t("transfers.filter.active")} <span class="chip-count">{counts().active}</span>
           </button>
           <button class={`chip ${filter() === "done"   ? "active" : ""}`} onClick={() => setFilter("done")}>
-            Done <span class="chip-count">{counts().done}</span>
+            {t("transfers.filter.done")} <span class="chip-count">{counts().done}</span>
           </button>
           <button class={`chip ${filter() === "failed" ? "active" : ""}`} onClick={() => setFilter("failed")}>
-            Failed <span class="chip-count">{counts().failed}</span>
+            {t("transfers.filter.failed")} <span class="chip-count">{counts().failed}</span>
           </button>
           <button class={`chip ${filter() === "canceled" ? "active" : ""}`} onClick={() => setFilter("canceled")}>
-            Canceled <span class="chip-count">{counts().canceled}</span>
+            {t("transfers.filter.canceled")} <span class="chip-count">{counts().canceled}</span>
           </button>
         </div>
         <div class="flex-1" />
         <Show when={hasDone()}>
           <button class="btn-ghost transfer-clear-btn" onClick={clearAll}>
-            <IconX size={13} /> Clear completed
+            <IconX size={13} /> {t("transfers.clearCompleted")}
           </button>
         </Show>
       </div>
 
       <Show when={err()}><div class="status-msg err transfer-err-msg">{err()}</div></Show>
       <Show when={loading()}>
-        <div class="loading-row"><Spinner /> Loading…</div>
+        <div class="loading-row"><Spinner /> {t("common.loading")}</div>
       </Show>
 
       <Show when={!loading()}>
@@ -185,7 +197,7 @@ export default function Transfers() {
               fallback={
                 <div class="empty-state">
                   <span class="empty-icon"><IconTransfer size={36} /></span>
-                  {filter() === "all" ? "No transfers yet" : `No ${filter()} transfers`}
+                  {t(`transfers.empty.${filter()}`)}
                 </div>
               }>
           <div class="transfer-list">
@@ -207,14 +219,7 @@ export default function Transfers() {
       <div class="transfer-footer-bar">
         <div class="flex-1" />
         <span class="faint">
-          {counts().active > 0 && `${counts().active} active`}
-          {counts().active > 0 && (counts().done > 0 || counts().failed > 0) && " · "}
-          {counts().done > 0 && `${counts().done} done`}
-          {counts().done > 0 && counts().failed > 0 && " · "}
-          {counts().failed > 0 && `${counts().failed} failed`}
-          {(counts().done > 0 || counts().failed > 0) && counts().canceled > 0 && " · "}
-          {counts().canceled > 0 && `${counts().canceled} canceled`}
-          {counts().all === 0 && "No transfers"}
+          {summary()}
         </span>
       </div>
 

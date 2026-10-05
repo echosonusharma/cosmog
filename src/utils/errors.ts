@@ -1,59 +1,32 @@
-const PREFIXES: Record<string, string> = {
-  not_found:            "not found: ",
-  invalid_input:        "invalid input: ",
-  database:             "database error: ",
-  keyring:              "keyring error: ",
-  s3:                   "s3 error: ",
-  access_denied:        "access denied: ",
-  credentials_invalid:  "credentials invalid: ",
-  conflict:             "conflict: ",
-  rate_limited:         "rate limited: ",
-  io:                   "io error: ",
-  canceled:             "canceled: ",
-  region_redirect:      "region redirect: ",
-  unsupported:          "unsupported: ",
-  archived:             "archived: ",
-  network_unreachable:  "network unreachable: ",
-  internal:             "internal: ",
-};
+import { t, type TKey } from "../i18n";
+import { isKnownCode } from "./errorCodes";
+import { parseWireError, type WireError } from "./wireError";
 
-export interface WireError { code: string; message: string }
+export { parseWireError, isCredentialError, isNetworkError, isNotFound, type WireError } from "./wireError";
 
-/** Parse a Tauri IPC rejection into a WireError; handles up to 2 levels of JSON encoding
- *  (Linux/WebKitGTK may double-encode) and strips the Rust Display prefix. */
-export function parseWireError(raw: unknown): WireError {
-  // WebView2 (Windows) wraps Tauri IPC rejections as JS Error objects whose
-  // .message holds the serialized backend error JSON. Unwrap before parsing.
-  let obj: unknown = raw instanceof Error ? raw.message : raw;
-  for (let i = 0; i < 2 && typeof obj === "string"; i++) {
-    try { obj = JSON.parse(obj); } catch { break; }
+// All user-facing wording (title, description) lives in the i18n `errors.*` strings, keyed by code.
+export interface DescribedError extends WireError {
+  title: string;
+  desc: string;
+  /** Description plus the code, for inline messages. */
+  text: string;
+}
+
+// Generic codes say little on their own, so the raw reason is appended to inline messages.
+const SHOW_DETAIL = new Set(["invalid_input", "s3", "internal", "conflict", "io", "database", "keyring", "not_found"]);
+
+export function describeError(raw: unknown): DescribedError {
+  const { code, detail } = raw == null ? { code: "", detail: "" } : parseWireError(raw);
+  if (!isKnownCode(code)) {
+    const desc = detail || t("errors.unknown.desc");
+    return { code, detail, title: t("common.error"), desc, text: desc };
   }
-  const parsed  = typeof obj === "object" && obj !== null ? obj as Record<string, unknown> : {};
-  const code    = typeof parsed.code === "string" ? parsed.code : "";
-  let   message = (typeof parsed.message === "string" ? parsed.message : null)
-    ?? (raw instanceof Error ? raw.message : typeof raw === "string" ? raw : String(raw ?? ""));
-  const pfx = PREFIXES[code];
-  if (pfx && message.startsWith(pfx)) message = message.slice(pfx.length);
-  if (message) message = message.charAt(0).toUpperCase() + message.slice(1);
-  return { code, message: message || "An unexpected error occurred" };
+  const title = t(`errors.${code}.title` as TKey);
+  const desc = t(`errors.${code}.desc` as TKey);
+  const extra = SHOW_DETAIL.has(code) && detail ? `: ${detail}` : "";
+  return { code, detail, title, desc, text: `${desc} (${code})${extra}` };
 }
 
-export function isCredentialError(code: string): boolean {
-  return code === "not_found" || code === "credentials_invalid" || code === "keyring";
-}
-
-export function isNetworkError(code: string): boolean {
-  return code === "network_unreachable";
-}
-
-export function errMsg(raw: unknown): string {
-  if (raw == null) return "An unexpected error occurred";
-  // parseWireError unwraps Error objects whose .message holds a JSON envelope (WebView2 path);
-  // route everything through it so callers don't have to think about wrapping.
-  return parseWireError(raw).message;
-}
-
-export function errCode(raw: unknown): string {
-  if (raw == null) return "";
-  return parseWireError(raw).code;
-}
+export const errMsg = (raw: unknown): string => describeError(raw).text;
+export const errTitle = (raw: unknown): string => describeError(raw).title;
+export const errCode = (raw: unknown): string => (raw == null ? "" : parseWireError(raw).code);

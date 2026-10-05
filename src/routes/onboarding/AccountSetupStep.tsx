@@ -1,6 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { addAccount, testAccount, deleteAccount } from "../../api/accounts";
 import { errMsg } from "../../state/toast";
+import { t, tp } from "../../i18n";
 import { type ProviderDef } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
 import {
@@ -138,18 +139,18 @@ export function AccountSetupStep(props: {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
           <path d="M19 12H5M12 5l-7 7 7 7"/>
         </svg>
-        Back
+        {t("common.back")}
       </button>
       <div class="provider-badge">
         <ProviderIconTile provider={props.provider} size={36} />
         <div>
-          <div class="provider-badge-title">Connect {props.provider.label}</div>
-          <div class="provider-sub">Credentials are encrypted in your OS keychain.</div>
+          <div class="provider-badge-title">{t("onboarding.account.connect", { provider: props.provider.label })}</div>
+          <div class="provider-sub">{t("onboarding.account.keychainNote")}</div>
         </div>
       </div>
       <div class="fields">
         <LabeledField
-          label="Account label"
+          label={t("onboarding.account.label")}
           placeholder={props.provider.label}
           value={name()}
           maxLength={ACCOUNT_NAME_MAX_LENGTH}
@@ -159,7 +160,7 @@ export function AccountSetupStep(props: {
         />
         <Show when={props.provider.custom_endpoint}>
           <LabeledField
-            label="Endpoint"
+            label={t("onboarding.field.endpoint")}
             placeholder={props.provider.endpoint_placeholder ?? "https://…"}
             value={endpoint()}
             error={errors().endpoint}
@@ -168,15 +169,15 @@ export function AccountSetupStep(props: {
           />
         </Show>
         <LabeledField
-          label="Access Key ID"
-          placeholder="Your access key ID"
+          label={t("onboarding.field.accessKeyId")}
+          placeholder={t("onboarding.account.accessKeyPlaceholder")}
           value={accessKey()}
           error={errors().accessKey}
           onInput={(v) => { setAccessKey(v); clearError("accessKey"); }}
           disabled={busy()}
         />
         <LabeledField
-          label="Secret Access Key"
+          label={t("onboarding.field.secretAccessKey")}
           placeholder="••••••••••••••••••••"
           value={secretKey()}
           error={errors().secretKey}
@@ -193,7 +194,7 @@ export function AccountSetupStep(props: {
           disabled={busy()}
           onClick={() => setMode("import")}
         >
-          Import from AWS profiles…
+          {t("onboarding.account.importLink")}
         </button>
       </Show>
 
@@ -208,19 +209,19 @@ export function AccountSetupStep(props: {
           }`}
         >
           {status().kind === "loading" &&
-            `${(status() as { action: string }).action === "test" ? "Testing connection" : "Saving"}…`}
+            ((status() as { action: string }).action === "test" ? t("onboarding.account.testing") : t("common.saving"))}
           {status().kind === "ok" &&
-            `Connected to ${props.provider.label} · found ${(status() as { buckets: number }).buckets} bucket(s)`}
+            tp("onboarding.account.connected", (status() as { buckets: number }).buckets, { provider: props.provider.label })}
           {status().kind === "err" && (status() as { msg: string }).msg}
         </div>
       </Show>
 
       <div class="btn-row">
         <button type="button" class="btn-secondary" disabled={!valid() || busy()} onClick={doTest}>
-          Test connection
+          {t("onboarding.account.test")}
         </button>
         <button type="submit" class="btn-primary flex-1" disabled={!valid() || busy()}>
-          Save &amp; open
+          {t("onboarding.account.saveOpen")}
         </button>
       </div>
     </form>

@@ -34,6 +34,7 @@ import { SearchResultsPane } from "./SearchResultsPane";
 import { ContextMenu, type CtxMenu } from "./ContextMenu";
 import { ListView } from "./ListView";
 import Spinner from "../../utils/Spinner";
+import { t, tp } from "../../i18n";
 
 export function ObjectBrowser(props: {
   accountId: string;
@@ -133,16 +134,16 @@ export function ObjectBrowser(props: {
     try {
       if (indexStatus()?.enabled) {
         const ok = await confirmDialog({
-          title: "Disable index?",
-          body: "Cached metadata for this bucket will be cleared.",
-          confirmLabel: "Disable", danger: true,
+          title: t("browse.index.disableTitle"),
+          body: t("browse.index.disableBody"),
+          confirmLabel: t("browse.index.disable"), danger: true,
         });
         if (!ok) { setIndexBusy(false); return; }
         await disableBucketIndex(props.accountId, props.bucket);
-        toast.ok("Index disabled", `Cached metadata for "${props.bucket}" was cleared`);
+        toast.ok(t("browse.index.disabledTitle"), t("browse.index.disabledDetail", { bucket: props.bucket }));
       } else {
         await enableBucketIndex(props.accountId, props.bucket);
-        toast.ok("Indexing started", `Building the metadata index for "${props.bucket}"`);
+        toast.ok(t("browse.index.startedTitle"), t("browse.index.startedDetail", { bucket: props.bucket }));
       }
       refetchIndex();
     } catch (e) { toast.err(e); }
@@ -153,7 +154,7 @@ export function ObjectBrowser(props: {
     setIndexBusy(true);
     try {
       await reindexBucket(props.accountId, props.bucket);
-      toast.ok("Re-indexed", `Metadata for "${props.bucket}" was refreshed`);
+      toast.ok(t("browse.index.reindexedTitle"), t("browse.index.reindexedDetail", { bucket: props.bucket }));
       refetchIndex();
     } catch (e) { toast.err(e); }
     finally { setIndexBusy(false); }
@@ -276,9 +277,9 @@ export function ObjectBrowser(props: {
 
   async function handleDeleteFolder(sub: string) {
     const ok = await confirmDestructive({
-      title: "Delete folder?",
-      body: `"${sub}" and all its contents will be permanently deleted. This action is irreversible.`,
-      confirmLabel: "Delete",
+      title: t("browse.delete.folderTitle"),
+      body: t("browse.delete.folderBody", { sub }),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -294,22 +295,25 @@ export function ObjectBrowser(props: {
       setRefresh((n) => n + 1);
       if (errors.length) {
         toast.warn(
-          `${keys.length - errors.length} deleted, ${errors.length} failed in "${sub}". First error: ${errors[0].key}: ${errors[0].message}`,
-          "Partial delete",
+          t("browse.delete.partialFolder", {
+            deleted: keys.length - errors.length, failed: errors.length, sub,
+            key: errors[0].key, message: errors[0].message,
+          }),
+          t("browse.delete.partialTitle"),
         );
         return;
       }
-      notify("Folder deleted", `${sub} · ${props.bucket}`, {
-        largeBody: `Deleted folder "${sub}" and its contents from "${props.bucket}"`,
+      notify(t("browse.delete.folderDone"), `${sub} · ${props.bucket}`, {
+        largeBody: t("browse.delete.folderDoneLarge", { sub, bucket: props.bucket }),
       });
     } catch (e) { toast.err(e); }
   }
 
   async function handleDelete(obj: CachedObjectMeta) {
     const ok = await confirmDestructive({
-      title: "Delete object?",
-      body: `${obj.key}\n\nThis action is irreversible.`,
-      confirmLabel: "Delete",
+      title: t("browse.delete.objectTitle"),
+      body: t("browse.delete.objectBody", { key: obj.key }),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -317,8 +321,8 @@ export function ObjectBrowser(props: {
       await deleteObject(obj.account_id, obj.bucket, obj.key);
       if (previewTarget()?.key === obj.key) setPreviewTarget(null);
       setRefresh((n) => n + 1);
-      notify(`Deleted ${obj.key.split("/").pop() || obj.key}`, obj.bucket, {
-        largeBody: `Deleted "${obj.key}" from "${obj.bucket}"`,
+      notify(t("browse.delete.objectDone", { name: obj.key.split("/").pop() || obj.key }), obj.bucket, {
+        largeBody: t("browse.delete.objectDoneLarge", { key: obj.key, bucket: obj.bucket }),
       });
     } catch (e) { toast.err(e); }
   }
@@ -327,9 +331,9 @@ export function ObjectBrowser(props: {
     const keys = Array.from(selected());
     if (!keys.length) return;
     const ok = await confirmDestructive({
-      title: `Delete ${keys.length} object${keys.length > 1 ? "s" : ""}?`,
-      body: keys.slice(0, 5).join("\n") + (keys.length > 5 ? `\n…and ${keys.length - 5} more` : "") + "\n\nThis action is irreversible.",
-      confirmLabel: "Delete",
+      title: tp("browse.delete.bulkTitle", keys.length),
+      body: keys.slice(0, 5).join("\n") + (keys.length > 5 ? "\n" + t("browse.delete.andMore", { count: keys.length - 5 }) : "") + "\n\n" + t("browse.delete.irreversible"),
+      confirmLabel: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -343,13 +347,16 @@ export function ObjectBrowser(props: {
       if (res.errors.length) {
         const first = res.errors[0];
         toast.warn(
-          `${res.deleted.length} deleted, ${res.errors.length} failed in "${props.bucket}". First error: ${first.key}: ${first.message}`,
-          "Partial delete",
+          t("browse.delete.partialBucket", {
+            deleted: res.deleted.length, failed: res.errors.length, bucket: props.bucket,
+            key: first.key, message: first.message,
+          }),
+          t("browse.delete.partialTitle"),
         );
       } else {
         const n = res.deleted.length;
-        notify(`Deleted ${n} object${n > 1 ? "s" : ""}`, props.bucket, {
-          largeBody: `Deleted ${n} object${n > 1 ? "s" : ""} from "${props.bucket}"`,
+        notify(tp("browse.delete.bulkDone", n), props.bucket, {
+          largeBody: tp("browse.delete.bulkDoneLarge", n, { bucket: props.bucket }),
         });
       }
     } catch (e) { toast.err(e); }
@@ -362,9 +369,9 @@ export function ObjectBrowser(props: {
       let allowCiphertext = false;
       if ((encStatus.latest ?? encStatus())?.enabled) {
         const ok = await confirmDialog({
-          title: "Share encrypted object?",
-          body: `"${obj.key}" is encrypted. A shared link downloads the locked file as-is, not the readable version. The person you share it with will need your key file to open it. Continue?`,
-          confirmLabel: "Copy link anyway",
+          title: t("browse.link.shareTitle"),
+          body: t("browse.link.shareBody", { key: obj.key }),
+          confirmLabel: t("browse.link.copyAnyway"),
           danger: true,
         });
         if (!ok) return;
@@ -375,11 +382,11 @@ export function ObjectBrowser(props: {
       const linkName = obj.key.split("/").pop() || obj.key;
       if (allowCiphertext) {
         toast.warn(
-          `Link for "${linkName}" is on the clipboard. The recipient gets the locked file, share your key file separately so they can open it.`,
-          "Encrypted link copied",
+          t("browse.link.encCopiedBody", { name: linkName }),
+          t("browse.link.encCopiedTitle"),
         );
       } else {
-        toast.ok("Link copied", `Shareable link for "${linkName}" is on the clipboard`);
+        toast.ok(t("browse.link.copiedTitle"), t("browse.link.copiedDetail", { name: linkName }));
       }
     } catch (e) { toast.err(e); }
   }
@@ -394,7 +401,7 @@ export function ObjectBrowser(props: {
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    toast.info("Drag-and-drop not supported here", "Opening the Upload dialog for this folder instead");
+    toast.info(t("browse.drop.unsupportedTitle"), t("browse.drop.unsupportedDetail"));
     setShowUpload(props.prefix);
   }
 
@@ -520,11 +527,11 @@ export function ObjectBrowser(props: {
       <Show when={(encStatus.latest ?? encStatus())?.enabled && identityPresent() === false}>
         <div class="enc-identity-banner">
           <div class="enc-identity-banner-text">
-            <strong>Encryption key missing on this device.</strong>{" "}
-            Files in this bucket cannot be opened until you load the key file you saved earlier.
+            <strong>{t("browse.enc.missing")}</strong>{" "}
+            {t("browse.enc.missingBody")}
           </div>
           <button class="btn-primary" onClick={() => setShowEncryption(true)}>
-            Load key
+            {t("browse.enc.loadKey")}
           </button>
         </div>
       </Show>
@@ -606,8 +613,8 @@ export function ObjectBrowser(props: {
       <Show when={previewTarget()}>
         <ErrorBoundary fallback={(err, reset) => (
           <div class="preview-pane preview-err-card">
-            <span class="preview-err-card-msg">Preview error: {errMsg(err)}</span>
-            <button class="btn-ghost preview-err-card-close" onClick={() => { setPreviewTarget(null); reset(); }}>Close</button>
+            <span class="preview-err-card-msg">{t("browse.previewError", { message: errMsg(err) })}</span>
+            <button class="btn-ghost preview-err-card-close" onClick={() => { setPreviewTarget(null); reset(); }}>{t("common.close")}</button>
           </div>
         )}>
           <PreviewPane
@@ -627,7 +634,7 @@ export function ObjectBrowser(props: {
       </div>
 
       <Show when={dragOver()}>
-        <div class="drop-overlay">Drop files to upload</div>
+        <div class="drop-overlay">{t("browse.drop.overlay")}</div>
       </Show>
 
       <Show when={ctxMenu()}>

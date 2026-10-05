@@ -4,6 +4,7 @@ import { notify } from "../../utils/notify";
 import { errMsg, toast } from "../../state/toast";
 import { errCode } from "../../utils/errors";
 import { formatBytes } from "../../utils/fmt";
+import { t } from "../../i18n";
 import {
   FileIcon,
   IconX, IconEdit, IconEye, IconArrowUpLine,
@@ -37,25 +38,26 @@ function previewErrorParts(err: unknown, storageClass?: string | null): { title:
   const code = errCode(err);
   const msg = errMsg(err);
   if (code === "archived") {
-    const cls = storageClass ? ` (${storageClass})` : "";
     return {
-      title: "File can't be previewed",
-      hint: `This object's storage class${cls} doesn't allow direct access. Restore it or move it to a standard tier before previewing or downloading.`,
+      title: t("preview.error.archivedTitle"),
+      hint: storageClass
+        ? t("preview.error.archivedHintClass", { class: storageClass })
+        : t("preview.error.archivedHint"),
     };
   }
   if (code === "encryption_identity_missing") {
     return {
-      title: "Encryption key missing on this device",
-      hint: "Load the key file you saved earlier to open this file.",
+      title: t("preview.error.keyMissingTitle"),
+      hint: t("preview.error.keyMissingHint"),
     };
   }
-  if (code === "invalid_input" && /age/i.test(msg)) {
+  if (code === "decryption_failed") {
     return {
-      title: "Cannot open this file",
-      hint: "It was encrypted with a different key, or was not encrypted by cosmog. If you have the original key, load it from the bucket encryption menu.",
+      title: t("preview.error.cannotOpenTitle"),
+      hint: t("preview.error.cannotOpenHint"),
     };
   }
-  return { title: "Preview failed", hint: msg };
+  return { title: t("preview.error.failedTitle"), hint: msg };
 }
 
 function PreviewErrorCard(props: { err: unknown; storageClass?: string | null }) {
@@ -155,7 +157,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       return { url: await presignGet(a, b, k), key: k };
     },
   );
-  // Latch: hold the previous URL while the next fetches — createResource returns
+  // Latch: hold the previous URL while the next fetches, createResource returns
   // undefined mid-refetch, which would unmount <img> and flash a blank frame.
   const [displayUrl, setDisplayUrl] = createSignal<string | null>(null);
   const [displayKey, setDisplayKey] = createSignal<string | null>(null);
@@ -218,44 +220,44 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const isKindReady = (kind: PreviewKind): boolean => {
     if (kind === "image") return !imageShouldFetch() || (displayKey() === props.obj.key && !!displayUrl());
     if (kind === "text") return !textShouldFetch() || displayText()?.key === props.obj.key;
-    // sheet/pdf/audio/binary render sync from props — always "ready"
+    // sheet/pdf/audio/binary render sync from props, always "ready"
     return true;
   };
 
   const [pinnedKind, setPinnedKind] = createSignal<PreviewKind | null>(null);
   const displayKind = (): PreviewKind | null => {
-    const t = targetKind();
-    if (isKindReady(t)) return t;
+    const kind = targetKind();
+    if (isKindReady(kind)) return kind;
     const pinned = pinnedKind();
     if (pinned === "text" || pinned === "image") return pinned;
-    return t;
+    return kind;
   };
 
   createEffect(() => {
-    const t = targetKind();
-    if (isKindReady(t)) {
-      setPinnedKind(t);
+    const kind = targetKind();
+    if (isKindReady(kind)) {
+      setPinnedKind(kind);
       // Not-fetching targets are "ready" without content; drop any stale latch.
-      if (t !== "text" || displayText()?.key !== props.obj.key) setDisplayText(null);
-      if (t !== "image" || displayKey() !== props.obj.key) clearImageLatch();
+      if (kind !== "text" || displayText()?.key !== props.obj.key) setDisplayText(null);
+      if (kind !== "image" || displayKey() !== props.obj.key) clearImageLatch();
       return;
     }
-    if (t === "binary" || t === "sheet" || t === "pdf" || t === "audio") {
-      setPinnedKind(t);
+    if (kind === "binary" || kind === "sheet" || kind === "pdf" || kind === "audio") {
+      setPinnedKind(kind);
       setDisplayText(null);
       clearImageLatch();
     }
   });
 
   const crossLoading = () => {
-    const t = targetKind();
-    if (!((t === "text" || t === "image") && !isKindReady(t))) return false;
-    // Overlay only while holding prior content — cold load would stack two spinners.
+    const kind = targetKind();
+    if (!((kind === "text" || kind === "image") && !isKindReady(kind))) return false;
+    // Overlay only while holding prior content, cold load would stack two spinners.
     return !!displayText() || !!displayUrl();
   };
 
   // Once warmed, keep CodeEditor mounted (hidden) so format switches don't
-  // re-init CodeMirror — a major source of the whole-UI hitch.
+  // re-init CodeMirror, a major source of the whole-UI hitch.
   const [cmWarm, setCmWarm] = createSignal(false);
   createEffect(() => { if (displayText()) setCmWarm(true); });
 
@@ -277,7 +279,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     try {
       const r = await previewObject(a, b, k, EDIT_MAX);
       if (id !== objId()) return;
-      if (r.truncated) { toast.warn("File too large to edit in preview"); return; }
+      if (r.truncated) { toast.warn(t("preview.editTooLarge")); return; }
       setEditSrc({ id, text: new TextDecoder().decode(new Uint8Array(r.bytes)) });
       setEditOpen(true);
     } catch (e) {
@@ -289,12 +291,12 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
   const editBlocked = () => (!cur() || !!cur()?.truncated) && tooBig();
 
   async function saveEdit(content: string) {
-    if (editSrc()?.id !== objId()) throw new Error("File changed while editing; not saved");
+    if (editSrc()?.id !== objId()) throw new Error(t("preview.saveConflict"));
     const ct = props.obj.content_type || mimeForExt(ext());
     await putObjectText(props.obj.account_id, props.obj.bucket, props.obj.key, content, ct);
     refetchPreview();
-    notify(`Saved ${props.obj.basename}`, props.obj.bucket, {
-      largeBody: `Saved changes to "${props.obj.key}" in "${props.obj.bucket}"`,
+    notify(t("preview.saved", { name: props.obj.basename }), props.obj.bucket, {
+      largeBody: t("preview.savedBody", { key: props.obj.key, bucket: props.obj.bucket }),
     });
   }
 
@@ -311,7 +313,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <button
               class="icon-btn"
               disabled={editBlocked() || editLoading() || preview.loading}
-              title={editBlocked() ? "File too large to edit in preview" : "Edit"}
+              title={editBlocked() ? t("preview.editTooLarge") : t("common.edit")}
               onClick={openEditor}
             >
               <Show when={!editLoading()} fallback={<Spinner size={15} />}><IconEdit size={15} /></Show>
@@ -331,18 +333,18 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                 <div class="preview-load-hint">
                   <Show when={autoPreview()}>
                     <span class="muted text-xs">
-                      Encrypted image ({formatBytes(props.obj.size)}). Decrypts whole into memory.
+                      {t("preview.encryptedImageNote", { size: formatBytes(props.obj.size) })}
                     </span>
                   </Show>
                   <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
-                    <IconEye size={15} /> Load preview
+                    <IconEye size={15} /> {t("preview.loadPreview")}
                   </button>
                 </div>
               </Show>
               <Show when={imgUrl.loading && !displayUrl()}>
                 <div class="preview-loader">
                   <Spinner size={50} />
-                  <span>{props.encrypted ? "Decrypting…" : "Loading image…"}</span>
+                  <span>{props.encrypted ? t("preview.decrypting") : t("preview.image.loading")}</span>
                 </div>
               </Show>
               <Show when={imgUrl.error && !displayUrl()}>
@@ -369,7 +371,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
             <Show when={textAutoLoad() && preview.loading && !displayText()}>
               <div class="preview-loader">
                 <Spinner size={50} />
-                <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+                <span>{props.encrypted ? t("preview.decrypting") : t("common.loading")}</span>
               </div>
             </Show>
             <Show when={!textAutoLoad() && !displayText()}>
@@ -378,16 +380,16 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
                       fallback={
                         <div class="preview-loader">
                           <Spinner size={50} />
-                          <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+                          <span>{props.encrypted ? t("preview.decrypting") : t("common.loading")}</span>
                         </div>
                       }>
                   <Show when={tooBig()}
                         fallback={
                           <button class="btn-secondary preview-btn-inline" onClick={() => setLoadRequested(true)}>
-                            <IconEye size={15} /> Load preview
+                            <IconEye size={15} /> {t("preview.loadPreview")}
                           </button>
                         }>
-                    <span class="muted text-xs">File too large to preview</span>
+                    <span class="muted text-xs">{t("preview.tooLargeToPreview")}</span>
                   </Show>
                 </Show>
               </div>
@@ -421,7 +423,7 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
 
           <Show when={displayKind() === "binary"}>
             <div class="muted preview-binary-note">
-              Binary content · {formatBytes(props.obj.size)}
+              {t("preview.binaryNote", { size: formatBytes(props.obj.size) })}
             </div>
           </Show>
 
@@ -435,8 +437,8 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
           <MetaList obj={props.obj} />
 
           <div class="btn-row">
-            <button class="btn-secondary btn-half" onClick={props.onCopyLink}>Copy link</button>
-            <button class="btn-primary btn-half" onClick={props.onDownload}>Download</button>
+            <button class="btn-secondary btn-half" onClick={props.onCopyLink}>{t("preview.copyLink")}</button>
+            <button class="btn-primary btn-half" onClick={props.onDownload}>{t("common.download")}</button>
           </div>
         </div>
       </div>

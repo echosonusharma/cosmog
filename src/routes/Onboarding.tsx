@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { t } from "../i18n";
 import { type ProviderDef } from "../providers";
 import { type Step, Stepper } from "./onboarding/shared";
 import { ProviderStep } from "./onboarding/ProviderStep";
@@ -29,11 +30,11 @@ export default function Onboarding(props: { onDone: () => void }) {
       </Show>
 
       <div class="onboarding-footer">
-        Multiple providers
+        {t("onboarding.footer.providers")}
         <span>·</span>
-        No telemetry
+        {t("onboarding.footer.noTelemetry")}
         <span>·</span>
-        Open source
+        {t("onboarding.footer.openSource")}
       </div>
     </div>
   );

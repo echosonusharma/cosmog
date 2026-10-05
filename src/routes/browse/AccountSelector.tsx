@@ -1,11 +1,12 @@
 import { For } from "solid-js";
 import { accounts, setBrowseState } from "../../state/app";
 import { ProviderIcon, providerLabel } from "../../utils/icons";
+import { t } from "../../i18n";
 
 export function AccountSelector() {
   return (
     <div class="account-selector">
-      <div class="section-title mb-3">Select account</div>
+      <div class="section-title mb-3">{t("browse.account.select")}</div>
       <div class="account-list">
         <For each={accounts()}>
           {(acct) => (

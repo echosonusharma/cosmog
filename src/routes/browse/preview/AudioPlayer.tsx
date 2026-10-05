@@ -1,6 +1,7 @@
 import { createResource, createSignal, createEffect, Show, onCleanup } from "solid-js";
 import { presignGet, previewObject } from "../../../api/objects";
 import { formatBytes } from "../../../utils/fmt";
+import { t } from "../../../i18n";
 import { IconEye, IconPlay, IconPause, IconVolume, IconMute } from "../../../utils/icons";
 import { extOf } from "../../../utils/fmt";
 import type { CachedObjectMeta } from "../../../types";
@@ -17,11 +18,13 @@ function audioMime(name: string, fallback?: string | null): string {
   return AUDIO_MIME[extOf(name)] || (fallback && fallback.startsWith("audio/") ? fallback : "audio/mpeg");
 }
 function describeMediaError(e: MediaError | null): string {
-  if (!e) return "unknown media error";
+  if (!e) return t("preview.audio.mediaUnknown");
   const codes: Record<number, string> = {
-    1: "aborted", 2: "network error", 3: "decode error", 4: "source/format not supported",
+    1: t("preview.audio.mediaAborted"), 2: t("preview.audio.mediaNetwork"),
+    3: t("preview.audio.mediaDecode"), 4: t("preview.audio.mediaUnsupported"),
   };
-  return `${codes[e.code] || `code ${e.code}`}${e.message ? `: ${e.message}` : ""}`;
+  const base = codes[e.code] || t("preview.audio.mediaCode", { code: e.code });
+  return e.message ? t("preview.audio.mediaDetail", { error: base, message: e.message }) : base;
 }
 
 // Encrypted audio can't be range-streamed: playing decrypts the whole object
@@ -224,28 +227,28 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
     <div class="preview-audio">
       <Show when={encTooBig()}>
         <span class="muted text-xs preview-audio-note">
-          Encrypted audio too large to play in-app ({formatBytes(props.obj.size)}). Download it instead.
+          {t("preview.audio.encTooLarge", { size: formatBytes(props.obj.size) })}
         </span>
       </Show>
       <Show when={props.encrypted && !encTooBig() && !armed()}>
         <div class="preview-load-hint">
           <span class="muted text-xs">
-            Encrypted audio ({formatBytes(props.obj.size)}). Decrypts whole into memory.
+            {t("preview.audio.encNote", { size: formatBytes(props.obj.size) })}
           </span>
           <button class="btn-secondary preview-btn-inline" onClick={() => setArmed(true)}>
-            <IconEye size={15} /> Load audio
+            <IconEye size={15} /> {t("preview.audio.load")}
           </button>
         </div>
       </Show>
       <Show when={src.loading && !displaySrc()}>
         <div class="preview-loader">
           <Spinner size={50} />
-          <span>{props.encrypted ? "Decrypting…" : "Loading…"}</span>
+          <span>{props.encrypted ? t("preview.decrypting") : t("common.loading")}</span>
         </div>
       </Show>
       <Show when={src.error && !displaySrc()}>
         <div class="preview-err-inline">
-          <div class="preview-err-inline-title">Playback failed</div>
+          <div class="preview-err-inline-title">{t("preview.audio.failed")}</div>
           <div class="preview-err-inline-hint">{String(src.error)}</div>
         </div>
       </Show>
@@ -266,15 +269,15 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
           </div>
           <div class="aplayer-ctrl-row">
             <div class="aplayer-ctrl-left">
-              <button class="aplayer-speed" onClick={cycleRate} title="Playback speed">
+              <button class="aplayer-speed" onClick={cycleRate} title={t("preview.audio.speed")}>
                 {rate()}x
               </button>
             </div>
-            <button class="aplayer-play" onClick={toggle} title={playing() ? "Pause" : "Play"}>
+            <button class="aplayer-play" onClick={toggle} title={playing() ? t("preview.audio.pause") : t("preview.audio.play")}>
               <Show when={playing()} fallback={<IconPlay size={17} />}><IconPause size={17} /></Show>
             </button>
             <div class="aplayer-ctrl-right">
-              <button class="aplayer-vol-btn" onClick={toggleMute} title={muted() ? "Unmute" : "Mute"}>
+              <button class="aplayer-vol-btn" onClick={toggleMute} title={muted() ? t("preview.audio.unmute") : t("preview.audio.mute")}>
                 <Show when={muted() || vol() === 0} fallback={<IconVolume size={15} />}>
                   <IconMute size={15} />
                 </Show>
@@ -284,7 +287,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
                 type="range" min="0" max="1" step="0.05"
                 value={muted() ? 0 : vol()}
                 onInput={onVol}
-                title="Volume"
+                title={t("preview.audio.volume")}
               />
             </div>
           </div>

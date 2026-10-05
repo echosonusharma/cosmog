@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { getRequestLogStats } from "../api/requestLogs";
 import { appSettings } from "../state/settings";
@@ -18,6 +18,7 @@ import {
   opLabel,
 } from "../utils/requestLogMeta";
 import Spinner from "../utils/Spinner";
+import { language, t, tp, type TKey } from "../i18n";
 
 
 const TOP_ACCOUNTS = 7;
@@ -34,77 +35,17 @@ type InfoKey =
   | "by-account"
   | "top-buckets";
 
-const DASH_INFO: Record<InfoKey, { title: string; body: JSX.Element }> = {
-  total: {
-    title: "Total requests",
-    body: (
-      <>
-        Count of every S3-compatible API call Cosmog made in this period: listings, downloads,
-        uploads, deletes, head requests, etc. Cloud providers often charge per request class — this
-        total shows overall activity volume.
-      </>
-    ),
-  },
-  accounts: {
-    title: "Accounts",
-    body: "Storage accounts that had at least one logged API call in this period.",
-  },
-  "operation-types": {
-    title: "Operation types",
-    body: (
-      <>
-        Distinct API operation kinds (e.g. List Objects, Get Object, Put Object). Providers map
-        these to billing classes — such as Backblaze B2 Class A vs Class B — with different
-        per-request prices.
-      </>
-    ),
-  },
-  latency: {
-    title: "Average latency",
-    body: "Mean round-trip time for all logged requests. Not a billing metric, but high latency can mean distance, large payloads, or throttling.",
-  },
-  errors: {
-    title: "Errors",
-    body: "Requests that failed (auth, not found, timeout, etc.). Some providers still bill failed calls depending on the operation.",
-  },
-  "daily-volume": {
-    title: "Daily request volume",
-    body: (
-      <>
-        Number of API calls per calendar day. Hover the chart for exact counts. Purple is all
-        requests; when failures exist, a red errors series appears too. Spikes often come from
-        bucket syncs, bulk transfers, or background indexing.
-      </>
-    ),
-  },
-  "daily-account": {
-    title: "Requests by account",
-    body: (
-      <>
-        Daily request count per storage account. Use the account chips to select which accounts
-        to plot. Hover the chart to see exact request counts per day; unselected accounts are
-        grouped into a dashed Other line.
-      </>
-    ),
-  },
-  "by-operation": {
-    title: "By operation",
-    body: (
-      <>
-        How many calls of each API type. Bar labels match S3 operations Cosmog logs (List Objects,
-        Preview Object, Upload, …). This is the closest view to provider request-class billing. The
-        right column shows average latency per operation.
-      </>
-    ),
-  },
-  "by-account": {
-    title: "By account",
-    body: "Total API calls per selected account in this period. Follows the account filter above the daily chart. Error counts appear in the meta column when present; otherwise average latency is shown.",
-  },
-  "top-buckets": {
-    title: "Top buckets",
-    body: "Buckets with the highest number of logged API calls. Heavy listing or sync against one bucket often dominates request counts even when total storage is spread across many buckets.",
-  },
+const DASH_INFO: Record<InfoKey, { title: TKey; body: TKey }> = {
+  total: { title: "logs.dash.total.title", body: "logs.dash.total.body" },
+  accounts: { title: "logs.dash.accounts.title", body: "logs.dash.accounts.body" },
+  "operation-types": { title: "logs.dash.ops.title", body: "logs.dash.ops.body" },
+  latency: { title: "logs.dash.latency.title", body: "logs.dash.latency.body" },
+  errors: { title: "logs.dash.errors.title", body: "logs.dash.errors.body" },
+  "daily-volume": { title: "logs.dash.volume.title", body: "logs.dash.volume.body" },
+  "daily-account": { title: "logs.dash.byDay.title", body: "logs.dash.byDay.body" },
+  "by-operation": { title: "logs.dash.byOp.title", body: "logs.dash.byOp.body" },
+  "by-account": { title: "logs.dash.byAccount.title", body: "logs.dash.byAccount.body" },
+  "top-buckets": { title: "logs.dash.buckets.title", body: "logs.dash.buckets.body" },
 };
 
 type PopoverLayout = {
@@ -146,7 +87,7 @@ function DashInfoBtn(props: { infoKey: InfoKey; size?: number; class?: string; l
   const [layout, setLayout] = createSignal<PopoverLayout | null>(null);
   let btn!: HTMLButtonElement;
   let pop!: HTMLDivElement;
-  const info = DASH_INFO[props.infoKey];
+  const info = () => DASH_INFO[props.infoKey];
 
   function updateLayout() {
     if (!btn || !pop) return;
@@ -202,9 +143,9 @@ function DashInfoBtn(props: { infoKey: InfoKey; size?: number; class?: string; l
         type="button"
         class={`icon-btn api-dash-info-btn${props.class ? ` ${props.class}` : ""}`}
         classList={{ active: open() }}
-        title="What does this mean?"
+        title={t("logs.dash.whatMeans")}
         aria-expanded={open()}
-        aria-label={props.label ?? info.title}
+        aria-label={props.label ?? t(info().title)}
         onClick={toggle}
       >
         <IconInfo size={props.size ?? 14} />
@@ -225,7 +166,7 @@ function DashInfoBtn(props: { infoKey: InfoKey; size?: number; class?: string; l
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div class="api-dash-popover-body">{info.body}</div>
+            <div class="api-dash-popover-body">{t(info().body)}</div>
           </div>
         </Portal>
       </Show>
@@ -233,16 +174,17 @@ function DashInfoBtn(props: { infoKey: InfoKey; size?: number; class?: string; l
   );
 }
 
-function DashSectionHead(section: { title: string; sub?: string; infoKey: InfoKey }) {
+function DashSectionHead(section: { sub?: string; infoKey: InfoKey }) {
+  const title = () => t(DASH_INFO[section.infoKey].title);
   return (
     <div class="api-dash-card-head">
       <div class="api-dash-card-head-text">
-        <h3 class="api-dash-card-title">{section.title}</h3>
+        <h3 class="api-dash-card-title">{title()}</h3>
         <Show when={section.sub}>
           <span class="api-dash-card-sub">{section.sub}</span>
         </Show>
       </div>
-      <DashInfoBtn infoKey={section.infoKey} label={`Explain ${section.title}`} />
+      <DashInfoBtn infoKey={section.infoKey} label={t("logs.dash.explain", { title: title() })} />
     </div>
   );
 }
@@ -378,8 +320,8 @@ export function ApiLogDashboard(props: { active: boolean }) {
     const total = stats()?.by_account.length ?? 0;
     const n = selectedAccounts().length;
     if (total === 0) return "";
-    if (n === total) return `All ${total} accounts`;
-    return `${n} of ${total} selected`;
+    if (n === total) return tp("logs.dash.allAccounts", total);
+    return t("logs.dash.selectedOf", { n, total });
   });
 
   function toggleAccountSelection(key: string) {
@@ -423,7 +365,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
       width?: number;
     }[] = [
       {
-        label: "Requests",
+        label: t("logs.dash.seriesRequests"),
         values: countsForDays(x, totalMap),
         color: "#a45cf0",
         fill: true,
@@ -431,7 +373,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
     ];
     if (s.by_day.some((d) => d.error_count > 0)) {
       series.push({
-        label: "Errors",
+        label: t("logs.dash.seriesErrors"),
         values: countsForDays(x, errMap),
         color: "#ef4444",
         fill: true,
@@ -486,7 +428,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
           otherByDay.set(row.day, (otherByDay.get(row.day) ?? 0) + row.count);
         }
       }
-      const full = `Other (${restAccounts} accounts)`;
+      const full = tp("logs.dash.otherAccounts", restAccounts);
       series.push({
         label: chartLegendLabel(full),
         fullLabel: full,
@@ -503,12 +445,12 @@ export function ApiLogDashboard(props: { active: boolean }) {
 
   const accountChartSub = createMemo(() => {
     const label = accountSelectionLabel();
-    return label ? `${label} — daily trend` : "Daily trend by account";
+    return label ? t("logs.dash.accountTrendSel", { selection: label }) : t("logs.dash.accountTrend");
   });
 
   const byAccountSub = createMemo(() => {
     const label = accountSelectionLabel();
-    return label ? `${label} — usage breakdown` : "Usage per storage account";
+    return label ? t("logs.dash.accountUsageSel", { selection: label }) : t("logs.dash.accountUsage");
   });
 
   const opDonut = createMemo(() => {
@@ -521,7 +463,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
       value: o.count,
       color: opColor(o.operation, i),
     }));
-    if (rest > 0) segs.push({ label: "Other", value: rest, color: CHART_PALETTE[6] });
+    if (rest > 0) segs.push({ label: t("logs.dash.other"), value: rest, color: CHART_PALETTE[6] });
     return segs;
   });
 
@@ -539,7 +481,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
     const rest = s.by_account
       .filter((a) => !keys.has(accountKey(a.account_id, a.account_name)))
       .reduce((n, a) => n + a.count, 0);
-    if (rest > 0) segs.push({ label: "Other", value: rest, color: CHART_PALETTE[6] });
+    if (rest > 0) segs.push({ label: t("logs.dash.other"), value: rest, color: CHART_PALETTE[6] });
     return segs;
   });
 
@@ -571,11 +513,9 @@ export function ApiLogDashboard(props: { active: boolean }) {
       <div class="api-dash-toolbar panel-header">
         <div class="api-dash-toolbar-text">
           <span class="api-dash-period">
-            Last {periodDays()} days
+            {tp("logs.dash.lastDays", periodDays())}
           </span>
-          <p class="api-dash-period-desc">
-            From locally stored API request logs. Updates when you open Dashboard or press Refresh.
-          </p>
+          <p class="api-dash-period-desc">{t("logs.dash.periodDesc")}</p>
         </div>
         <button
           type="button"
@@ -588,7 +528,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
           <Show when={refreshing()}>
             <Spinner size={12} />
           </Show>
-          Refresh
+          {t("common.refresh")}
         </button>
       </div>
 
@@ -596,14 +536,14 @@ export function ApiLogDashboard(props: { active: boolean }) {
         <Show when={loading() && !stats()}>
           <div class="bcfg-loading api-dash-loading" aria-busy="true" aria-live="polite">
             <Spinner size={50} />
-            <span>Loading analytics…</span>
+            <span>{t("logs.dash.loading")}</span>
           </div>
         </Show>
 
         <Show when={fetchError() && !stats() && !loading()}>
           <div class="api-dash-empty">
-            <p class="logs-fetch-err">Failed to load API analytics.</p>
-            <button type="button" class="btn-secondary" onClick={() => load()}>Retry</button>
+            <p class="logs-fetch-err">{t("logs.dash.loadFailed")}</p>
+            <button type="button" class="btn-secondary" onClick={() => load()}>{t("common.retry")}</button>
           </div>
         </Show>
 
@@ -615,37 +555,37 @@ export function ApiLogDashboard(props: { active: boolean }) {
                   when={s().total > 0}
                   fallback={
                     <div class="api-dash-empty">
-                      <p class="logs-empty-text">No API requests in the last {s().period_days} days.</p>
-                      <p class="api-dash-empty-hint">S3 calls appear here as you browse buckets and transfer files.</p>
+                      <p class="logs-empty-text">{tp("logs.dash.emptyDays", s().period_days)}</p>
+                      <p class="api-dash-empty-hint">{t("logs.dash.emptyHint")}</p>
                     </div>
                   }
                 >
                   <div class="api-dash-hero">
                     <DashStat
                       class="api-dash-stat-primary"
-                      val={s().total.toLocaleString()}
-                      lbl="total requests"
+                      val={s().total.toLocaleString(language())}
+                      lbl={t("logs.dash.statTotal")}
                       infoKey="total"
                     />
                     <DashStat
-                      val={s().by_account.length.toLocaleString()}
-                      lbl="accounts"
+                      val={s().by_account.length.toLocaleString(language())}
+                      lbl={t("logs.dash.statAccounts")}
                       infoKey="accounts"
                     />
                     <DashStat
-                      val={s().by_operation.length.toLocaleString()}
-                      lbl="operation types"
+                      val={s().by_operation.length.toLocaleString(language())}
+                      lbl={t("logs.dash.statOps")}
                       infoKey="operation-types"
                     />
                     <DashStat
                       val={formatMs(s().avg_duration_ms)}
-                      lbl="avg latency"
+                      lbl={t("logs.dash.statLatency")}
                       infoKey="latency"
                     />
                     <DashStat
                       class="api-dash-stat-err"
                       val={errorRate()}
-                      lbl={`${s().error_count.toLocaleString()} errors`}
+                      lbl={tp("logs.dash.statErrors", s().error_count)}
                       infoKey="errors"
                     />
                   </div>
@@ -653,8 +593,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                   <Show when={dailyTotal().x.length > 0}>
                     <div class="api-dash-card api-dash-card-wide">
                       <DashSectionHead
-                        title="Daily request volume"
-                        sub="Total calls + errors per day"
+                        sub={t("logs.dash.volume.sub")}
                         infoKey="daily-volume"
                       />
                       <MultiLineChart
@@ -668,27 +607,26 @@ export function ApiLogDashboard(props: { active: boolean }) {
                   <Show when={dailyByAccount().series.length > 0}>
                     <div class="api-dash-card api-dash-card-wide">
                       <DashSectionHead
-                        title="Requests by account"
                         sub={accountChartSub()}
                         infoKey="daily-account"
                       />
                       <Show when={s().by_account.length > 1}>
                         <div class="api-dash-account-filters">
                           <div class="api-dash-account-filter-bar">
-                            <span class="api-dash-account-filter-label">Show</span>
+                            <span class="api-dash-account-filter-label">{t("logs.dash.show")}</span>
                             <button
                               type="button"
                               class="btn-ghost api-dash-account-filter-btn"
                               onClick={selectTopAccounts}
                             >
-                              Top {TOP_ACCOUNTS}
+                              {t("logs.dash.topN", { n: TOP_ACCOUNTS })}
                             </button>
                             <button
                               type="button"
                               class="btn-ghost api-dash-account-filter-btn"
                               onClick={selectAllAccounts}
                             >
-                              All
+                              {t("logs.dash.all")}
                             </button>
                           </div>
                           <div class="api-dash-account-chips">
@@ -732,8 +670,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                     <div class="api-dash-grid">
                       <div class="api-dash-card">
                       <DashSectionHead
-                        title="By operation"
-                        sub="Request class breakdown"
+                        sub={t("logs.dash.byOp.sub")}
                         infoKey="by-operation"
                       />
                       <div class="api-dash-donut-row">
@@ -753,7 +690,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                                   }}
                                 />
                               </div>
-                              <span class="api-dash-bar-val">{op.count.toLocaleString()}</span>
+                              <span class="api-dash-bar-val">{op.count.toLocaleString(language())}</span>
                               <span class="api-dash-bar-meta">{formatMs(op.avg_duration_ms)}</span>
                             </div>
                           )}
@@ -763,7 +700,6 @@ export function ApiLogDashboard(props: { active: boolean }) {
 
                     <div class="api-dash-card">
                       <DashSectionHead
-                        title="By account"
                         sub={byAccountSub()}
                         infoKey="by-account"
                       />
@@ -791,9 +727,9 @@ export function ApiLogDashboard(props: { active: boolean }) {
                                   }}
                                 />
                               </div>
-                              <span class="api-dash-bar-val">{acc.count.toLocaleString()}</span>
+                              <span class="api-dash-bar-val">{acc.count.toLocaleString(language())}</span>
                               <span class="api-dash-bar-meta">
-                                {acc.error_count > 0 ? `${acc.error_count} err` : formatMs(acc.avg_duration_ms)}
+                                {acc.error_count > 0 ? t("logs.dash.errShort", { count: acc.error_count.toLocaleString(language()) }) : formatMs(acc.avg_duration_ms)}
                               </span>
                             </div>
                           )}
@@ -805,8 +741,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                     <Show when={s().top_buckets.length > 0}>
                       <div class="api-dash-card api-dash-card-wide">
                         <DashSectionHead
-                          title="Top buckets"
-                          sub="Most API activity by bucket"
+                          sub={t("logs.dash.buckets.sub")}
                           infoKey="top-buckets"
                         />
                         <div class="api-dash-bars api-dash-bars-buckets">
@@ -823,7 +758,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                                     }}
                                   />
                                 </div>
-                                <span class="api-dash-bar-val">{b.count.toLocaleString()}</span>
+                                <span class="api-dash-bar-val">{b.count.toLocaleString(language())}</span>
                               </div>
                             )}
                           </For>

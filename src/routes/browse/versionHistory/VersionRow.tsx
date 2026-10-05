@@ -2,6 +2,7 @@ import { Show } from "solid-js";
 import { IconDownload, IconRefresh, IconTrash } from "../../../utils/icons";
 import { formatBytes, formatDate } from "../../../utils/fmt";
 import type { ObjectVersion } from "../../../types";
+import { t } from "../../../i18n";
 
 function shortId(id: string | null): string {
   if (!id) return "null";
@@ -27,14 +28,14 @@ export function VersionRow(props: {
     <div class="vh-row" classList={{ latest: v().is_latest }}>
       <div class="vh-row-main">
         <div class="vh-row-top">
-          <span class="vh-vid" title={v().version_id ?? "no version id"}>
+          <span class="vh-vid" title={v().version_id ?? t("bucketconfig.versions.noVersionId")}>
             {shortId(v().version_id)}
           </span>
           <Show when={v().is_latest}>
-            <span class="vh-badge latest">Latest</span>
+            <span class="vh-badge latest">{t("bucketconfig.versions.latest")}</span>
           </Show>
           <Show when={v().is_delete_marker}>
-            <span class="vh-badge delete-marker">Delete marker</span>
+            <span class="vh-badge delete-marker">{t("bucketconfig.versions.deleteMarker")}</span>
           </Show>
         </div>
         <div class="vh-meta">
@@ -46,7 +47,7 @@ export function VersionRow(props: {
         <Show when={!v().is_delete_marker}>
           <button
             class="icon-btn"
-            title="Download this version"
+            title={t("bucketconfig.versions.download")}
             disabled={props.busy}
             onClick={() => props.onDownload(v())}
           >
@@ -56,7 +57,7 @@ export function VersionRow(props: {
         <Show when={canRestore()}>
           <button
             class="icon-btn"
-            title="Restore this version"
+            title={t("bucketconfig.versions.restoreThis")}
             disabled={props.busy}
             onClick={() => props.onRestore(v())}
           >
@@ -66,7 +67,7 @@ export function VersionRow(props: {
         <Show when={hasVersionId()}>
           <button
             class="icon-btn danger"
-            title="Delete this version permanently"
+            title={t("bucketconfig.versions.deleteThis")}
             disabled={props.busy}
             onClick={() => props.onDelete(v())}
           >

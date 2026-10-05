@@ -1,7 +1,8 @@
 import type { ZodError, ZodType } from "zod";
+import { t } from "../i18n";
 
 export function zodErrorMessage(error: ZodError): string {
-  return error.issues[0]?.message ?? "Invalid input";
+  return error.issues[0]?.message ?? t("settings.validation.invalidInput");
 }
 
 export function zodFieldErrors(error: ZodError): Record<string, string> {

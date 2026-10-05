@@ -4,8 +4,13 @@ import { focusEnd, objectExists, prefixToPath } from "./newItem";
 import { errMsg } from "../../state/toast";
 import { extOf } from "../../utils/fmt";
 import { Select } from "../../utils/Select";
-import { TEXT_TYPES, textTypeForName, withExt } from "../../utils/textTypes";
+import { TEXT_TYPES, textTypeForName, withExt, type TextType } from "../../utils/textTypes";
+import { t } from "../../i18n";
 import { mimeTypeSchema, objectKeySchema, parseSchema } from "../../validation";
+
+// Only the generic labels are translated; language names stay as is.
+const typeLabel = (x: TextType) =>
+  x.ext === "txt" ? t("browse.newFile.plainText") : x.ext === "log" ? t("browse.newFile.log") : x.label;
 
 export function NewFileModal(props: {
   accountId: string;
@@ -44,14 +49,14 @@ export function NewFileModal(props: {
     const result = parseSchema(objectKeySchema, name());
     if (!result.success) { setErr(result.message); return; }
     const key = result.data;
-    if (key.endsWith("/")) { setErr("File name is required"); return; }
+    if (key.endsWith("/")) { setErr(t("browse.newFile.nameRequired")); return; }
     const mimeResult = parseSchema(mimeTypeSchema, mime());
     if (!mimeResult.success) { setErr(mimeResult.message); return; }
     const contentType = mimeResult.data;
     setBusy(true);
     try {
       const exists = await objectExists(props.accountId, props.bucket, key);
-      if (exists) { setErr("A file with this name already exists"); return; }
+      if (exists) { setErr(t("browse.newFile.exists")); return; }
       await putObjectText(props.accountId, props.bucket, key, "", contentType);
       props.onCreated(key, contentType);
       props.onClose();
@@ -65,28 +70,28 @@ export function NewFileModal(props: {
   return (
     <div class="modal-backdrop" onClick={props.onClose}>
       <div class="modal new-file-modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">New file</div>
-        <div class="modal-sub modal-sub-path-label">Type</div>
+        <div class="modal-title">{t("browse.newFile.title")}</div>
+        <div class="modal-sub modal-sub-path-label">{t("common.type")}</div>
         <Select
           value={ext()}
-          options={TEXT_TYPES.map((t) => ({ value: t.ext, label: `${t.label} (.${t.ext})` }))}
+          options={TEXT_TYPES.map((tt) => ({ value: tt.ext, label: `${typeLabel(tt)} (.${tt.ext})` }))}
           onChange={onTypeChange}
         />
-        <div class="modal-sub modal-sub-path-label">Path</div>
+        <div class="modal-sub modal-sub-path-label">{t("browse.newFile.path")}</div>
         <input class="field" placeholder="path/to/file.txt" autocapitalize="off" autocorrect="off" spellcheck={false}
                value={name()}
                onInput={(e) => onNameInput(e.currentTarget.value)}
                onKeyDown={(e) => e.key === "Enter" && submit()}
                ref={focusEnd} />
-        <div class="modal-sub modal-sub-path-label">Content type</div>
+        <div class="modal-sub modal-sub-path-label">{t("browse.newFile.contentType")}</div>
         <input class="field" placeholder={typeMime()} autocapitalize="off" autocorrect="off" spellcheck={false} value={customMime()}
                onInput={(e) => { setCustomMime(e.currentTarget.value); setErr(""); }}
                onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Show when={err()}><div class="status-msg err">{err()}</div></Show>
         <div class="btn-row mt-3">
-          <button class="btn-secondary btn-half" onClick={props.onClose}>Cancel</button>
+          <button class="btn-secondary btn-half" onClick={props.onClose}>{t("common.cancel")}</button>
           <button class="btn-primary btn-half" disabled={busy() || !name().trim().replace(/\//g, "")} onClick={submit}>
-            {busy() ? "Creating…" : "Create"}
+            {busy() ? t("browse.creating") : t("common.create")}
           </button>
         </div>
       </div>

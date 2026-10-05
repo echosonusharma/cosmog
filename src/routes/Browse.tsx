@@ -4,8 +4,10 @@ import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
 import { ReauthPanel } from "./browse/ReauthPanel";
-import { isCredentialError, isNetworkError, parseWireError } from "../utils/errors";
+import { describeError, isCredentialError } from "../utils/errors";
+import { ErrorBody } from "../utils/ErrorBody";
 import Spinner from "../utils/Spinner";
+import { t } from "../i18n";
 
 export default function Browse(props: { defaultDownloadDir: string }) {
   createEffect(() => {
@@ -15,7 +17,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
   });
 
   const accountName = () =>
-    accounts().find((a) => a.id === browseState.accountId)?.name ?? "Account";
+    accounts().find((a) => a.id === browseState.accountId)?.name ?? t("browse.account.fallback");
 
   // createMemo updates synchronously in the same reactive batch as the store —
   // no post-render effect lag, so ObjectBrowser never sees a stale bucket.
@@ -52,9 +54,8 @@ export default function Browse(props: { defaultDownloadDir: string }) {
           <Show when={stableAccountId()} keyed>
             {(accountId) => (
               <ErrorBoundary fallback={(err, reset) => {
-                const { code, message } = parseWireError(err);
+                const { code, title } = describeError(err);
                 const credErr = isCredentialError(code);
-                const netErr  = isNetworkError(code);
                 if (credErr) {
                   return (
                     <div class="browse-err-fallback">
@@ -64,16 +65,14 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                     </div>
                   );
                 }
-                const title = netErr ? "Service unreachable" : "Something went wrong";
                 return (
                   <div class="browse-err-fallback">
                     <div class="err-popup err-popup-boot">
                       <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
-                      <p class="err-popup-msg">{message}</p>
-                      {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
+                      <ErrorBody error={err} />
                       <div class="err-popup-actions">
-                        <button class="btn-secondary btn-xs" onClick={() => reset()}>Dismiss</button>
-                        <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                        <button class="btn-secondary btn-xs" onClick={() => reset()}>{t("browse.error.dismiss")}</button>
+                        <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>{t("browse.error.settings")}</button>
                       </div>
                     </div>
                   </div>
@@ -89,9 +88,8 @@ export default function Browse(props: { defaultDownloadDir: string }) {
         <Show when={hasBucket()}>
           <div class="view-slot view-slot-fill">
             <ErrorBoundary fallback={(err, reset) => {
-              const { code, message } = parseWireError(err);
+              const { code, title } = describeError(err);
               const credErr = isCredentialError(code);
-              const netErr  = isNetworkError(code);
               if (credErr) {
                 return (
                   <div class="browse-err-fallback">
@@ -105,16 +103,14 @@ export default function Browse(props: { defaultDownloadDir: string }) {
                   </div>
                 );
               }
-              const title = netErr ? "Service unreachable" : "Something went wrong";
               return (
                 <div class="browse-err-fallback">
                   <div class="err-popup err-popup-boot">
                     <div class="err-popup-header"><span class="err-popup-title">{title}</span></div>
-                    <p class="err-popup-msg">{message}</p>
-                    {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
+                    <ErrorBody error={err} />
                     <div class="err-popup-actions">
-                      <button class="btn-secondary btn-xs" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>Back to buckets</button>
-                      <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>Settings</button>
+                      <button class="btn-secondary btn-xs" onClick={() => { setBrowseState({ bucket: null, prefix: "" }); reset(); }}>{t("browse.error.backToBuckets")}</button>
+                      <button class="btn-primary btn-xs" onClick={() => { setCurrentView("settings"); reset(); }}>{t("browse.error.settings")}</button>
                     </div>
                   </div>
                 </div>

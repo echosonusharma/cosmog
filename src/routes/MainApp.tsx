@@ -42,6 +42,9 @@ import { MobileHeader } from "./mainapp/MobileHeader";
 import { ActiveTransfersBar } from "./mainapp/ActiveTransfersBar";
 import { isMobile } from "../utils/breakpoint";
 import { Show } from "solid-js";
+import { t, type TKey } from "../i18n";
+
+type XferKind = "start" | "startBody" | "canceled" | "canceledBody" | "done" | "doneBody" | "failed" | "failedBody" | "failedBodyErr" | "saveFailedBody";
 
 export default function MainApp() {
   const [collapsed, setCollapsed] = createSignal(false);
@@ -52,7 +55,7 @@ export default function MainApp() {
   const closeDrawer = () => setDrawerOpen(false);
 
   // Registered first (parent mounts before children) so it sits at the bottom of the back
-  // stack — overlays get first crack. False at browse root lets the OS background/exit.
+  // stack: overlays get first crack. False at browse root lets the OS background/exit.
   useBackHandler(() => true, () => {
     if (drawerOpen()) { closeDrawer(); return true; }
     if (currentView() !== "browse") { setCurrentView("browse"); return true; }
@@ -120,11 +123,11 @@ export default function MainApp() {
   async function refreshCount() {
     try {
       const list = await listTransfers();
-      const active = list.filter((t) => t.status === "active" || t.status === "pending").length;
+      const active = list.filter((x) => x.status === "active" || x.status === "pending").length;
       setActiveCount(active);
       // Publish the live list so the sticky ActiveTransfersBar (and anything
       // else that wants live progress) doesn't have to spin up a second poll.
-      setActiveTransfers(list.filter((t) => t.status === "active" || t.status === "pending"));
+      setActiveTransfers(list.filter((x) => x.status === "active" || x.status === "pending"));
       // Android: keep a foreground service while transfers are in flight, else Doze/cached-process
       // reaping kills in-flight requests. Mark applied only on invoke success so failures retry.
       const wantService = active > 0;
@@ -134,60 +137,61 @@ export default function MainApp() {
           .catch(() => {});
       }
       if (firstLoad) {
-        for (const t of list) {
-          if (t.status === "done" || t.status === "failed" || t.status === "canceled") notifiedEnd.add(t.id);
-          if (t.status === "active" || t.status === "pending") notifiedStart.add(t.id);
+        for (const x of list) {
+          if (x.status === "done" || x.status === "failed" || x.status === "canceled") notifiedEnd.add(x.id);
+          if (x.status === "active" || x.status === "pending") notifiedStart.add(x.id);
         }
         firstLoad = false;
         return;
       }
       // Cleared/pruned transfers never come back; drop their tracker entries so the sets
       // don't grow for the whole session.
-      const liveIds = new Set(list.map((t) => t.id));
+      const liveIds = new Set(list.map((x) => x.id));
       for (const id of notifiedStart) if (!liveIds.has(id)) notifiedStart.delete(id);
       for (const id of notifiedEnd) if (!liveIds.has(id)) notifiedEnd.delete(id);
       const accs = accounts();
       const accountName = (id: string) =>
-        accs.find((a) => a.id === id)?.name || accs.find((a) => a.id === id)?.id || "account";
+        accs.find((a) => a.id === id)?.name || accs.find((a) => a.id === id)?.id || t("shell.xfer.accountFallback");
 
-      for (const t of list) {
-        const name = t.key.split("/").pop() || t.key;
-        const acct = accountName(t.account_id);
-        const nid  = notifId(t.id);
-        const up   = t.direction === "upload";
-        const dir  = up ? "Upload" : "Download";
+      for (const x of list) {
+        const name = x.key.split("/").pop() || x.key;
+        const acct = accountName(x.account_id);
+        const nid  = notifId(x.id);
+        const up   = x.direction === "upload";
+        const dir  = up ? "upload" : "download";
+        const tx   = (k: XferKind, extra?: Record<string, string>) =>
+          t(`shell.xfer.${dir}.${k}` as TKey, { name, bucket: x.bucket, account: acct, ...extra });
         // Night watcher is a silent background sync: skip start/progress/done
         // notifications, surface only failures.
-        if (t.origin === "nightwatch" && t.status !== "failed") continue;
+        if (x.origin === "nightwatch" && x.status !== "failed") continue;
         // Title carries verb + filename; body pins account + bucket so parallel transfers are
         // distinguishable in the tray. summary = collapsed header, largeBody = expanded story.
-        const body = `${acct} · ${t.bucket}`;
-        const where = up ? `to "${t.bucket}" on ${acct}` : `from "${t.bucket}" on ${acct}`;
+        const body = `${acct} · ${x.bucket}`;
         const rich = (opts: Parameters<typeof notify>[2]) => ({
           id: nid,
           summary: acct,
           ...opts,
         });
 
-        if ((t.status === "active" || t.status === "pending") && !notifiedStart.has(t.id)) {
-          notifiedStart.add(t.id);
-          notify(`${up ? "Uploading" : "Downloading"} ${name}`, body, rich({
-            largeBody: `${up ? "Uploading" : "Downloading"} ${where}`,
+        if ((x.status === "active" || x.status === "pending") && !notifiedStart.has(x.id)) {
+          notifiedStart.add(x.id);
+          notify(tx("start"), body, rich({
+            largeBody: tx("startBody"),
             channelId: CHANNEL_PROGRESS,
             ongoing: true,
             autoCancel: false,
             silent: true,
             actionTypeId: TRANSFER_ACTION_TYPE_ID,
-            extra: { transfer_id: t.id },
+            extra: { transfer_id: x.id },
           }));
         }
 
-        if (t.status === "canceled" && !notifiedEnd.has(t.id)) {
-          notifiedEnd.add(t.id);
-          notifiedStart.delete(t.id);
-          discardSafDownload(t.id);
-          notify(`${dir} canceled: ${name}`, body, rich({
-            largeBody: `${dir} ${where} was canceled`,
+        if (x.status === "canceled" && !notifiedEnd.has(x.id)) {
+          notifiedEnd.add(x.id);
+          notifiedStart.delete(x.id);
+          discardSafDownload(x.id);
+          notify(tx("canceled"), body, rich({
+            largeBody: tx("canceledBody"),
             channelId: CHANNEL_EVENTS,
             ongoing: false,
             autoCancel: true,
@@ -195,20 +199,20 @@ export default function MainApp() {
           continue;
         }
 
-        if ((t.status === "done" || t.status === "failed") && !notifiedEnd.has(t.id)) {
-          notifiedEnd.add(t.id);
-          const done = t.status === "done";
+        if ((x.status === "done" || x.status === "failed") && !notifiedEnd.has(x.id)) {
+          notifiedEnd.add(x.id);
+          const done = x.status === "done";
           // A done SAF download is only complete once bytes are copied out of app cache to the
           // user-picked location; that copy can take minutes and can fail (revoked grant, disk full).
-          if (done && t.direction === "download") {
-            const pending = takeSafFinalize(t.id);
+          if (done && x.direction === "download") {
+            const pending = takeSafFinalize(x.id);
             if (pending) {
               try {
                 await finalizeSafDownload(pending.cachePath, pending.safUri);
               } catch (e) {
                 // Keep the cache copy (finalize only deletes it on success) so bytes aren't lost.
-                notify(`Download failed: ${name}`, body, rich({
-                  largeBody: `Downloaded ${where} but saving to the chosen location failed: ${errMsg(e)}`,
+                notify(tx("failed"), body, rich({
+                  largeBody: tx("saveFailedBody", { error: errMsg(e) }),
                   channelId: CHANNEL_ALERTS,
                   ongoing: false,
                   autoCancel: true,
@@ -217,10 +221,10 @@ export default function MainApp() {
               }
             }
           }
-          const title = done ? `${dir} complete: ${name}` : `${dir} failed: ${name}`;
+          const title = tx(done ? "done" : "failed");
           const largeBody = done
-            ? `${up ? "Uploaded" : "Downloaded"} ${where}`
-            : `${dir} ${where} failed${t.error ? `: ${t.error}` : ""}`;
+            ? tx("doneBody")
+            : x.error ? tx("failedBodyErr", { error: errMsg(x.error) }) : tx("failedBody");
           notify(title, body, rich({
             largeBody,
             channelId: done ? CHANNEL_EVENTS : CHANNEL_ALERTS,

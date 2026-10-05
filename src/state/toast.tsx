@@ -1,8 +1,9 @@
 // Every user-visible event routes through the OS notification tray via utils/notify; the `toast`
-// API surface is kept so call sites compile unchanged — no in-app popup renders anywhere.
+// API surface is kept so call sites compile unchanged: no in-app popup renders anywhere.
 
 import { notify, CHANNEL_EVENTS, CHANNEL_ALERTS } from "../utils/notify";
-import { errMsg } from "../utils/errors";
+import { describeError } from "../utils/errors";
+import { t } from "../i18n";
 
 export { errMsg } from "../utils/errors";
 
@@ -45,6 +46,6 @@ function alert(title: string, msg: string) {
 export const toast = {
   info: (m: string, detail?: string) => event(m, detail),
   ok:   (m: string, detail?: string) => event(m, detail),
-  warn: (m: string, title = "Warning") => alert(title, m),
-  err:  (e: unknown) => alert("Error", errMsg(e)),
+  warn: (m: string, title = t("common.warning")) => alert(title, m),
+  err:  (e: unknown) => { const d = describeError(e); alert(d.title, d.text); },
 };

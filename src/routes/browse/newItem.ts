@@ -1,10 +1,10 @@
 import { headObject } from "../../api/objects";
-import { errCode } from "../../utils/errors";
+import { errCode, isNotFound } from "../../utils/errors";
 
 /** HEAD check; only not-found means absent, other errors reject. */
 export const objectExists = (accountId: string, bucket: string, key: string): Promise<boolean> =>
   headObject(accountId, bucket, key).then(() => true, (e) => {
-    if (errCode(e) === "not_found") return false;
+    if (isNotFound(errCode(e))) return false;
     throw e;
   });
 

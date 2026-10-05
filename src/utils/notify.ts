@@ -10,6 +10,7 @@ import {
   Visibility,
 } from "@tauri-apps/plugin-notification";
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 
 export const TRANSFER_ACTION_TYPE_ID = "TRANSFER_ACTIONS";
 export const TRANSFER_CANCEL_ACTION_ID = "cancel";
@@ -47,8 +48,8 @@ async function ensureChannels() {
   if (!IS_MOBILE_OS || _channelsReady) return;
   await createChannel({
     id: CHANNEL_PROGRESS,
-    name: "Transfer progress",
-    description: "Ongoing upload and download progress",
+    name: t("shell.notify.channel.progress"),
+    description: t("shell.notify.channel.progressDesc"),
     importance: Importance.Low,
     visibility: Visibility.Public,
     vibration: false,
@@ -56,8 +57,8 @@ async function ensureChannels() {
   });
   await createChannel({
     id: CHANNEL_EVENTS,
-    name: "Transfer results",
-    description: "Completed and canceled transfers, general updates",
+    name: t("shell.notify.channel.events"),
+    description: t("shell.notify.channel.eventsDesc"),
     importance: Importance.Default,
     visibility: Visibility.Public,
     vibration: false,
@@ -65,8 +66,8 @@ async function ensureChannels() {
   });
   await createChannel({
     id: CHANNEL_ALERTS,
-    name: "Alerts",
-    description: "Failed transfers, errors, and warnings",
+    name: t("shell.notify.channel.alerts"),
+    description: t("shell.notify.channel.alertsDesc"),
     importance: Importance.High,
     visibility: Visibility.Public,
     vibration: true,
@@ -83,7 +84,7 @@ async function ensureActionTypes() {
     {
       id: TRANSFER_ACTION_TYPE_ID,
       actions: [
-        { id: TRANSFER_CANCEL_ACTION_ID, title: "Cancel", destructive: true, foreground: false },
+        { id: TRANSFER_CANCEL_ACTION_ID, title: t("common.cancel"), destructive: true, foreground: false },
       ],
     },
   ]);

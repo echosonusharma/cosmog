@@ -15,6 +15,7 @@ import {
   GutterMarker,
   type DecorationSet,
 } from "@codemirror/view";
+import { t } from "../i18n";
 
 /** Retarget the diff baseline without rebuilding the gutter. */
 export const setDiffBase = StateEffect.define<string>();
@@ -65,10 +66,10 @@ class DiffMarker extends GutterMarker {
     el.className = `cm-diff-marker cm-diff-${this.kind}`;
     el.title =
       this.kind === "add"
-        ? "Added lines"
+        ? t("preview.editor.addedLines")
         : this.kind === "change"
-          ? "Changed lines"
-          : "Deleted lines";
+          ? t("preview.editor.changedLines")
+          : t("preview.editor.deletedLines");
     return el;
   }
 }

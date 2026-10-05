@@ -15,6 +15,7 @@ import type { ObjectVersion } from "../../../types";
 import { pathFromDialog, resolveDownloadPath, registerSafFinalize, withTimestamp } from "../helpers";
 import { VersionRow } from "./VersionRow";
 import Spinner from "../../../utils/Spinner";
+import { t } from "../../../i18n";
 
 const MAX_PAGES = 20;
 
@@ -79,7 +80,7 @@ export function VersionHistoryModal(props: {
         v.version_id ?? undefined,
       );
       if (safUri && res?.transfer_id) registerSafFinalize(res.transfer_id, path, safUri);
-      toast.ok("Download queued", `Version ${(v.version_id ?? "current").slice(0, 8)} of "${name()}"`);
+      toast.ok(t("bucketconfig.versions.downloadQueued"), t("bucketconfig.versions.versionOf", { id: (v.version_id ?? t("bucketconfig.versions.current")).slice(0, 8), name: name() }));
     } catch (e) {
       toast.err(e);
     }
@@ -88,11 +89,9 @@ export function VersionHistoryModal(props: {
   async function handleRestore(v: ObjectVersion) {
     if (!v.version_id) return;
     const ok = await confirmDialog({
-      title: "Restore this version?",
-      body: v.is_delete_marker
-        ? `Removing the delete marker will bring "${name()}" back as its previous version.`
-        : `"${name()}" will be restored to this version. It becomes the current version; existing versions are kept.`,
-      confirmLabel: "Restore",
+      title: t("bucketconfig.versions.restoreConfirmTitle"),
+      body: t(v.is_delete_marker ? "bucketconfig.versions.restoreMarkerBody" : "bucketconfig.versions.restoreBody", { name: name() }),
+      confirmLabel: t("bucketconfig.versions.restore"),
     });
     if (!ok) return;
     setBusy(true);
@@ -101,10 +100,10 @@ export function VersionHistoryModal(props: {
         // Un-delete by removing the marker (S3 rejects copying from one); the
         // prior version becomes current again.
         await deleteObjectVersion(props.accountId, props.bucket, props.objectKey, v.version_id);
-        toast.ok("Object restored", `Delete marker removed; "${name()}" is back`);
+        toast.ok(t("bucketconfig.versions.objectRestored"), t("bucketconfig.versions.markerRemoved", { name: name() }));
       } else {
         await restoreObjectVersion(props.accountId, props.bucket, props.objectKey, v.version_id);
-        toast.ok("Version restored", `"${name()}" now points to version ${v.version_id.slice(0, 8)}`);
+        toast.ok(t("bucketconfig.versions.versionRestored"), t("bucketconfig.versions.versionRestoredDetail", { name: name(), id: v.version_id.slice(0, 8) }));
       }
       await refetch();
       props.onChanged?.();
@@ -118,16 +117,16 @@ export function VersionHistoryModal(props: {
   async function handleDelete(v: ObjectVersion) {
     if (!v.version_id) return;
     const ok = await confirmDestructive({
-      title: "Delete this version permanently?",
-      body: `Version ${v.version_id.slice(0, 8)} of "${name()}" will be erased for good. Unlike a normal delete (which keeps prior versions), this cannot be undone.`,
-      confirmLabel: "Delete permanently",
+      title: t("bucketconfig.versions.deleteConfirmTitle"),
+      body: t("bucketconfig.versions.deleteConfirmBody", { id: v.version_id.slice(0, 8), name: name() }),
+      confirmLabel: t("bucketconfig.versions.deletePermanently"),
       danger: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
       await deleteObjectVersion(props.accountId, props.bucket, props.objectKey, v.version_id);
-      toast.ok("Version deleted", `Version ${v.version_id.slice(0, 8)} of "${name()}" was permanently removed`);
+      toast.ok(t("bucketconfig.versions.versionDeleted"), t("bucketconfig.versions.versionDeletedDetail", { id: v.version_id.slice(0, 8), name: name() }));
       await refetch();
       props.onChanged?.();
     } catch (e) {
@@ -142,10 +141,10 @@ export function VersionHistoryModal(props: {
       <div class="modal vh-modal" onClick={(e) => e.stopPropagation()}>
         <div class="vh-header">
           <div>
-            <div class="modal-title">Version history</div>
+            <div class="modal-title">{t("bucketconfig.versions.title")}</div>
             <div class="vh-key">{props.objectKey}</div>
           </div>
-          <button class="icon-btn vh-close-x" title="Close" onClick={props.onClose}>
+          <button class="icon-btn vh-close-x" title={t("common.close")} onClick={props.onClose}>
             <IconX size={16} />
           </button>
         </div>
@@ -153,7 +152,7 @@ export function VersionHistoryModal(props: {
         <div class="vh-body">
           <Show when={data.loading && data.latest == null}>
             <div class="vh-loading">
-              <Spinner /> Loading versions…
+              <Spinner /> {t("bucketconfig.versions.loading")}
             </div>
           </Show>
 
@@ -162,14 +161,14 @@ export function VersionHistoryModal(props: {
           </Show>
 
           <Show when={data.error && data.latest != null}>
-            <div class="status-msg err">Couldn't refresh versions: {errMsg(data.error)}</div>
+            <div class="status-msg err">{t("bucketconfig.versions.refreshFailed", { error: errMsg(data.error) })}</div>
           </Show>
 
           <Show when={data.latest ?? data()}>
             {(d) => (
               <Show
                 when={d().versions.length > 0}
-                fallback={<div class="vh-empty">No versions found for this object.</div>}
+                fallback={<div class="vh-empty">{t("bucketconfig.versions.empty")}</div>}
               >
                 <div class="vh-list" classList={{ loading: data.loading }}>
                   <For each={d().versions}>
@@ -186,7 +185,7 @@ export function VersionHistoryModal(props: {
                 </div>
                 <Show when={d().truncated}>
                   <div class="vh-truncated">
-                    Showing the first {MAX_PAGES} pages of versions. Older versions may exist and are not listed.
+                    {t("bucketconfig.versions.truncated", { pages: MAX_PAGES })}
                   </div>
                 </Show>
               </Show>

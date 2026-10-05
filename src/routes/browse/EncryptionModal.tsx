@@ -12,6 +12,7 @@ import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import { IconKey, IconChevronR, IconChevronD } from "../../utils/icons";
 import { pathFromDialog } from "./helpers";
+import { t } from "../../i18n";
 
 function CodeSnippet(props: { code: string }) {
   const [copied, setCopied] = createSignal(false);
@@ -29,7 +30,7 @@ function CodeSnippet(props: { code: string }) {
         class="enc-code-snippet-copy"
         onClick={copy}
       >
-        {copied() ? "Copied" : "Copy"}
+        {copied() ? t("common.copied") : t("common.copy")}
       </button>
       <pre class="enc-code-snippet-pre">{props.code}</pre>
     </div>
@@ -83,7 +84,7 @@ export function EncryptionModal(props: {
       const res = await enableBucketEncryption(props.accountId, props.bucket);
       setFreshSecret(res.secret_identity);
       setFreshRecipient(res.public_recipient);
-      toast.ok("Encryption enabled", `New uploads to "${props.bucket}" will be encrypted. Save the key before closing this dialog.`);
+      toast.ok(t("bucketconfig.encryption.enabledTitle"), t("bucketconfig.encryption.enabledDetail", { bucket: props.bucket }));
       props.onChanged();
     } catch (e) { setErr(errMsg(e)); } finally { setEnabling(false); }
   }
@@ -91,18 +92,17 @@ export function EncryptionModal(props: {
   async function handleDisable() {
     // Always prompt (not confirmDestructive): losing the key is unrecoverable.
     const ok = await confirmDialog({
-      title: "Disable encryption?",
-      body: `This deletes the encryption key for "${props.bucket}" from this device. Objects already encrypted become permanently unreadable unless you have exported the key file.`
-        + (savedPath() ? "" : "\n\nYou have not saved the key in this session. Cancel and use \"Save key to file\" first if you still need access."),
-      confirmLabel: "Delete key and disable",
-      cancelLabel: "Cancel",
+      title: t("bucketconfig.encryption.disableConfirmTitle"),
+      body: t(savedPath() ? "bucketconfig.encryption.disableConfirmBody" : "bucketconfig.encryption.disableConfirmBodyUnsaved", { bucket: props.bucket }),
+      confirmLabel: t("bucketconfig.encryption.disableConfirmLabel"),
+      cancelLabel: t("common.cancel"),
       danger: true,
     });
     if (ok !== true) return;
     setDisabling(true); setErr("");
     try {
       await disableBucketEncryption(props.accountId, props.bucket);
-      toast.ok("Encryption disabled", `New uploads to "${props.bucket}" will no longer be encrypted`);
+      toast.ok(t("bucketconfig.encryption.disabledTitle"), t("bucketconfig.encryption.disabledDetail", { bucket: props.bucket }));
       props.onChanged();
       closeAndScrub();
     } catch (e) { setErr(errMsg(e)); } finally { setDisabling(false); }
@@ -121,7 +121,7 @@ export function EncryptionModal(props: {
     try {
       await saveEncryptionKeyExport(props.accountId, props.bucket, dest);
       setSavedPath(dest);
-      toast.ok("Key saved", `Encryption key for "${props.bucket}" written to ${dest}`);
+      toast.ok(t("bucketconfig.encryption.keySavedTitle"), t("bucketconfig.encryption.keySavedDetail", { bucket: props.bucket, path: dest }));
     } catch (e) { setErr(errMsg(e)); } finally { setExporting(false); }
   }
 
@@ -141,7 +141,7 @@ export function EncryptionModal(props: {
     setImporting("loading");
     try {
       await importEncryptionIdentityFromFile(props.accountId, props.bucket, src);
-      toast.ok("Key loaded", `Encryption key for "${props.bucket}" imported from file`);
+      toast.ok(t("bucketconfig.encryption.keyLoadedTitle"), t("bucketconfig.encryption.keyLoadedFileDetail", { bucket: props.bucket }));
       props.onChanged();
       closeAndScrub();
     } catch (e) { setErr(errMsg(e)); } finally { setImporting(false); }
@@ -150,11 +150,11 @@ export function EncryptionModal(props: {
   async function handleImportFromText() {
     setErr("");
     const text = importText().trim();
-    if (!text) { setErr("Paste the key text (starts with AGE-SECRET-KEY-) before importing."); return; }
+    if (!text) { setErr(t("bucketconfig.encryption.pasteFirst")); return; }
     setImporting("loading");
     try {
       await importEncryptionIdentity(props.accountId, props.bucket, text);
-      toast.ok("Key loaded", `Encryption key for "${props.bucket}" imported`);
+      toast.ok(t("bucketconfig.encryption.keyLoadedTitle"), t("bucketconfig.encryption.keyLoadedDetail", { bucket: props.bucket }));
       setImportText("");
       props.onChanged();
       closeAndScrub();
@@ -163,40 +163,40 @@ export function EncryptionModal(props: {
 
   function exportLabel() {
     const s = exporting();
-    if (s === "picking") return "Waiting for file dialog…";
-    if (s === "writing") return "Saving…";
-    return savedPath() ? "Save key again" : "Save key to file";
+    if (s === "picking") return t("bucketconfig.encryption.waitingDialog");
+    if (s === "writing") return t("common.saving");
+    return savedPath() ? t("bucketconfig.encryption.saveKeyAgain") : t("bucketconfig.encryption.saveKey");
   }
 
   return (
     <div class="modal-backdrop" onClick={closeAndScrub}>
       <div class="modal enc-modal" onClick={(e) => e.stopPropagation()}>
-        <div class="modal-title">Bucket encryption: {props.bucket}</div>
+        <div class="modal-title">{t("bucketconfig.encryption.title", { bucket: props.bucket })}</div>
 
         <Show when={!props.enabled && !freshSecret()}>
           <div class="modal-sub">
-            Turn on encryption to lock every file with a secret key before it leaves your computer. Nobody without the key can read them, not even the storage provider. Downloads and previews in cosmog unlock the files automatically.
+            {t("bucketconfig.encryption.intro")}
           </div>
           <div class="modal-sub enc-notice">
-            After you click Enable, cosmog shows the key file <strong>once</strong>. Save it immediately somewhere safe (password manager, encrypted drive). If you lose the key, encrypted files can never be opened again.
+            {t("bucketconfig.encryption.notice")}
           </div>
           <Show when={err()}><div class="status-msg err enc-status-msg-top">{err()}</div></Show>
           <div class="btn-row mt-3">
-            <button class="btn-secondary btn-half" onClick={closeAndScrub}>Cancel</button>
+            <button class="btn-secondary btn-half" onClick={closeAndScrub}>{t("common.cancel")}</button>
             <button class="btn-primary btn-half" disabled={enabling()} onClick={handleEnable}>
-              {enabling() ? "Generating…" : "Enable encryption"}
+              {enabling() ? t("bucketconfig.encryption.generating") : t("bucketconfig.encryption.enable")}
             </button>
           </div>
         </Show>
 
         <Show when={freshSecret()}>
           <div class="modal-sub enc-notice danger">
-            <strong class="block">Save your key now</strong>
-            This key is the only way to open your encrypted files. Anyone who has it can read them. Cosmog will not show it again after this dialog closes.
+            <strong class="block">{t("bucketconfig.encryption.freshTitle")}</strong>
+            {t("bucketconfig.encryption.freshBody")}
           </div>
-          <div class="modal-sub enc-field-label">Bucket ID (safe to share)</div>
+          <div class="modal-sub enc-field-label">{t("bucketconfig.encryption.bucketId")}</div>
           <code class="enc-code-block">{freshRecipient()}</code>
-          <div class="modal-sub enc-field-label">Secret key (keep private)</div>
+          <div class="modal-sub enc-field-label">{t("bucketconfig.encryption.secretKey")}</div>
           <code class="enc-code-block">{freshSecret()}</code>
           <Show when={err()}><div class="status-msg err mb-2">{err()}</div></Show>
           <button class="btn-primary enc-primary-action"
@@ -205,29 +205,29 @@ export function EncryptionModal(props: {
           </button>
           <Show when={savedPath()}>
             <div class="modal-sub enc-saved-note">
-              Saved to <code>{savedPath()}</code>
+              {t("bucketconfig.encryption.savedTo")} <code>{savedPath()}</code>
             </div>
           </Show>
           <button class="btn-secondary enc-close-full" onClick={closeAndScrub}>
-            I saved the key, close
+            {t("bucketconfig.encryption.savedClose")}
           </button>
         </Show>
 
         <Show when={props.enabled && !freshSecret() && !props.identityPresent}>
           <div class="modal-sub enc-notice danger">
-            <strong class="block">Key missing on this device</strong>
-            This bucket is encrypted, but the key is not on this device. You need it to open your files. Load the key file you saved earlier.
+            <strong class="block">{t("bucketconfig.encryption.missingTitle")}</strong>
+            {t("bucketconfig.encryption.missingBody")}
           </div>
 
           <button class="btn-primary enc-primary-action"
                   disabled={anyBusy()} onClick={handleImportFromFile}>
             <IconKey size={14} />
-            {importing() === "picking" ? "Waiting for file dialog…"
-              : importing() === "loading" ? "Loading…"
-              : "Load key from file"}
+            {importing() === "picking" ? t("bucketconfig.encryption.waitingDialog")
+              : importing() === "loading" ? t("common.loading")
+              : t("bucketconfig.encryption.loadFromFile")}
           </button>
 
-          <div class="modal-sub enc-import-textarea-label">Or paste the key text</div>
+          <div class="modal-sub enc-import-textarea-label">{t("bucketconfig.encryption.orPaste")}</div>
           <textarea
             class="enc-import-textarea"
             placeholder="AGE-SECRET-KEY-1..."
@@ -236,20 +236,20 @@ export function EncryptionModal(props: {
           />
           <Show when={err()}><div class="status-msg err enc-status-msg-y">{err()}</div></Show>
           <div class="btn-row mt-3">
-            <button class="btn-secondary btn-half" onClick={closeAndScrub}>Cancel</button>
+            <button class="btn-secondary btn-half" onClick={closeAndScrub}>{t("common.cancel")}</button>
             <button class="btn-primary btn-half" disabled={anyBusy() || !importText().trim()} onClick={handleImportFromText}>
-              Load pasted key
+              {t("bucketconfig.encryption.loadPasted")}
             </button>
           </div>
         </Show>
 
         <Show when={props.enabled && !freshSecret() && props.identityPresent}>
           <div class="modal-sub enc-notice info-accent">
-            Encryption is on. Files in this bucket are locked with a key on this device before they leave your computer. Nobody without the key file can read them, not even the storage provider.
+            {t("bucketconfig.encryption.onNotice")}
           </div>
 
           <div class="modal-sub mb-2">
-            Save a copy of the key file. If this device is lost or reset, the key file is the only way to open the files again. Keep it somewhere safe (password manager, encrypted drive). Anyone with this file can read every file in the bucket, so do not share it.
+            {t("bucketconfig.encryption.backupHint")}
           </div>
 
           <Show when={err()}><div class="status-msg err mb-2">{err()}</div></Show>
@@ -261,7 +261,7 @@ export function EncryptionModal(props: {
 
           <Show when={savedPath()}>
             <div class="modal-sub enc-saved-note">
-              Saved to <code>{savedPath()}</code>
+              {t("bucketconfig.encryption.savedTo")} <code>{savedPath()}</code>
             </div>
           </Show>
 
@@ -274,23 +274,23 @@ export function EncryptionModal(props: {
             <Show when={showGuide()} fallback={<IconChevronR size={14} />}>
               <IconChevronD size={14} />
             </Show>
-            <span class="enc-guide-toggle-label">External decryption guide</span>
+            <span class="enc-guide-toggle-label">{t("bucketconfig.encryption.guideToggle")}</span>
             <span class="enc-guide-toggle-hint">age · rage · pyrage</span>
           </button>
 
           <Show when={showGuide()}>
             <div class="enc-guide-body">
-              <div class="enc-guide-heading"><strong>Format</strong></div>
+              <div class="enc-guide-heading"><strong>{t("bucketconfig.encryption.guideFormat")}</strong></div>
               <div class="enc-guide-note">
-                Standard age v1 (streaming ChaCha20-Poly1305, 64 KiB chunks). Any age-compatible tool decrypts it. S3 user-metadata:
+                {t("bucketconfig.encryption.guideFormatNote")}
                 <code>cosmog-encrypted=1</code>,
                 <code>cosmog-format=age-v1</code>,
                 <code>cosmog-recipient=age1…</code>.
               </div>
 
-              <div class="enc-guide-heading"><strong>Decrypt with the age CLI</strong></div>
+              <div class="enc-guide-heading"><strong>{t("bucketconfig.encryption.guideCli")}</strong></div>
               <div class="enc-guide-note tight">
-                Install: <code>brew install age</code>, <code>apt install age</code>, or download from
+                {t("bucketconfig.encryption.guideInstall")} <code>brew install age</code>, <code>apt install age</code>, {t("bucketconfig.encryption.guideDownload")}
                 <span class="enc-guide-note-inline-span">age-encryption.org</span>.
               </div>
               <CodeSnippet code={`# Fetch the object (any S3 client works).
@@ -299,7 +299,7 @@ aws s3 cp s3://${props.bucket}/<key> ciphertext.age
 # Decrypt with the exported identity file.
 age -d -i cosmog-key-${props.bucket}.txt ciphertext.age > plaintext`} />
 
-              <div class="enc-guide-heading mt"><strong>Decrypt in Python (pyrage)</strong></div>
+              <div class="enc-guide-heading mt"><strong>{t("bucketconfig.encryption.guidePython")}</strong></div>
               <CodeSnippet code={`pip install pyrage
 
 import pyrage
@@ -315,17 +315,17 @@ with open("ciphertext.age", "rb") as fin, open("plaintext", "wb") as fout:
 
           <div class="enc-danger-zone">
             <div class="enc-notice danger">
-              <strong class="block">Danger zone</strong>
-              Disabling removes the key from this device. Files already encrypted stay locked forever unless you have the key file saved. Save it first if you still need access.
+              <strong class="block">{t("bucketconfig.encryption.dangerTitle")}</strong>
+              {t("bucketconfig.encryption.dangerBody")}
             </div>
             <div class="btn-row">
-              <button class="btn-secondary btn-half" onClick={closeAndScrub}>Close</button>
+              <button class="btn-secondary btn-half" onClick={closeAndScrub}>{t("common.close")}</button>
               <button
                 class="enc-disable-btn"
                 disabled={anyBusy()}
                 onClick={handleDisable}
               >
-                {disabling() ? "Disabling…" : "Disable encryption"}
+                {disabling() ? t("bucketconfig.encryption.disabling") : t("bucketconfig.encryption.disable")}
               </button>
             </div>
           </div>

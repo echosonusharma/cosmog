@@ -5,6 +5,7 @@ import {
 } from "../../utils/icons";
 import { navigateToPrefix } from "../../state/app";
 import type { CachedObjectMeta } from "../../types";
+import { t } from "../../i18n";
 
 export type CtxMenu =
   | { kind: "file"; x: number; y: number; obj: CachedObjectMeta }
@@ -37,10 +38,10 @@ export function ContextMenu(props: {
         {(p) => (
           <>
             <button class="context-item" onClick={() => { props.onNewFolder(p().prefix); props.onClose(); }}>
-              <span class="context-item-icon"><IconPlus size={14} /></span> New folder here
+              <span class="context-item-icon"><IconPlus size={14} /></span> {t("browse.ctx.newFolderHere")}
             </button>
             <button class="context-item" onClick={() => { props.onNewFile(p().prefix); props.onClose(); }}>
-              <span class="context-item-icon"><IconDoc size={14} /></span> New file here
+              <span class="context-item-icon"><IconDoc size={14} /></span> {t("browse.ctx.newFileHere")}
             </button>
           </>
         )}
@@ -48,37 +49,37 @@ export function ContextMenu(props: {
       <Show when={folder()}>
         {(f) => (<>
           <button class="context-item" onClick={() => { navigateToPrefix(f().sub); props.onClose(); }}>
-            <span class="context-item-icon"><IconChevronR size={14} /></span> Open
+            <span class="context-item-icon"><IconChevronR size={14} /></span> {t("common.open")}
           </button>
           <button class="context-item" onClick={() => { props.onUploadHere(f().sub); props.onClose(); }}>
-            <span class="context-item-icon"><IconUpload size={14} /></span> Upload here
+            <span class="context-item-icon"><IconUpload size={14} /></span> {t("browse.ctx.uploadHere")}
           </button>
           <div class="context-sep" />
           <button class="context-item danger" onClick={() => { props.onDeleteFolder(f().sub); props.onClose(); }}>
-            <span class="context-item-icon"><IconTrash size={14} /></span> Delete folder
+            <span class="context-item-icon"><IconTrash size={14} /></span> {t("browse.ctx.deleteFolder")}
           </button>
         </>)}
       </Show>
       <Show when={file()}>
         {(f) => (<>
           <button class="context-item" onClick={() => { props.onPreview(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconEye size={14} /></span> Preview
+            <span class="context-item-icon"><IconEye size={14} /></span> {t("browse.ctx.preview")}
           </button>
           <button class="context-item" onClick={() => { props.onDownload(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconDownload size={14} /></span> Download
+            <span class="context-item-icon"><IconDownload size={14} /></span> {t("common.download")}
           </button>
           <button class="context-item" onClick={() => { props.onCopyLink(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconLink size={14} /></span> Copy link
+            <span class="context-item-icon"><IconLink size={14} /></span> {t("browse.ctx.copyLink")}
           </button>
           <button class="context-item" onClick={() => { props.onRename(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconEdit size={14} /></span> Rename / Move
+            <span class="context-item-icon"><IconEdit size={14} /></span> {t("browse.ctx.renameMove")}
           </button>
           <button class="context-item" onClick={() => { props.onVersionHistory(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconActivity size={14} /></span> Version history
+            <span class="context-item-icon"><IconActivity size={14} /></span> {t("browse.ctx.versionHistory")}
           </button>
           <div class="context-sep" />
           <button class="context-item danger" onClick={() => { props.onDelete(f().obj); props.onClose(); }}>
-            <span class="context-item-icon"><IconTrash size={14} /></span> Delete
+            <span class="context-item-icon"><IconTrash size={14} /></span> {t("common.delete")}
           </button>
         </>)}
       </Show>

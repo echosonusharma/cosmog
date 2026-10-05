@@ -1,9 +1,11 @@
 import { createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { IconChevronD } from "./icons";
+import { t } from "../i18n";
 
 export interface SelectOption {
   value: string;
   label: string;
+  icon?: string;
 }
 
 export function Select(props: {
@@ -24,14 +26,14 @@ export function Select(props: {
     onCleanup(() => document.removeEventListener("mousedown", close));
   });
 
-  const label = () =>
-    props.options.find((o) => o.value === props.value)?.label ??
-    props.placeholder ?? "Select…";
+  const current = () => props.options.find((o) => o.value === props.value);
+  const label = () => current()?.label ?? props.placeholder ?? t("common.select");
 
   return (
     <div ref={ref} class={`custom-select${props.disabled ? " disabled" : ""}${open() ? " open" : ""}${props.class ? ` ${props.class}` : ""}`}
          style={typeof props.style === "string" ? props.style : undefined}
          onClick={() => { if (!props.disabled) setOpen((v) => !v); }}>
+      <Show when={current()?.icon}>{(src) => <img class="custom-select-icon" src={src()} alt="" />}</Show>
       <span class="custom-select-value">{label()}</span>
       <IconChevronD size={13} class="custom-select-chevron" />
       <Show when={open()}>
@@ -46,6 +48,7 @@ export function Select(props: {
             {(opt) => (
               <div class={`custom-select-item${opt.value === props.value ? " selected" : ""}`}
                    onClick={() => { props.onChange(opt.value); setOpen(false); }}>
+                <Show when={opt.icon}>{(src) => <img class="custom-select-icon" src={src()} alt="" />}</Show>
                 {opt.label}
               </div>
             )}

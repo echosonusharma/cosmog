@@ -5,7 +5,9 @@ import MainApp from "./routes/MainApp";
 import Titlebar from "./routes/Titlebar";
 import { ConfirmHost } from "./state/confirm";
 import { accounts, setAccounts, setBrowseState, setCurrentView, type View } from "./state/app";
-import { parseWireError, isCredentialError, isNetworkError } from "./utils/errors";
+import { describeError, isCredentialError } from "./utils/errors";
+import { ErrorBody } from "./utils/ErrorBody";
+import { t } from "./i18n";
 
 // Boot seeds data; reload failures rethrow to the boundary below.
 export default function App(props: { bootError: unknown }) {
@@ -29,7 +31,7 @@ export default function App(props: { bootError: unknown }) {
       void reloadAccounts();
     } else {
       // batch() flushes signal writes atomically with reset(), so when the ErrorBoundary re-renders,
-      // browseState.bucket is already null — Browse never remounts with a stale bucket and re-throw.
+      // browseState.bucket is already null: Browse never remounts with a stale bucket and re-throw.
       batch(() => {
         setBrowseState({ bucket: null, prefix: "" });
         setCurrentView(targetView);
@@ -43,33 +45,30 @@ export default function App(props: { bootError: unknown }) {
       <Titlebar />
       <div class="cosmog-body">
         <ErrorBoundary fallback={(err, reset) => {
-          const { code, message } = parseWireError(err);
+          const { code, title } = describeError(err);
           const credErr = isCredentialError(code);
-          const netErr  = isNetworkError(code);
-          const title   = credErr ? "Credentials not found" : netErr ? "Service unreachable" : "Something went wrong";
           return (
             <div class="center-fill">
               <div class="err-popup err-popup-boot">
                 <div class="err-popup-header">
                   <span class="err-popup-title">{title}</span>
                 </div>
-                <p class="err-popup-msg">{message}</p>
-                {netErr && <p class="err-popup-msg err-popup-hint">Check that the endpoint is running and reachable, then try again.</p>}
+                <ErrorBody error={err} />
                 <div class="err-popup-actions">
                   <Show when={accounts().length > 0}
                         fallback={
                           <button class="btn-primary text-xs"
                                   onClick={() => recoverFromError(reset)}>
-                            Add account
+                            {t("shell.sidebar.addAccount")}
                           </button>
                         }>
                     <button class="btn-secondary text-xs"
                             onClick={() => recoverFromError(reset, "settings")}>
-                      Settings
+                      {t("shell.nav.settings")}
                     </button>
                     <button class="btn-primary text-xs"
                             onClick={() => recoverFromError(reset, credErr ? "settings" : "browse")}>
-                      Back to accounts
+                      {t("shell.error.backToAccounts")}
                     </button>
                   </Show>
                 </div>

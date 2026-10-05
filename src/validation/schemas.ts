@@ -1,6 +1,10 @@
 import { z } from "zod";
+import { t, type TKey } from "../i18n";
 
 export const ACCOUNT_NAME_MAX_LENGTH = 64;
+
+// Lazy message: resolved when validation runs, so it follows the current language.
+const v = (key: TKey, params?: Record<string, string | number>) => ({ error: () => t(key, params) });
 
 const CORS_ORIGIN_RE = /^(\*|https?:\/\/[A-Za-z0-9.\-*]+(:\d+)?)$/;
 const MAX_AGE_LIMIT = 2_147_483_647;
@@ -8,8 +12,8 @@ const MAX_AGE_LIMIT = 2_147_483_647;
 export const accountNameSchema = z
   .string()
   .trim()
-  .min(1, "Name is required")
-  .max(ACCOUNT_NAME_MAX_LENGTH, `Name must be ${ACCOUNT_NAME_MAX_LENGTH} characters or less`);
+  .min(1, v("settings.validation.nameRequired"))
+  .max(ACCOUNT_NAME_MAX_LENGTH, v("settings.validation.nameMax", { max: ACCOUNT_NAME_MAX_LENGTH }));
 
 /** Edit forms allow an existing long name but cap new input at the same length. */
 export function accountNameSchemaForForm(opts: { isEdit: boolean; existingName?: string }) {
@@ -18,48 +22,48 @@ export function accountNameSchemaForForm(opts: { isEdit: boolean; existingName?:
   return z
     .string()
     .trim()
-    .min(1, "Name is required")
-    .max(maxLen, `Name must be ${maxLen} characters or less`);
+    .min(1, v("settings.validation.nameRequired"))
+    .max(maxLen, v("settings.validation.nameMax", { max: maxLen }));
 }
 
 export const accessKeyIdSchema = z
   .string()
   .trim()
-  .min(1, "Access Key ID is required")
-  .max(256, "Access Key ID is too long");
+  .min(1, v("settings.validation.accessKeyRequired"))
+  .max(256, v("settings.validation.accessKeyTooLong"));
 
 export const secretAccessKeySchema = z
   .string()
   .trim()
-  .min(1, "Secret Access Key is required")
-  .max(256, "Secret Access Key is too long");
+  .min(1, v("settings.validation.secretRequired"))
+  .max(256, v("settings.validation.secretTooLong"));
 
 export const endpointUrlSchema = z
   .string()
   .trim()
-  .min(1, "Endpoint is required")
-  .url("Enter a valid endpoint URL")
-  .refine((v) => /^https?:\/\//i.test(v), "Endpoint must start with http:// or https://");
+  .min(1, v("settings.validation.endpointRequired"))
+  .url(v("settings.validation.endpointInvalid"))
+  .refine((url) => /^https?:\/\//i.test(url), v("settings.validation.endpointScheme"));
 
 export const bucketNameSchema = z
   .string()
   .trim()
-  .min(1, "Bucket name is required")
-  .max(63, "Bucket name must be 63 characters or less")
-  .refine((name) => !/[/\\]/.test(name), "Bucket name cannot contain slashes")
-  .refine((name) => !name.includes(".."), "Bucket name cannot contain consecutive periods");
+  .min(1, v("settings.validation.bucketRequired"))
+  .max(63, v("settings.validation.bucketMax"))
+  .refine((name) => !/[/\\]/.test(name), v("settings.validation.bucketSlash"))
+  .refine((name) => !name.includes(".."), v("settings.validation.bucketDots"));
 
 export const folderPathSchema = z
   .string()
   .trim()
   .transform((path) => path.replace(/\/+/g, "/").replace(/^\//, "").replace(/\/$/, ""))
-  .pipe(z.string().min(1, "Folder path is required").max(1024, "Folder path is too long"));
+  .pipe(z.string().min(1, v("settings.validation.folderRequired")).max(1024, v("settings.validation.folderTooLong")));
 
 export const objectKeySchema = z
   .string()
   .trim()
   .transform((key) => key.replace(/^\/+/, ""))
-  .pipe(z.string().min(1, "Path is required").max(1024, "Path is too long"));
+  .pipe(z.string().min(1, v("settings.validation.pathRequired")).max(1024, v("settings.validation.pathTooLong")));
 
 export const mimeTypeSchema = z
   .string()
@@ -67,15 +71,15 @@ export const mimeTypeSchema = z
   .toLowerCase()
   .regex(
     /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(\s*;\s*[a-z0-9-]+=("[^"]*"|[^\s;"]+))*$/,
-    "Content type must look like type/subtype (optional ; param=value)",
+    v("settings.validation.mime"),
   );
 
 export const downloadPathSchema = z
   .string()
   .trim()
-  .min(1, "Save location is required");
+  .min(1, v("settings.validation.saveLocationRequired"));
 
-export const uploadKeyPrefixSchema = z.string().max(1024, "Key prefix is too long");
+export const uploadKeyPrefixSchema = z.string().max(1024, v("settings.validation.prefixTooLong"));
 
 export const reauthSecretSchema = secretAccessKeySchema;
 
@@ -92,7 +96,7 @@ export const settingsPatchSchema = z.object({
     .nullable()
     .optional()
     .refine((value) => !value || /^https?:\/\/.+/.test(value), {
-      message: "Proxy must be an http:// or https:// URL",
+      ...v("settings.validation.proxy"),
     }),
   custom_ca_path: z.string().nullable().optional(),
   request_log_ttl_days: z.number().int().min(1).max(365).optional(),
@@ -103,22 +107,22 @@ export const settingsPatchSchema = z.object({
 }).partial();
 
 export const nightWatchAddSchema = z.object({
-  account_id: z.string().min(1, "Select an account"),
-  bucket: z.string().min(1, "Select a bucket"),
-  local_dir: z.string().trim().min(1, "Local directory is required"),
+  account_id: z.string().min(1, v("settings.validation.selectAccount")),
+  bucket: z.string().min(1, v("settings.validation.selectBucket")),
+  local_dir: z.string().trim().min(1, v("settings.validation.localDirRequired")),
   tree_uri: z.string().optional(),
   key_prefix: uploadKeyPrefixSchema.optional(),
-  ignore_file: z.string().max(1024, "Ignore file path is too long").optional(),
-  full_scan_secs: z.number().int().min(30, "Scan interval must be at least 30 seconds"),
+  ignore_file: z.string().max(1024, v("settings.validation.ignoreFileTooLong")).optional(),
+  full_scan_secs: z.number().int().min(30, v("settings.validation.scanInterval")),
 });
 
 export const mcpPortSchema = z
   .number()
-  .int("Port must be a whole number")
-  .min(1024, "Port must be between 1024 and 65535")
-  .max(65535, "Port must be between 1024 and 65535");
+  .int(v("settings.validation.portInt"))
+  .min(1024, v("settings.validation.portRange"))
+  .max(65535, v("settings.validation.portRange"));
 
-export const mcpFsRootSchema = z.string().max(4096, "Path is too long");
+export const mcpFsRootSchema = z.string().max(4096, v("settings.validation.pathTooLong"));
 
 const corsDraftRuleSchema = z.object({
   origins: z.string(),
@@ -130,27 +134,27 @@ const corsDraftRuleSchema = z.object({
     .map((part) => part.trim())
     .filter(Boolean);
   if (origins.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one allowed origin is required" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: t("settings.validation.corsOriginRequired") });
     return;
   }
   const bad = origins.find((origin) => !CORS_ORIGIN_RE.test(origin));
   if (bad) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: `"${bad}" is not a valid origin. Use "*", "https://example.com", or "https://*.example.com"`,
+      message: t("settings.validation.corsOriginInvalid", { origin: bad }),
     });
   }
   if (rule.methods.length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one allowed method is required" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: t("settings.validation.corsMethodRequired") });
   }
   const maxAge = rule.maxAge.trim();
   if (maxAge !== "") {
     if (!/^\d+$/.test(maxAge) || Number.isNaN(Number(maxAge))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Max age must be a whole number of seconds" });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: t("settings.validation.corsMaxAgeInt") });
     } else if (Number(maxAge) > MAX_AGE_LIMIT) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Max age must be ${MAX_AGE_LIMIT} seconds or less`,
+        message: t("settings.validation.corsMaxAgeMax", { max: MAX_AGE_LIMIT }),
       });
     }
   }
@@ -163,7 +167,10 @@ export function validateCorsRules(
 ): string | null {
   for (let i = 0; i < rules.length; i++) {
     const result = corsDraftRuleSchema.safeParse(rules[i]);
-    if (!result.success) return `Rule ${i + 1}: ${result.error.issues[0]?.message ?? "Invalid rule"}`;
+    if (!result.success) return t("settings.validation.corsRule", {
+      n: i + 1,
+      message: result.error.issues[0]?.message ?? t("settings.validation.invalidRule"),
+    });
   }
   return null;
 }
@@ -178,7 +185,7 @@ export function createAccountFormSchema(opts: {
     : endpointUrlSchema;
 
   const secret = opts.isEdit
-    ? z.string().trim().max(256, "Secret Access Key is too long").optional()
+    ? z.string().trim().max(256, v("settings.validation.secretTooLong")).optional()
     : secretAccessKeySchema;
 
   return z.object({

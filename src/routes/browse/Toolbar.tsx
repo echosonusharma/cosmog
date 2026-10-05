@@ -11,6 +11,7 @@ import { PathBar } from "./PathBar";
 const StatsModal = lazy(() => import("./StatsModal").then((m) => ({ default: m.StatsModal })));
 import { ToolbarOverflow } from "./ToolbarOverflow";
 import type { BucketIndexStatus } from "../../types";
+import { t } from "../../i18n";
 
 export function Toolbar(props: {
   accountId: string;
@@ -44,7 +45,7 @@ export function Toolbar(props: {
           <button
             class="icon-btn refresh-btn"
             classList={{ spinning: props.showSyncing }}
-            title={props.showSyncing ? "Refreshing…" : "Refresh"}
+            title={props.showSyncing ? t("browse.toolbar.refreshing") : t("common.refresh")}
             aria-busy={props.showSyncing}
             onClick={props.onRefresh}
           >
@@ -64,7 +65,7 @@ export function Toolbar(props: {
         <IconSearch size={13} class="toolbar-search-icon" />
         <input
           class="toolbar-search-input"
-          placeholder={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Search bucket…" : "Search (index required)"}
+          placeholder={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? t("browse.toolbar.searchPlaceholder") : t("browse.toolbar.searchNeedsIndex")}
           value={props.searchQuery}
           disabled={!(props.indexStatus.latest ?? props.indexStatus())?.enabled}
           onInput={(e) => props.onSearchInput(e.currentTarget.value)}
@@ -76,28 +77,28 @@ export function Toolbar(props: {
 
       <button
         class={`index-toggle-btn ${(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "on" : "off"}`}
-        title={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? "Indexed" : "Not indexed"}
+        title={(props.indexStatus.latest ?? props.indexStatus())?.enabled ? t("browse.index.on") : t("browse.index.off")}
         disabled={props.indexBusy}
         onClick={props.onToggleIndex}
       >
         <IconDatabase size={14} class="index-toggle-icon" />
         <Show when={(props.indexStatus.latest ?? props.indexStatus())?.enabled}>
-          <span class="index-toggle-label">Indexed</span>
+          <span class="index-toggle-label">{t("browse.index.on")}</span>
         </Show>
         <Show when={!(props.indexStatus.latest ?? props.indexStatus())?.enabled}>
-          <span class="index-toggle-label">Not indexed</span>
+          <span class="index-toggle-label">{t("browse.index.off")}</span>
         </Show>
       </button>
 
       <Show when={indexed()}>
-        <button class="icon-btn analytics-btn" title="Storage analytics" onClick={() => setShowStats(true)}>
+        <button class="icon-btn analytics-btn" title={t("browse.toolbar.analytics")} onClick={() => setShowStats(true)}>
           <IconActivity size={16} />
         </button>
       </Show>
 
       <div class="toolbar-actions">
         <Show when={props.mode === "live"}>
-          <span class="mode-badge live">live</span>
+          <span class="mode-badge live">{t("browse.toolbar.live")}</span>
         </Show>
         <button
           class="icon-btn enc-btn"
@@ -113,18 +114,18 @@ export function Toolbar(props: {
           <button class={`view-mode-btn ${props.viewMode === "list" ? "active" : ""}`} onClick={() => props.onViewMode("list")}><IconList size={14} /></button>
         </div>
         {/* mobile: single toggle so it stays uniform with the other icon buttons */}
-        <button class="icon-btn view-toggle-mobile" title="Toggle view"
+        <button class="icon-btn view-toggle-mobile" title={t("browse.toolbar.toggleView")}
                 onClick={() => props.onViewMode(props.viewMode === "columns" ? "list" : "columns")}>
           <Show when={props.viewMode === "columns"} fallback={<IconColumns size={16} />}><IconList size={16} /></Show>
         </button>
         <button class="btn-secondary toolbar-btn newfolder-btn" onClick={props.onNewFolder}>
-          <IconPlus size={14} /> <span class="btn-label-desktop">New folder</span><span class="btn-label-mobile">Add</span>
+          <IconPlus size={14} /> <span class="btn-label-desktop">{t("browse.toolbar.newFolder")}</span><span class="btn-label-mobile">{t("browse.toolbar.add")}</span>
         </button>
         <button class="btn-secondary toolbar-btn newfile-btn" onClick={props.onNewFile}>
-          <IconDoc size={14} /> New file
+          <IconDoc size={14} /> {t("browse.toolbar.newFile")}
         </button>
         <button class="btn-primary toolbar-btn upload-btn" onClick={props.onUpload}>
-          <IconUpload size={14} /> Upload
+          <IconUpload size={14} /> {t("common.upload")}
         </button>
         <ToolbarOverflow
           indexed={!!indexed()}

@@ -7,6 +7,7 @@ import { parseLine, type ParsedLine } from "../utils/parseLine";
 import { sourceByKey, sourceLabel } from "../utils/logSource";
 import { LogRow } from "./LogRow";
 import Spinner from "../utils/Spinner";
+import { t } from "../i18n";
 
 const MAX_LINES = 5000;
 
@@ -148,12 +149,12 @@ export function SystemLog(props: { active?: boolean }) {
           <IconSearch size={13} class="logs-search-icon" />
           <input
             class="field logs-search-input"
-            placeholder="Search message, span, field…"
+            placeholder={t("logs.system.searchPlaceholder")}
             value={search()}
             onInput={(e) => setSearch(e.currentTarget.value)}
           />
           <Show when={search()}>
-            <button class="logs-search-clear" aria-label="Clear search" onClick={() => setSearch("")}>
+            <button class="logs-search-clear" aria-label={t("logs.common.clearSearch")} onClick={() => setSearch("")}>
               <IconX size={12} />
             </button>
           </Show>
@@ -161,7 +162,7 @@ export function SystemLog(props: { active?: boolean }) {
 
         <Select
           value={levelFilter()}
-          placeholder="All levels"
+          placeholder={t("logs.system.allLevels")}
           options={[
             { value: "ERROR", label: "Error" },
             { value: "WARN", label: "Warn" },
@@ -176,7 +177,7 @@ export function SystemLog(props: { active?: boolean }) {
           <button
             class="logs-active-source"
             style={{ "--src-color": sourceByKey(sourceFilter()).color }}
-            title="Clear source filter"
+            title={t("logs.system.clearSourceFilter")}
             onClick={() => setSourceFilter("")}
           >
             <span class="logs-source-dot" />
@@ -186,19 +187,19 @@ export function SystemLog(props: { active?: boolean }) {
         </Show>
 
         <span class="logs-tailing-label">
-          <span class="logs-tailing-dot" /> tailing
+          <span class="logs-tailing-dot" /> {t("logs.system.tailing")}
         </span>
         <Show when={lines().length > 0}>
           <button
             class="btn-ghost logs-clear-btn"
             onClick={() => { setClearedAt(lines().at(-1)?.ts ?? new Date().toISOString()); setLines([]); }}
           >
-            <IconTrash size={13} /> Clear
+            <IconTrash size={13} /> {t("logs.common.clear")}
           </button>
         </Show>
       </div>
       <Show when={loading()}>
-        <div class="loading-row logs-loading"><Spinner /> Loading logs…</div>
+        <div class="loading-row logs-loading"><Spinner /> {t("logs.system.loading")}</div>
       </Show>
       <Show when={!loading()}>
         <Show
@@ -206,7 +207,7 @@ export function SystemLog(props: { active?: boolean }) {
           fallback={
             <div class="empty-state">
               <span class="logs-empty-text">
-                {search() || levelFilter() || sourceFilter() ? "No results" : "No log entries yet"}
+                {search() || levelFilter() || sourceFilter() ? t("logs.common.noResults") : t("logs.system.empty")}
               </span>
             </div>
           }
