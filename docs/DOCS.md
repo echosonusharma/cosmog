@@ -59,6 +59,7 @@ src/
   routes/     Pages: browse/ (browser, preview, bucketConfig, versionHistory, charts), mainapp/, onboarding/, settings/, transfers/, logs/
   state/      Solid signal stores (app, settings, theme, prefs, toast, confirm)
   utils/      Shared helpers (CodeEditor, icons, fmt, textTypes, errors, ...)
+  i18n/       t()/tp(), device language detection, flags, locales/<lang>/<area>.ts
   styles/     CSS, one file per feature area
 src-tauri/
   src/commands/   Tauri command handlers, one file per domain (full list: invoke_handler in lib.rs)
@@ -131,6 +132,25 @@ Desktop only (`cfg(not(target_os = "android"))`), off by default. Lets a local A
 ## Database
 
 SQLite at `{app_data_dir}/cosmog.sqlite`, WAL mode, foreign keys on. Tables: `accounts`, `transfers`, `bucket_index`, `cached_objects` (+ FTS5 trigram `cached_objects_fts`), `prefix_sync`, `settings`, `account_capabilities`, `bucket_capabilities`, `request_logs`, `bucket_encryption`, `nw_watch`, `nw_file_state`, `nw_file_retry`. Domain methods live in `src-tauri/src/db/`.
+
+## i18n
+
+English, Chinese (zh), Japanese (ja), Spanish (es), Russian (ru), Korean (ko), Brazilian Portuguese (pt). `src/i18n/`: `index.ts` (reactive `t()` / `tp()` for plurals, `initI18n`, `setLanguage`), `resolve.ts` (device language matching), `flags.ts` + `flags/*.svg` (SVG, not emoji, so Windows renders them), `locales/<lang>/<area>.ts` (one flat `"area.key": "text"` file per area).
+
+- The language pref is `system` (default) or a language code, stored in `prefs.json`. `system` picks the first device language we ship (`zh-*` maps to `zh`), else English. Missing keys fall back to English per key.
+- Add a string: put it in `locales/en/<area>.ts` first (the key type comes from the English files), then in every other language. Reuse `common.*` for generic words. Never build text at module level or by joining fragments; use placeholders `{name}` and `tp()` for plurals.
+- Plurals: English, es and pt need `_one` and `_other`; ru needs `_one`, `_few`, `_many`, `_other`; zh, ja and ko only `_other`. A missing key falls back to English.
+- Keep `{placeholders}` identical in every language.
+- Add a language: register it in `languages.ts` and `flags.ts` (+ SVG), add its loader in `index.ts`, and copy the empty locale files.
+
+## Errors
+
+The backend never sends user-facing text. Commands fail with `AppError`, serialized as a JSON string `{ "code": "...", "detail": "..." }`. `code` is a stable snake_case contract (`src-tauri/src/error.rs`, one row per code in `app_errors!`); `detail` is the raw technical reason (SDK message, OS error) and is only shown behind "Technical details", in logs and request logs.
+
+- S3 failures are classified in `store/s3/classify.rs`: S3 error code first, HTTP status second, connection errors by cause (DNS, refused, TLS, timeout). Branch in Rust with `e.code()` or the `is_not_found()` / `is_retriable()` helpers, never on text.
+- Failed transfers and watcher scans persist `AppError::to_wire_string()`, so the UI can translate them later. Older rows with plain text still parse (`utils/wireError.ts`).
+- The FE title and description per code live in `locales/<lang>/errors.ts` as `errors.<code>.title` / `.desc`. `utils/errors.ts` (`describeError`, `errMsg`, `errCode`) renders them; `ErrorBody` is the shared card with the code and details.
+- Add a code: a row in `app_errors!`, the code in `src/utils/errorCodes.ts`, and the title and desc in every language's `errors.ts`. `errorCodes.ts` must mirror `AppError::CODES`.
 
 ## Frontend UI Prefs
 

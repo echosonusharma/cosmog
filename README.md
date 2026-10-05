@@ -34,6 +34,7 @@
 - 🌙 **Night Watcher** one-way backup: keep a local folder auto-synced to a bucket in the background
 - 🤖 **MCP server** let a local AI client (Claude, Cursor, and more) browse, search, and transfer your objects, safe by default (desktop only)
 - 👤 **Manage** multiple accounts and providers side by side
+- 🌍 **Your language** English, 简体中文, 日本語, Español, Русский, 한국어 and Português (Brasil), picked automatically from your device
 
 ## Why Cosmog
 
@@ -55,6 +56,14 @@
 ## Works with your provider
 
 AWS S3, Cloudflare R2, Backblaze B2, DigitalOcean Spaces, Wasabi, MinIO, and any S3-compatible API.
+
+## Languages
+
+Cosmog follows your device language and falls back to English when it has no translation for it. You can change it any time in Settings > General > Language.
+
+🇬🇧 English · 🇨🇳 简体中文 · 🇯🇵 日本語 · 🇪🇸 Español · 🇷🇺 Русский · 🇰🇷 한국어 · 🇧🇷 Português (Brasil)
+
+The translations are new. If something reads wrong, [open an issue](https://github.com/echosonusharma/cosmog/issues) or tell us on [Discord](https://discord.gg/kvVQxJJwyx). To add a language, see [DOCS.md](docs/DOCS.md#i18n).
 
 ## Download
 
