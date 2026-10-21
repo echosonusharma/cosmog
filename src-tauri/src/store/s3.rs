@@ -244,7 +244,13 @@ impl ObjectStore for S3Store {
             .bucket(name)
             .send()
             .await
-            .map_err(|e| classify_aws("delete_bucket", e))?;
+            .map_err(|e| match classify_aws("delete_bucket", e) {
+                // Some providers answer a non-empty delete with a bare 409; named conflicts stay as-is.
+                AppError::Conflict(d) if !d.contains("OperationAborted") && !d.contains("ConditionalRequestConflict") => {
+                    AppError::BucketNotEmpty(d)
+                }
+                other => other,
+            })?;
         Ok(())
     }
 

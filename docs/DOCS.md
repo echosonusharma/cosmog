@@ -150,7 +150,7 @@ The backend never sends user-facing text. Commands fail with `AppError`, seriali
 - S3 failures are classified in `store/s3/classify.rs`: S3 error code first, HTTP status second, connection errors by cause (DNS, refused, TLS, timeout). Branch in Rust with `e.code()` or the `is_not_found()` / `is_retriable()` helpers, never on text.
 - Failed transfers and watcher scans persist `AppError::to_wire_string()`, so the UI can translate them later. Older rows with plain text still parse (`utils/wireError.ts`).
 - The FE title and description per code live in `locales/<lang>/errors.ts` as `errors.<code>.title` / `.desc`. `utils/errors.ts` (`describeError`, `errMsg`, `errCode`) renders them; `ErrorBody` is the shared card with the code and details.
-- Add a code: a row in `app_errors!`, the code in `src/utils/errorCodes.ts`, and the title and desc in every language's `errors.ts`. `errorCodes.ts` must mirror `AppError::CODES`.
+- Add a code: a row in `app_errors!`, the code in `src/utils/errorCodes.ts`, and the title and desc in every language's `errors.ts`. `errorCodes.ts` must mirror `AppError::CODES`; tests in `error.rs` fail if the list or a translation is missing.
 
 ## Frontend UI Prefs
 

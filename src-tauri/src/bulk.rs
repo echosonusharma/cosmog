@@ -114,7 +114,7 @@ pub async fn delete_folder(
         Err(e) => {
             sink.emit(TransferEvent::Failed {
                 transfer_id,
-                error: e.to_string(),
+                error: e.to_wire_string(),
             });
             Err(e)
         }
@@ -176,7 +176,7 @@ where
     op_sink.emit(match &res {
         Ok(r) if r.canceled => TransferEvent::Canceled { transfer_id: op_id },
         Ok(_) => TransferEvent::Done { transfer_id: op_id, etag: None },
-        Err(e) => TransferEvent::Failed { transfer_id: op_id, error: e.to_string() },
+        Err(e) => TransferEvent::Failed { transfer_id: op_id, error: e.to_wire_string() },
     });
     res
 }

@@ -36,7 +36,7 @@ where
             return AppError::RequestTimeout(format!("{ctx}: connection timed out"));
         }
         let chain = df.as_connector_error().map(error_chain).unwrap_or_else(|| err.to_string());
-        return from_transport(format!("{ctx}: {chain}"));
+        return from_transport(ctx, chain);
     }
     if let SdkError::TimeoutError(_) = err {
         return AppError::RequestTimeout(format!("{ctx}: request timed out"));
@@ -58,18 +58,22 @@ where
     from_service(code, status, display)
 }
 
-/// Classify a connection-level failure from its flattened cause text.
-pub(super) fn from_transport(text: String) -> AppError {
-    let l = text.to_lowercase();
+/// Classify a connection-level failure from its flattened cause text. Only `chain` is matched,
+/// so words in `ctx` cannot skew the result.
+pub(super) fn from_transport(ctx: &str, chain: String) -> AppError {
+    let l = chain.to_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|n| l.contains(n));
-    if has(&["dns", "failed to lookup", "name or service not known", "no such host", "nodename nor servname", "resolve"]) {
+    let text = format!("{ctx}: {chain}");
+    if has(&["dns error", "failed to lookup", "name or service not known", "no such host", "nodename nor servname", "failed to resolve", "could not resolve"]) {
         AppError::DnsFailure(text)
     } else if has(&["refused"]) {
         AppError::ConnectionRefused(text)
-    } else if has(&["certificate", "tls", "ssl", "handshake"]) {
-        AppError::TlsError(text)
     } else if has(&["timed out", "timeout"]) {
+        // Before TLS: "tls handshake timed out" is a flaky link, not a cert problem.
         AppError::RequestTimeout(text)
+    } else if has(&["certificate", "unknownissuer", "unknown issuer", "self signed", "self-signed", "x509"]) {
+        // Only real cert failures are terminal; a dropped handshake falls through and retries.
+        AppError::TlsError(text)
     } else {
         AppError::NetworkUnreachable(text)
     }
@@ -193,12 +197,25 @@ mod tests {
 
     #[test]
     fn transport_failures_are_told_apart() {
-        let c = |s: &str| from_transport(s.into()).code();
+        let c = |s: &str| from_transport("put_object", s.into()).code();
         assert_eq!(c("dns error: failed to lookup address information: Name or service not known"), "dns_failure");
         assert_eq!(c("tcp connect error: Connection refused (os error 111)"), "connection_refused");
         assert_eq!(c("invalid peer certificate: UnknownIssuer"), "tls_error");
-        assert_eq!(c("TLS handshake eof"), "tls_error");
         assert_eq!(c("operation timed out"), "request_timeout");
         assert_eq!(c("network is unreachable"), "network_unreachable");
+    }
+
+    #[test]
+    fn flaky_tls_handshakes_stay_retriable() {
+        let e = |s: &str| from_transport("put_object", s.into());
+        assert_eq!(e("tls handshake timed out").code(), "request_timeout");
+        assert!(e("TLS handshake eof").is_retriable());
+        assert!(!e("invalid peer certificate: UnknownIssuer").is_retriable());
+    }
+
+    #[test]
+    fn resolve_in_non_dns_text_is_not_dns_failure() {
+        assert_ne!(from_transport("x", "unable to resolve certificate chain".into()).code(), "dns_failure");
+        assert_eq!(from_transport("resolve_ctx", "connection reset".into()).code(), "network_unreachable");
     }
 }

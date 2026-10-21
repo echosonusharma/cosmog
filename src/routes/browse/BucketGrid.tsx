@@ -7,9 +7,6 @@ import { accounts, setBrowseState, bumpBucketsRefresh } from "../../state/app";
 import { detectProvider } from "../../providers";
 import { toast, errMsg } from "../../state/toast";
 import { errCode } from "../../utils/errors";
-
-// Some providers answer a non-empty delete with a bare 409, which classifies as plain conflict.
-const isNotEmptyErr = (e: unknown) => ["bucket_not_empty", "conflict"].includes(errCode(e));
 import { confirmDialog } from "../../state/confirm";
 import { confirmDestructive } from "../../state/settings";
 import {
@@ -21,6 +18,9 @@ import { NewBucketModal } from "./modals";
 import { BucketConfigModal } from "./bucketConfig/BucketConfigModal";
 import Spinner from "../../utils/Spinner";
 import { t } from "../../i18n";
+
+// Backend maps a bare 409 on DeleteBucket to bucket_not_empty; other conflicts must not purge data.
+const isNotEmptyErr = (e: unknown) => errCode(e) === "bucket_not_empty";
 
 export function BucketGrid(props: { accountId: string; accountName: string }) {
   const [refresh, setRefresh] = createSignal(0);

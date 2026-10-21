@@ -251,7 +251,7 @@ pub async fn full_bucket_scan(
         Err(e) => {
             sink.emit(TransferEvent::Failed {
                 transfer_id,
-                error: e.to_string(),
+                error: e.to_wire_string(),
             });
             Err(e)
         }

@@ -24,7 +24,7 @@ macro_rules! app_errors {
                 match self { $(AppError::$var(m) => m,)* }
             }
 
-            /// Every wire code, so tests can check the FE has a translation for each.
+            /// Every wire code; tests check the FE code list and translations match it.
             pub const CODES: &'static [&'static str] = &[$($code,)*];
         }
 
@@ -75,6 +75,8 @@ app_errors! {
     Io => "io", "io error";
     /// Cooperative cancellation via `CancellationToken`; a terminal `canceled` status, not a failure.
     Canceled => "canceled", "canceled";
+    /// Transfer row left active when the app closed or crashed; reaped as failed at startup.
+    Interrupted => "interrupted", "interrupted";
     /// `PermanentRedirect`: bucket is in another region. Backend auto-corrects the stored region
     /// and retries; surfaced only if the retry also fails.
     RegionRedirect => "region_redirect", "region redirect";
@@ -135,6 +137,19 @@ impl AppError {
     /// FE can translate them later from the code.
     pub fn to_wire_string(&self) -> String {
         serde_json::to_string(&WireError::from(self)).unwrap_or_else(|_| self.to_string())
+    }
+}
+
+/// Log-friendly text for a stored wire string: "code: detail", or the raw text if not wire JSON.
+pub fn wire_for_log(s: &str) -> String {
+    #[derive(serde::Deserialize)]
+    struct W<'a> {
+        code: &'a str,
+        detail: std::borrow::Cow<'a, str>,
+    }
+    match serde_json::from_str::<W>(s) {
+        Ok(w) => format!("{}: {}", w.code, w.detail),
+        Err(_) => s.to_string(),
     }
 }
 
@@ -219,6 +234,38 @@ mod tests {
         }
     }
 
+    // FE files compiled in so a new variant without FE support fails here, not silently in the UI.
+    const FE_CODES: &str = include_str!("../../src/utils/errorCodes.ts");
+    const FE_LOCALES: &[(&str, &str)] = &[
+        ("en", include_str!("../../src/i18n/locales/en/errors.ts")),
+        ("es", include_str!("../../src/i18n/locales/es/errors.ts")),
+        ("ja", include_str!("../../src/i18n/locales/ja/errors.ts")),
+        ("ko", include_str!("../../src/i18n/locales/ko/errors.ts")),
+        ("pt", include_str!("../../src/i18n/locales/pt/errors.ts")),
+        ("ru", include_str!("../../src/i18n/locales/ru/errors.ts")),
+        ("zh", include_str!("../../src/i18n/locales/zh/errors.ts")),
+    ];
+
+    #[test]
+    fn fe_code_list_matches_backend() {
+        let list = &FE_CODES[FE_CODES.find('[').unwrap()..FE_CODES.find("] as const").unwrap()];
+        let fe: HashSet<&str> = list.split('"').skip(1).step_by(2).collect();
+        let be: HashSet<&str> = AppError::CODES.iter().copied().collect();
+        assert_eq!(fe, be, "src/utils/errorCodes.ts out of sync with AppError");
+    }
+
+    #[test]
+    fn every_code_is_translated_in_every_locale() {
+        for (lang, src) in FE_LOCALES {
+            for c in AppError::CODES {
+                for part in ["title", "desc"] {
+                    let key = format!("\"errors.{c}.{part}\"");
+                    assert!(src.contains(&key), "{lang}: missing {key}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn wire_string_carries_code_and_raw_detail_only() {
         let e = AppError::ClockSkew("get_object: RequestTimeTooSkewed boom".into());
@@ -233,6 +280,13 @@ mod tests {
         let e = AppError::AccessDenied("nope".into());
         let ipc = serde_json::to_value(&e).unwrap();
         assert_eq!(ipc.as_str().unwrap(), e.to_wire_string());
+    }
+
+    #[test]
+    fn wire_for_log_unwraps_json_and_passes_plain_text() {
+        let w = AppError::AccessDenied("put_object: \"quoted\"".into()).to_wire_string();
+        assert_eq!(wire_for_log(&w), "access_denied: put_object: \"quoted\"");
+        assert_eq!(wire_for_log("transfer failed"), "transfer failed");
     }
 
     #[test]

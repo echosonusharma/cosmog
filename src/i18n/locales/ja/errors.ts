@@ -51,6 +51,8 @@ export default {
   "errors.request_timeout.desc": "プロバイダーの応答に時間がかかりすぎました。接続を確認して、もう一度お試しください。",
   "errors.canceled.title": "キャンセルしました",
   "errors.canceled.desc": "操作はキャンセルされました。",
+  "errors.interrupted.title": "転送が中断されました",
+  "errors.interrupted.desc": "転送が終わる前に Cosmog が終了しました。もう一度開始してください。",
   "errors.region_redirect.title": "別リージョンのバケット",
   "errors.region_redirect.desc": "Cosmog がバケットのリージョンへ自動で切り替えられませんでした。アカウント設定で正しいリージョンを指定してください。",
   "errors.network_unreachable.title": "サーバーに接続不可",

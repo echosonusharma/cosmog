@@ -158,15 +158,25 @@ pub async fn decrypt_file(
         let f_out = std::fs::File::create(&dst)
             .map_err(|e| AppError::Internal(format!("create {}: {e}", dst.display())))?;
         let mut w = std::io::BufWriter::new(f_out);
-        std::io::copy(&mut reader, &mut w)
-            .map_err(|e| {
-                // The age reader reports bad ciphertext as InvalidData; anything else is the disk.
-                if e.kind() == std::io::ErrorKind::InvalidData {
-                    AppError::DecryptionFailed(format!("age copy: {e}"))
-                } else {
-                    AppError::Io(format!("write {}: {e}", dst.display()))
+        // Manual copy so read errors (bad or truncated ciphertext, source I/O) are not blamed on dst.
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    return Err(match e.kind() {
+                        std::io::ErrorKind::InvalidData | std::io::ErrorKind::UnexpectedEof => {
+                            AppError::DecryptionFailed(format!("age read: {e}"))
+                        }
+                        _ => AppError::Io(format!("read {}: {e}", src.display())),
+                    })
                 }
-            })?;
+            };
+            w.write_all(&buf[..n])
+                .map_err(|e| AppError::Io(format!("write {}: {e}", dst.display())))?;
+        }
         w.flush()
             .map_err(|e| AppError::Internal(format!("age flush: {e}")))?;
         Ok(())

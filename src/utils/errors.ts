@@ -2,7 +2,7 @@ import { t, type TKey } from "../i18n";
 import { isKnownCode } from "./errorCodes";
 import { parseWireError, type WireError } from "./wireError";
 
-export { parseWireError, isCredentialError, isNetworkError, isNotFound, type WireError } from "./wireError";
+export { parseWireError, isCredentialError, needsSecretReentry, isNetworkError, isNotFound, type WireError } from "./wireError";
 
 // All user-facing wording (title, description) lives in the i18n `errors.*` strings, keyed by code.
 export interface DescribedError extends WireError {

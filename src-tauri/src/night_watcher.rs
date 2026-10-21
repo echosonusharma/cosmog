@@ -770,7 +770,7 @@ fn persist_sink<S: NwCtx>(
         }
         TransferEvent::Failed { error, transfer_id } => {
             UPLOADS.remove(&transfer_id);
-            warn!(watch = %watch_id, rel = %rel_path, "night watcher: upload failed: {error}");
+            warn!(watch = %watch_id, rel = %rel_path, "night watcher: upload failed: {}", crate::error::wire_for_log(&error));
             // Possibly stale credentials: the next attempt builds a fresh client.
             state.invalidate_store(&account_id);
             cleanup_stage();

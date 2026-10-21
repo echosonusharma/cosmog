@@ -572,8 +572,12 @@ fn map_err(e: AppError) -> Value {
         AppError::Archived(m) => format!(
             "object is in an archived storage class and cannot be read directly. Restore it to a standard tier first. ({m})"
         ),
-        AppError::NotFound(m) => format!("not found: {m}"),
-        AppError::AccessDenied(m) => format!("access denied: {m}"),
+        // The AI client cannot fix credentials; tell it what the user must do.
+        AppError::CredentialsMissing(_)
+        | AppError::CredentialsInvalid(_)
+        | AppError::AccessKeyInvalid(_)
+        | AppError::TokenExpired(_) => format!("{e}. Ask the user to update this account's credentials in Cosmog Settings."),
+        AppError::ClockSkew(_) => format!("{e}. The device clock is off; ask the user to fix the system date and time."),
         _ => e.to_string(),
     };
     format::error(msg)

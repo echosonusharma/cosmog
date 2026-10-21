@@ -1,4 +1,4 @@
-// Mirrors AppError::CODES in src-tauri/src/error.rs; tests keep both in sync with the i18n strings.
+// Mirrors AppError::CODES in src-tauri/src/error.rs; a Rust test there checks both lists and the i18n strings match.
 export const ERROR_CODES = [
   "not_found",
   "invalid_input",
@@ -25,6 +25,7 @@ export const ERROR_CODES = [
   "service_unavailable",
   "request_timeout",
   "canceled",
+  "interrupted",
   "region_redirect",
   "network_unreachable",
   "dns_failure",

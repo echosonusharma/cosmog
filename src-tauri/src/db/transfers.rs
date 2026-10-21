@@ -117,6 +117,11 @@ pub struct Transfer {
     pub origin: TransferOrigin,
 }
 
+/// Error stored on rows reaped at startup; wire JSON so the FE can translate it.
+fn reaped_error(detail: &str) -> String {
+    AppError::Interrupted(detail.into()).to_wire_string()
+}
+
 fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Transfer> {
     let direction_raw: String = row.get(4)?;
     let status_raw: String = row.get(8)?;
@@ -439,9 +444,9 @@ impl Db {
             .conn
             .call(move |conn| {
                 let n = conn.execute(
-                    "UPDATE transfers SET status='failed', error=COALESCE(error, 'orphaned at startup'), updated_at=?1
+                    "UPDATE transfers SET status='failed', error=COALESCE(error, ?2), updated_at=?1
                      WHERE status IN ('active','pending')",
-                    params![now],
+                    params![now, reaped_error("orphaned at startup")],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(n)
             })
@@ -458,9 +463,9 @@ impl Db {
             .conn
             .call(move |conn| {
                 let n = conn.execute(
-                    "UPDATE transfers SET status='failed', error=COALESCE(error, 'interrupted (app closed)'), updated_at=?1
+                    "UPDATE transfers SET status='failed', error=COALESCE(error, ?3), updated_at=?1
                      WHERE status IN ('active','pending') AND origin=?2",
-                    params![now, origin],
+                    params![now, origin, reaped_error("app closed")],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(n)
             })

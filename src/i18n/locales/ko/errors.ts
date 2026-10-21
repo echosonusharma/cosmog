@@ -51,6 +51,8 @@ export default {
   "errors.request_timeout.desc": "제공업체의 응답이 너무 오래 걸려요. 연결 상태를 확인하고 다시 시도해 주세요.",
   "errors.canceled.title": "취소됨",
   "errors.canceled.desc": "작업이 취소되었어요.",
+  "errors.interrupted.title": "전송이 중단됨",
+  "errors.interrupted.desc": "전송이 끝나기 전에 Cosmog가 종료되었어요. 다시 시작해 주세요.",
   "errors.region_redirect.title": "버킷이 다른 리전에 있음",
   "errors.region_redirect.desc": "Cosmog가 버킷의 리전으로 자동 전환하지 못했어요. 계정 설정에서 올바른 리전을 지정해 주세요.",
   "errors.network_unreachable.title": "서버에 연결할 수 없음",

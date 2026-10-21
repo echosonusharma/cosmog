@@ -4,7 +4,7 @@ import { AccountSelector } from "./browse/AccountSelector";
 import { BucketGrid } from "./browse/BucketGrid";
 import { ObjectBrowser } from "./browse/ObjectBrowser";
 import { ReauthPanel } from "./browse/ReauthPanel";
-import { describeError, isCredentialError } from "../utils/errors";
+import { describeError, needsSecretReentry } from "../utils/errors";
 import { ErrorBody } from "../utils/ErrorBody";
 import Spinner from "../utils/Spinner";
 import { t } from "../i18n";
@@ -55,7 +55,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
             {(accountId) => (
               <ErrorBoundary fallback={(err, reset) => {
                 const { code, title } = describeError(err);
-                const credErr = isCredentialError(code);
+                const credErr = needsSecretReentry(code);
                 if (credErr) {
                   return (
                     <div class="browse-err-fallback">
@@ -89,7 +89,7 @@ export default function Browse(props: { defaultDownloadDir: string }) {
           <div class="view-slot view-slot-fill">
             <ErrorBoundary fallback={(err, reset) => {
               const { code, title } = describeError(err);
-              const credErr = isCredentialError(code);
+              const credErr = needsSecretReentry(code);
               if (credErr) {
                 return (
                   <div class="browse-err-fallback">

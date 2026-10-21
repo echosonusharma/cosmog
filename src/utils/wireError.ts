@@ -11,7 +11,10 @@ const NAMED_PREFIX: Record<string, string> = {
 };
 
 // Rows stored before the code-based format hold the old Display text ("access denied: ...").
+const LEGACY_INTERRUPTED = new Set(["interrupted (app closed)", "orphaned at startup"]);
+
 function legacyCode(text: string): { code: string; detail: string } | null {
+  if (LEGACY_INTERRUPTED.has(text)) return { code: "interrupted", detail: text };
   const m = /^([a-z0-9 ]+): ([\s\S]*)$/.exec(text);
   if (!m) return null;
   for (const [named, prefix] of Object.entries(NAMED_PREFIX)) if (m[1] === prefix) return { code: named, detail: m[2] };
@@ -41,7 +44,11 @@ export function parseWireError(raw: unknown): WireError {
 const CREDENTIAL_CODES = new Set(["credentials_missing", "credentials_invalid", "access_key_invalid", "token_expired", "keyring"]);
 const NETWORK_CODES = new Set(["network_unreachable", "dns_failure", "connection_refused", "tls_error", "request_timeout"]);
 
+// Subset a re-entered secret key can fix; token_expired and access_key_invalid need new credentials.
+const SECRET_CODES = new Set(["credentials_missing", "credentials_invalid", "keyring"]);
+
 export const isCredentialError = (code: string) => CREDENTIAL_CODES.has(code);
+export const needsSecretReentry = (code: string) => SECRET_CODES.has(code);
 export const isNetworkError = (code: string) => NETWORK_CODES.has(code);
 export const isNotFound = (code: string) =>
   code === "not_found" || code === "bucket_not_found" || code === "object_not_found" || code === "upload_not_found";

@@ -51,6 +51,8 @@ export default {
   "errors.request_timeout.desc": "The provider took too long to answer. Check your connection and try again.",
   "errors.canceled.title": "Canceled",
   "errors.canceled.desc": "The operation was canceled.",
+  "errors.interrupted.title": "Transfer interrupted",
+  "errors.interrupted.desc": "Cosmog closed before this transfer finished. Start it again.",
   "errors.region_redirect.title": "Bucket is in another region",
   "errors.region_redirect.desc": "Cosmog couldn't switch to the bucket's region automatically. Set the right region in the account settings.",
   "errors.network_unreachable.title": "Can't reach the server",

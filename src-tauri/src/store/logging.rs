@@ -90,16 +90,18 @@ impl LoggingStore {
         }
     }
 
+    /// Best guess from the code; some codes span statuses (clock_skew is 403 or 400).
     fn error_http_status(code: &str) -> Option<i64> {
         match code {
             "not_found" | "bucket_not_found" | "object_not_found" | "upload_not_found" => Some(404),
-            "access_denied" | "credentials_invalid" | "access_key_invalid" | "clock_skew" => Some(403),
+            "access_denied" | "credentials_invalid" | "access_key_invalid" | "clock_skew" | "archived" => Some(403),
+            "token_expired" | "invalid_bucket_name" | "invalid_region" | "quota_exceeded" => Some(400),
             "conflict" | "bucket_exists" | "bucket_not_empty" => Some(409),
             "entity_too_large" => Some(413),
             "rate_limited" => Some(429),
             "region_redirect" => Some(301),
-            "internal" => Some(500),
             "service_unavailable" => Some(503),
+            "unsupported" => Some(501),
             "request_timeout" => Some(408),
             _ => None,
         }
