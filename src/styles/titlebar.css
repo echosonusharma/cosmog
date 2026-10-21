@@ -14,6 +14,7 @@
 }
 
 .titlebar-left {
+  margin-right: auto;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -45,13 +46,6 @@
   gap: 2px;
 }
 
-.titlebar-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
 .titlebar-btn {
   width: 28px;
   height: 28px;
@@ -66,7 +60,6 @@
   transition: background 0.1s, color 0.1s;
 }
 .titlebar-btn:hover { background: var(--panel-2); color: var(--text); }
-.titlebar-btn.close:hover { background: var(--red); color: #fff; }
 
 .titlebar-update-badge {
   font-size: 10px;

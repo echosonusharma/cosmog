@@ -1,0 +1,66 @@
+/* ── window controls: one look per OS ────────────────────────────────────── */
+
+.wc { display: flex; align-items: center; }
+.wc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+/* macOS traffic lights, left of the logo; glyphs appear on group hover */
+.wc-mac { gap: 8px; margin-right: 14px; }
+.wc-mac .wc-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(0,0,0,.18);
+  color: rgba(0,0,0,.55);
+  cursor: default;
+}
+.wc-mac .wc-btn svg { width: 12px; height: 12px; opacity: 0; }
+.wc-mac:hover .wc-btn svg { opacity: 1; }
+.wc-mac .wc-btn:active { filter: brightness(.82); }
+.wc-mac .wc-close { background: #ff5f57; }
+.wc-mac .wc-min { background: #febc2e; }
+.wc-mac .wc-max { background: #28c840; }
+.wc-mac.is-blurred:not(:hover) .wc-btn {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  box-shadow: none;
+}
+
+/* Windows 11 caption buttons, flush with the top-right edge */
+.titlebar-windows { padding-right: 0; }
+.titlebar-windows .titlebar-controls { align-self: stretch; }
+.wc-win { align-self: stretch; margin-left: 6px; }
+.wc-win .wc-btn {
+  width: 46px;
+  height: 100%;
+  transition: background .1s, color .1s;
+}
+.wc-win .wc-btn svg { width: 10px; height: 10px; }
+.wc-win .wc-btn:hover { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.wc-win .wc-btn:active { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--muted); }
+.wc-win .wc-close:hover { background: #c42b1c; color: #fff; }
+.wc-win .wc-close:active { background: #c42b1ccc; color: #fff; }
+.wc-win.is-blurred .wc-btn:not(:hover) { color: var(--faint); }
+
+/* GNOME / Adwaita round buttons */
+.wc-linux { gap: 8px; margin-left: 6px; }
+.wc-linux .wc-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  transition: background .1s, color .1s;
+}
+.wc-linux .wc-btn svg { width: 16px; height: 16px; }
+.wc-linux .wc-btn:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
+.wc-linux .wc-btn:active { background: color-mix(in srgb, var(--text) 26%, transparent); }
+.wc-linux.is-blurred .wc-btn:not(:hover) {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--faint);
+}
