@@ -52,7 +52,7 @@ export default {
   "errors.canceled.title": "已取消",
   "errors.canceled.desc": "操作已取消。",
   "errors.interrupted.title": "传输已中断",
-  "errors.interrupted.desc": "此传输完成前 Cosmog 已关闭。请重新开始。",
+  "errors.interrupted.desc": "Cosmog 在此传输完成前已关闭。请重新开始传输。",
   "errors.region_redirect.title": "存储桶在其他区域",
   "errors.region_redirect.desc": "Cosmog 无法自动切换到存储桶所在的区域。请在账户设置中选择正确的区域。",
   "errors.network_unreachable.title": "无法连接服务器",

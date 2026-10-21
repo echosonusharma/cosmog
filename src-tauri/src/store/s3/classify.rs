@@ -50,12 +50,22 @@ where
         Some(se) => (se.code().unwrap_or_default(), se.message().unwrap_or_default()),
         None => ("", ""),
     };
-    let display = if code.is_empty() && msg.is_empty() {
+    let mut display = if code.is_empty() && msg.is_empty() {
         format!("{ctx}: {err}")
     } else {
         format!("{ctx}: {code} {msg}").trim().to_string()
     };
+    // Real status for the request log; see `http_status_in`.
+    if let Some(s) = status {
+        display.push_str(&format!(" (HTTP {s})"));
+    }
     from_service(code, status, display)
+}
+
+/// HTTP status that [`classify_aws`] appended to an error detail, if any.
+pub fn http_status_in(detail: &str) -> Option<u16> {
+    let rest = &detail[detail.rfind("(HTTP ")? + 6..];
+    rest.strip_suffix(')')?.parse().ok()
 }
 
 /// Classify a connection-level failure from its flattened cause text. Only `chain` is matched,
@@ -193,6 +203,13 @@ mod tests {
     fn classification_keeps_raw_text_as_detail() {
         let e = from_service("AccessDenied", Some(403), "get_object: AccessDenied nope".into());
         assert_eq!(e.detail(), "get_object: AccessDenied nope");
+    }
+
+    #[test]
+    fn http_status_is_read_back_from_detail() {
+        assert_eq!(http_status_in("get_object: RequestExpired nope (HTTP 400)"), Some(400));
+        assert_eq!(http_status_in("put_object: connection timed out"), None);
+        assert_eq!(http_status_in("x (HTTP 4xx)"), None);
     }
 
     #[test]

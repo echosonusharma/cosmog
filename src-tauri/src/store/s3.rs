@@ -23,6 +23,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use crate::error::{AppError, AppResult};
 use classify::classify_aws;
+pub use classify::http_status_in;
 use crate::transfer::{
     CompletedPart as SavedPart, DownloadResult, ResumeState, TransferCtx, TransferEvent,
     UploadResult,

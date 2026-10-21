@@ -52,7 +52,7 @@ export default {
   "errors.canceled.title": "Cancelado",
   "errors.canceled.desc": "A operação foi cancelada.",
   "errors.interrupted.title": "Transferência interrompida",
-  "errors.interrupted.desc": "O Cosmog foi fechado antes de esta transferência terminar. Inicie-a novamente.",
+  "errors.interrupted.desc": "O Cosmog foi fechado antes que esta transferência terminasse. Inicie-a novamente.",
   "errors.region_redirect.title": "O bucket está em outra região",
   "errors.region_redirect.desc": "O Cosmog não conseguiu mudar automaticamente para a região do bucket. Defina a região correta nas configurações da conta.",
   "errors.network_unreachable.title": "Não foi possível acessar o servidor",

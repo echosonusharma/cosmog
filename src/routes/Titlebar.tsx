@@ -44,7 +44,7 @@ export default function Titlebar() {
           </Show>
         </div>
         <div class="titlebar-controls">
-          <button class="titlebar-btn" onClick={toggleTheme}>
+          <button class="titlebar-btn" aria-label={t("shell.nav.toggleTheme")} title={t("shell.nav.toggleTheme")} onClick={toggleTheme}>
             {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
           <Show when={showControls() && desktopOs !== "macos"}>

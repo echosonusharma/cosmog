@@ -52,7 +52,7 @@ export default {
   "errors.canceled.title": "Отменено",
   "errors.canceled.desc": "Операция была отменена.",
   "errors.interrupted.title": "Передача прервана",
-  "errors.interrupted.desc": "Cosmog закрылся до завершения этой передачи. Запустите её снова.",
+  "errors.interrupted.desc": "Cosmog был закрыт до завершения этой передачи. Запустите её снова.",
   "errors.region_redirect.title": "Бакет находится в другом регионе",
   "errors.region_redirect.desc": "Cosmog не смог автоматически переключиться на регион бакета. Укажите нужный регион в настройках аккаунта.",
   "errors.network_unreachable.title": "Не удаётся связаться с сервером",

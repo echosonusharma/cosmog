@@ -90,7 +90,7 @@ impl LoggingStore {
         }
     }
 
-    /// Best guess from the code; some codes span statuses (clock_skew is 403 or 400).
+    /// Fallback when the detail carries no real status (transport errors, non-S3 failures).
     fn error_http_status(code: &str) -> Option<i64> {
         match code {
             "not_found" | "bucket_not_found" | "object_not_found" | "upload_not_found" => Some(404),
@@ -139,7 +139,9 @@ impl LoggingStore {
             let code = e.code();
             (
                 "error".to_string(),
-                Self::error_http_status(code),
+                crate::store::s3::http_status_in(e.detail())
+                    .map(i64::from)
+                    .or_else(|| Self::error_http_status(code)),
                 Some(code.to_string()),
                 Some(e.to_string()),
             )
