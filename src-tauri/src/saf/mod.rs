@@ -35,6 +35,9 @@ fn jstring_owned(env: &mut jni::JNIEnv, s: jni::objects::JString) -> Result<Stri
 // App classes must be cached as GlobalRefs: native threads use the system ClassLoader, so find_class fails for them.
 // Framework classes resolve anywhere.
 #[cfg(target_os = "android")]
+pub(crate) static TRANSFER_SERVICE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
+    std::sync::OnceLock::new();
+#[cfg(target_os = "android")]
 pub(crate) static NIGHTWATCH_SERVICE_CLASS: std::sync::OnceLock<jni::objects::GlobalRef> =
     std::sync::OnceLock::new();
 #[cfg(target_os = "android")]
@@ -43,7 +46,7 @@ pub(crate) static NW_TREE_PICKER_CLASS: std::sync::OnceLock<jni::objects::Global
 
 /// Must run on the JVM thread, where find_class works.
 #[cfg(target_os = "android")]
-fn cache_nw_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<jni::objects::GlobalRef>) {
+fn cache_app_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<jni::objects::GlobalRef>) {
     if slot.get().is_some() {
         return;
     }
@@ -53,11 +56,11 @@ fn cache_nw_class(env: &mut jni::JNIEnv, name: &str, slot: &std::sync::OnceLock<
                 let _ = slot.set(g);
             }
             Err(e) => {
-                let _ = jni_err(env, "new_global_ref(nw class)", e);
+                let _ = jni_err(env, "new_global_ref(app class)", e);
             }
         },
         Err(e) => {
-            let _ = jni_err(env, "find_class(nw class)", e);
+            let _ = jni_err(env, "find_class(app class)", e);
         }
     }
 }
@@ -69,6 +72,7 @@ pub extern "system" fn Java_com_sonus_cosmog_CosmogApp_initNwClasses(
     mut env: jni::JNIEnv,
     _class: jni::objects::JClass,
 ) {
-    cache_nw_class(&mut env, "com/sonus/cosmog/NightWatchService", &NIGHTWATCH_SERVICE_CLASS);
-    cache_nw_class(&mut env, "com/sonus/cosmog/NwTreePicker", &NW_TREE_PICKER_CLASS);
+    cache_app_class(&mut env, "com/sonus/cosmog/TransferService", &TRANSFER_SERVICE_CLASS);
+    cache_app_class(&mut env, "com/sonus/cosmog/NightWatchService", &NIGHTWATCH_SERVICE_CLASS);
+    cache_app_class(&mut env, "com/sonus/cosmog/NwTreePicker", &NW_TREE_PICKER_CLASS);
 }

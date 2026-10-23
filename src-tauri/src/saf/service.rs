@@ -1,5 +1,5 @@
 #[cfg(target_os = "android")]
-use super::{jni_err, NIGHTWATCH_SERVICE_CLASS};
+use super::{jni_err, NIGHTWATCH_SERVICE_CLASS, TRANSFER_SERVICE_CLASS};
 
 /// Foreground service so Doze/cached-process reaps don't kill in-flight transfers (they would restart from 0).
 #[cfg(target_os = "android")]
@@ -18,9 +18,17 @@ pub fn set_transfer_service(active: bool) -> Result<(), String> {
         .map_err(|e| format!("attach_current_thread: {e}"))?;
     let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-    let cls = env
-        .find_class("com/sonus/cosmog/TransferService")
-        .map_err(|e| jni_err(&mut env, "find_class(TransferService)", e))?;
+    // Uncached only if startup init failed; find_class then works only on the JVM thread.
+    let local;
+    let cls: &jni::objects::JClass = match TRANSFER_SERVICE_CLASS.get() {
+        Some(g) => g.as_obj().into(),
+        None => {
+            local = env
+                .find_class("com/sonus/cosmog/TransferService")
+                .map_err(|e| jni_err(&mut env, "find_class(TransferService)", e))?;
+            &local
+        }
+    };
     let method = if active { "start" } else { "stop" };
     env.call_static_method(
         cls,

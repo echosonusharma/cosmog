@@ -14,10 +14,8 @@ class CosmogApp : Application() {
             // Triggers System.loadLibrary via NativeBridge, then caches the
             // ndk_context on this (JVM) thread.
             NativeBridge.initNdkContext(applicationContext)
-            // Cache NW app-class GlobalRefs on the JVM thread. find_class for
-            // app classes fails from the native spawn_blocking threads the NW
-            // Rust fns run on, so it must happen here. Idempotent on the Rust
-            // side (OnceLock guards).
+            // Cache app-class GlobalRefs (transfer + NW) on the JVM thread:
+            // find_class for app classes fails from native threads.
             initNwClasses()
         } catch (t: Throwable) {
             android.util.Log.w("CosmogApp", "native init failed: $t")
