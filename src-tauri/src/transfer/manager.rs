@@ -1,76 +1,24 @@
-//! Persistent transfer queue + worker scheduler. Owns every upload/download
-//! lifecycle; beyond the cancel map, the DB is the source of truth.
+//! Beyond the cancel map, the DB is the source of truth for transfer state.
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use futures::FutureExt;
-use tokio::sync::{Semaphore, Mutex as AsyncMutex};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-
-use std::time::Duration;
 
 use crate::db::transfers::{Direction, NewTransfer, Transfer, TransferOrigin, TransferStatus};
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use crate::store::{GetOptions, ObjectStore, PutOptions};
 
-use super::{CompletedPart, ProgressSink, ResumeState, SourceStat, TransferCtx, TransferEvent};
+use super::semaphore::ResizableSemaphore;
+use super::sink::composite_sink;
+use super::worker::{run_download, run_upload};
+use super::{CompletedPart, ProgressSink, ResumeState, TransferCtx, TransferEvent};
 
-/// Semaphore with runtime-adjustable limit; `current` tracks true capacity once in-flight permits release.
-/// Resize-down records only what it reclaimed, otherwise a later resize-up grows capacity past the limit.
-struct ResizableSemaphore {
-    sem: Arc<Semaphore>,
-    current: Arc<Mutex<usize>>,
-}
-
-impl ResizableSemaphore {
-    fn new(n: usize) -> Self {
-        let n = n.max(1);
-        Self {
-            sem: Arc::new(Semaphore::new(n)),
-            current: Arc::new(Mutex::new(n)),
-        }
-    }
-
-    async fn acquire(&self) -> Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> {
-        self.sem.acquire().await
-    }
-
-    #[cfg(test)]
-    fn available(&self) -> usize {
-        self.sem.available_permits()
-    }
-
-    fn resize(&self, new_size: usize) {
-        let new_size = new_size.max(1);
-        let mut current = self.current.lock().unwrap();
-        let old = *current;
-        if new_size > old {
-            self.sem.add_permits(new_size - old);
-            *current = new_size;
-        } else if new_size < old {
-            let to_remove = old - new_size;
-            let mut removed = 0;
-            while removed < to_remove {
-                match self.sem.try_acquire() {
-                    Ok(permit) => {
-                        permit.forget();
-                        removed += 1;
-                    }
-                    Err(_) => break,
-                }
-            }
-            *current = old - removed;
-        }
-    }
-}
-
-/// Persistent transfer queue + worker scheduler. Cheap to clone (all interior
-/// state is `Arc`-shared).
 #[derive(Clone)]
 pub struct TransferManager {
     db: Db,
@@ -91,7 +39,7 @@ enum WorkerJob {
         key: String,
         local_path: PathBuf,
         opts: GetOptions,
-        /// Retry of an earlier row: its `.cosmog-part` may be resumed on the first attempt.
+        /// Retry of an earlier row: its `.cosmog-part` may be resumed on attempt 0.
         resume_part: bool,
     },
 }
@@ -115,13 +63,11 @@ impl TransferManager {
         }
     }
 
-    /// Adjust the maximum number of concurrent transfers. Takes effect for the
-    /// next acquisition; in-flight transfers are not interrupted.
+    /// Applies to the next acquisition; in-flight transfers are not interrupted.
     pub fn set_concurrency(&self, n: usize) {
         self.sem.resize(n);
     }
 
-    /// Enqueue an upload: inserts the transfer row, spawns a concurrency-limited worker.
     pub async fn enqueue_upload(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -149,7 +95,6 @@ impl TransferManager {
         .await
     }
 
-    /// Enqueue a new download. Mirrors [`enqueue_upload`].
     pub async fn enqueue_download(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -177,8 +122,7 @@ impl TransferManager {
         .await
     }
 
-    /// Cancel an active transfer. Idempotent — returns `Ok(())` if the transfer
-    /// is already terminal (the cancel token has been dropped from the map).
+    /// Idempotent: `Ok(())` if the transfer is already terminal.
     pub fn cancel(&self, transfer_id: &str) -> AppResult<()> {
         if let Some(token) = self.cancels.get(transfer_id) {
             token.cancel();
@@ -186,13 +130,11 @@ impl TransferManager {
         Ok(())
     }
 
-    /// True while the transfer is queued or running in this process.
     pub fn is_live(&self, transfer_id: &str) -> bool {
         self.cancels.contains_key(transfer_id)
     }
 
-    /// Cancel a transfer; if its process died leaving a ghost active/pending row,
-    /// flip the DB row to `canceled`. Live tokens let the worker emit the terminal itself.
+    /// Ghost rows from a dead process are flipped to `canceled`; live workers emit their own terminal.
     pub async fn cancel_or_reap(&self, transfer_id: &str) -> AppResult<()> {
         if let Some(token) = self.cancels.get(transfer_id) {
             token.cancel();
@@ -202,8 +144,7 @@ impl TransferManager {
         Ok(())
     }
 
-    /// Cancel every active transfer for a deleted account so dangling workers stop
-    /// writing to soon-cascade-deleted rows. Returns the count signalled.
+    /// Stops dangling workers writing to soon-cascade-deleted rows.
     pub async fn cancel_for_account(&self, account_id: &str) -> AppResult<usize> {
         let ids = self.db.list_cancellable_ids_for_account(account_id).await?;
         let mut signaled = 0usize;
@@ -216,8 +157,7 @@ impl TransferManager {
         Ok(signaled)
     }
 
-    /// Cancel every active transfer for a bucket being deleted, stopping workers
-    /// before its cache rows are purged and S3 starts returning 404.
+    /// Stops workers before the bucket's cache rows are purged and S3 starts returning 404.
     pub async fn cancel_for_bucket(&self, account_id: &str, bucket: &str) -> AppResult<usize> {
         let ids = self
             .db
@@ -249,8 +189,7 @@ impl TransferManager {
         self.db.delete_transfer(id).await
     }
 
-    /// Re-enqueue a failed/canceled/paused transfer as a *new* row. Uploads carry over a
-    /// crash-surviving multipart upload; downloads resume from their own `.cosmog-part`.
+    /// New row; uploads carry over the multipart upload, downloads resume their `.cosmog-part`.
     pub async fn retry(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -274,8 +213,7 @@ impl TransferManager {
             _ => None,
         };
 
-        // Recover original PutOptions/GetOptions from the row so retries reuse the same
-        // content-type/ACL/SSE/range; defaults if column missing or JSON bad.
+        // Reuse the original options; defaults if the column is missing or JSON is bad.
         let job = match row.direction {
             Direction::Upload => {
                 let mut opts = row
@@ -310,8 +248,7 @@ impl TransferManager {
                     opts.resume = false;
                     opts.range_start = None;
                 }
-                // Re-validate the stored path on retry; defense-in-depth against
-                // tampered DB rows between the original enqueue and this call.
+                // Defense-in-depth against tampered DB rows.
                 let local_path = crate::validate::validate_download_dest(&row.local_path).await
                     .map_err(|e| AppError::InvalidInput(format!("retry: invalid local_path: {e}")))?;
                 WorkerJob::Download {
@@ -335,8 +272,7 @@ impl TransferManager {
         Ok(id)
     }
 
-    /// A retry follows the bucket's current key: the persisted recipient may have been
-    /// rotated away or disabled (its identity destroyed) since the row was queued.
+    /// Retry uses the bucket's current key: the persisted recipient may since be rotated or disabled.
     async fn refresh_encryption(&self, row: &Transfer, opts: &mut PutOptions) -> AppResult<()> {
         let cfg = self.db.get_encryption_config(&row.account_id, &row.bucket).await?;
         // Legacy rows queued pre-encrypted ciphertext: marker set, no spec.
@@ -357,7 +293,6 @@ impl TransferManager {
         }
     }
 
-    /// Unified worker spawn used by upload, download, and retry paths.
     async fn enqueue(
         &self,
         store: Arc<dyn ObjectStore>,
@@ -383,14 +318,12 @@ impl TransferManager {
                 ..
             } => (bucket.clone(), key.clone(), local_path.to_string_lossy().to_string()),
         };
-        // SAF staging dir reaped on terminal Done/Canceled; captured before the job is consumed.
         let stage_cleanup_dir = match &job {
             WorkerJob::Upload { opts, .. } => opts.stage_cleanup_dir.clone(),
             WorkerJob::Download { .. } => None,
         };
 
         let account_id_for_cache = account_id.clone();
-        // Persist options so a future retry reapplies the same headers/ACL/SSE/range.
         let options_json = match &job {
             WorkerJob::Upload { opts, .. } => serde_json::to_string(opts).ok(),
             WorkerJob::Download { opts, .. } => serde_json::to_string(opts).ok(),
@@ -417,8 +350,7 @@ impl TransferManager {
         let cancel = CancellationToken::new();
         self.cancels.insert(id.clone(), cancel.clone());
 
-        let (sink, resume_handle, journal) = self.composite_sink(id.clone(), external_sink.clone(), resume.clone());
-        // Per-transfer tunables come from user settings (FE-configurable).
+        let (sink, resume_handle, journal) = composite_sink(self.db.clone(), id.clone(), external_sink.clone(), resume.clone());
         let settings = self.db.settings_load().await?;
         let mut ctx = TransferCtx {
             transfer_id: id.clone(),
@@ -452,8 +384,7 @@ impl TransferManager {
                 .update_transfer_status(&id_for_task, TransferStatus::Active, None)
                 .await;
 
-            // Panic guard: job runs under catch_unwind and panics map to Internal, so
-            // multipart abort, terminal event/status, and cancels.remove still run once.
+            // catch_unwind so abort, terminal event/status and cancels.remove still run once on panic.
             let result = {
                 let store_job = store_for_task.clone();
                 let db_job = db.clone();
@@ -509,8 +440,7 @@ impl TransferManager {
                 })
             };
 
-            // Cache write-through on successful upload: HEAD the freshly-written
-            // object to get authoritative metadata, then upsert into the cache.
+            // HEAD for authoritative metadata before the cache write-through.
             if matches!(direction, Direction::Upload) && result.is_ok() {
                 if let Ok(meta) = store_for_task
                     .head_object(&bucket_for_cache, &key_for_cache)
@@ -522,9 +452,7 @@ impl TransferManager {
                 }
             }
 
-            // Capability tracking: only uploads contribute to `last_put_result`
-            // and we only flip the cap on Allowed / AccessDenied; other
-            // failure classes (network, cancel) don't prove anything.
+            // Only Allowed/AccessDenied flip the put cap; network or cancel failures prove nothing.
             if matches!(direction, Direction::Upload) {
                 use crate::db::capabilities::{CapState, WriteOp};
                 let cap = match &result {
@@ -550,8 +478,7 @@ impl TransferManager {
                 Err(_) => TransferStatus::Failed,
             };
             if matches!(direction, Direction::Upload) {
-                // Multipart uploads stay alive across in-worker retries; on give-up/cancel abort
-                // best-effort. Either way the row stops pointing at it, so a retry starts fresh.
+                // Best-effort abort on give-up/cancel; the row drops the upload_id so a retry starts fresh.
                 if !matches!(terminal, TransferStatus::Done) {
                     let upload_id = resume_handle.lock().unwrap().upload_id.clone();
                     if !upload_id.is_empty() {
@@ -562,8 +489,7 @@ impl TransferManager {
                 }
                 journal.close_and_clear(&id_for_task).await;
             }
-            // SAF staging dir is dead weight after Done/Canceled (multi-GB pileup);
-            // failed uploads keep it for retry. Desktop uploads never set it.
+            // SAF staging dir piles up multi-GB if kept; failed uploads keep it for retry.
             if matches!(direction, Direction::Upload)
                 && matches!(terminal, TransferStatus::Done | TransferStatus::Canceled)
             {
@@ -576,8 +502,7 @@ impl TransferManager {
                 .update_transfer_status(&id_for_task, terminal, err_text.clone())
                 .await;
             cancels.remove(&id_for_task);
-            // The only terminal event for this transfer: store terminals are filtered in
-            // composite_sink, so this fires once, after decrypt/rename.
+            // The only terminal event: composite_sink filters store terminals, so this fires once.
             let event = match terminal {
                 TransferStatus::Done => TransferEvent::Done {
                     transfer_id: id_for_task.clone(),
@@ -596,121 +521,12 @@ impl TransferManager {
 
         Ok(id)
     }
-
-    /// Fan-out sink (FE channel + DB milestone persistence, parts batched in memory).
-    /// Returns the shared ResumeState for multipart resume plus the flush journal handle.
-    fn composite_sink(
-        &self,
-        transfer_id: String,
-        external: ProgressSink,
-        seed: Option<ResumeState>,
-    ) -> (
-        ProgressSink,
-        Arc<Mutex<ResumeState>>,
-        Arc<PartsJournal>,
-    ) {
-        let db = self.db.clone();
-        // Seeded with carried-over parts so journal flushes never drop them.
-        let resume: Arc<Mutex<ResumeState>> = Arc::new(Mutex::new(seed.unwrap_or_default()));
-        let resume_ret = resume.clone();
-        let journal = Arc::new(PartsJournal {
-            db: db.clone(),
-            resume: resume.clone(),
-            db_lock: Arc::new(AsyncMutex::new(())),
-            closed: AtomicBool::new(false),
-        });
-        let journal_for_sink = journal.clone();
-
-        let sink = ProgressSink::from_fn(move |event: TransferEvent| {
-            // Store terminals are premature (retry pending, decrypt not done); the worker
-            // emits the one real terminal.
-            if matches!(
-                event,
-                TransferEvent::Done { .. }
-                    | TransferEvent::Failed { .. }
-                    | TransferEvent::Canceled { .. }
-            ) {
-                return;
-            }
-            external.emit(event.clone());
-
-            let db = db.clone();
-            let tid = transfer_id.clone();
-
-            match event {
-                TransferEvent::Started { bytes_total, .. } => {
-                    tokio::spawn(async move {
-                        let _ = db
-                            .update_transfer_bytes(&tid, 0, bytes_total.map(|n| n as i64))
-                            .await;
-                    });
-                }
-                TransferEvent::Progress {
-                    bytes_done,
-                    bytes_total,
-                    ..
-                } => {
-                    tokio::spawn(async move {
-                        let _ = db
-                            .update_transfer_bytes(
-                                &tid,
-                                bytes_done as i64,
-                                bytes_total.map(|n| n as i64),
-                            )
-                            .await;
-                    });
-                }
-                TransferEvent::MultipartInitiated { upload_id, part_size, .. } => {
-                    {
-                        let mut guard = resume.lock().unwrap();
-                        // A different id means the saved state was discarded; its parts are void.
-                        if guard.upload_id != upload_id {
-                            guard.completed_parts.clear();
-                        }
-                        guard.upload_id = upload_id;
-                        guard.part_size = Some(part_size);
-                    }
-                    // Persist right away so a crash before the first part still leaves an
-                    // upload_id to abort on clear.
-                    let journal = journal_for_sink.clone();
-                    tokio::spawn(async move {
-                        journal.flush(&tid).await;
-                    });
-                }
-                TransferEvent::PartCompleted {
-                    upload_id, part_number, etag, ..
-                } => {
-                    let persist_now = {
-                        let mut guard = resume.lock().unwrap();
-                        if guard.upload_id.is_empty() {
-                            guard.upload_id = upload_id;
-                        }
-                        guard.completed_parts.push(CompletedPart { part_number, etag });
-                        // Persist at power-of-two part counts (O(log n) writes); the worker
-                        // flushes the tail before each retry attempt.
-                        guard.completed_parts.len().is_power_of_two()
-                    };
-                    if persist_now {
-                        let journal = journal_for_sink.clone();
-                        tokio::spawn(async move {
-                            journal.flush(&tid).await;
-                        });
-                    }
-                }
-                _ => {}
-            }
-        });
-        (sink, resume_ret, journal)
-    }
 }
 
-/// Finished rows kept for history; older ones are pruned on each enqueue.
 const KEEP_FINISHED_ROWS: i64 = 1000;
 const PRUNE_EVERY: u64 = 64;
-const MAX_ATTEMPTS: u32 = 3;
 
-/// Rebuild multipart resume state from a row. Legacy rows stored a bare parts array with
-/// no fingerprint; those come back stale-by-design so s3 aborts and starts fresh.
+/// Legacy rows (bare parts array, no fingerprint) come back stale so s3 aborts and starts fresh.
 fn parse_resume(row_id: &str, upload_id: &str, parts_json: Option<&str>) -> ResumeState {
     let raw = parts_json.unwrap_or("");
     let mut state = serde_json::from_str::<ResumeState>(raw)
@@ -726,327 +542,4 @@ fn parse_resume(row_id: &str, upload_id: &str, parts_json: Option<&str>) -> Resu
         });
     state.upload_id = upload_id.to_string();
     state
-}
-
-async fn stat_source(path: &Path) -> Option<SourceStat> {
-    let m = tokio::fs::metadata(path).await.ok()?;
-    Some(SourceStat {
-        len: m.len(),
-        mtime_secs: m
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0),
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_upload(
-    store: &Arc<dyn ObjectStore>,
-    mut ctx: TransferCtx,
-    resume_handle: &Arc<Mutex<ResumeState>>,
-    journal: &PartsJournal,
-    origin: TransferOrigin,
-    bucket: &str,
-    key: &str,
-    local_path: &Path,
-    opts: &PutOptions,
-) -> AppResult<Option<String>> {
-    // Encrypt inside the worker: runs under the concurrency permit, and the row keeps the
-    // plaintext source so a retry can re-encrypt.
-    let enc_tmp = match &opts.encrypt {
-        Some(spec) => Some(super::encrypt::encrypt_to_temp(spec, origin, local_path, &ctx.cancel).await?),
-        None => None,
-    };
-    let upload_path = enc_tmp.clone().unwrap_or_else(|| local_path.to_path_buf());
-    let result = upload_attempts(store, &mut ctx, resume_handle, journal, bucket, key, &upload_path, opts).await;
-    if let Some(p) = &enc_tmp {
-        let _ = tokio::fs::remove_file(p).await;
-    }
-    result
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn upload_attempts(
-    store: &Arc<dyn ObjectStore>,
-    ctx: &mut TransferCtx,
-    resume_handle: &Arc<Mutex<ResumeState>>,
-    journal: &PartsJournal,
-    bucket: &str,
-    key: &str,
-    upload_path: &Path,
-    opts: &PutOptions,
-) -> AppResult<Option<String>> {
-    // Fingerprint of the bytes actually uploaded; saved parts only resume against it.
-    ctx.source_stat = stat_source(upload_path).await;
-    {
-        let mut guard = resume_handle.lock().unwrap();
-        guard.source_len = ctx.source_stat.map(|s| s.len);
-        guard.source_mtime_secs = ctx.source_stat.map(|s| s.mtime_secs);
-    }
-    let mut last_err: Option<AppError> = None;
-    for attempt in 0..MAX_ATTEMPTS {
-        if ctx.cancel.is_cancelled() {
-            return Err(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
-        }
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
-            // Persist every part from prior attempts before this one (it may crash).
-            journal.flush(&ctx.transfer_id).await;
-            let snapshot = resume_handle.lock().unwrap().clone();
-            if !snapshot.upload_id.is_empty() {
-                ctx.resume = Some(snapshot);
-            }
-        }
-        match store
-            .put_object(bucket, key, upload_path.to_path_buf(), opts.clone(), ctx.clone())
-            .await
-        {
-            Ok(r) => return Ok(r.etag),
-            Err(e) => {
-                let again = e.is_retriable() && attempt + 1 < MAX_ATTEMPTS;
-                last_err = Some(e);
-                if !again {
-                    break;
-                }
-            }
-        }
-    }
-    Err(last_err.expect("loop always sets last_err before giving up"))
-}
-
-fn sibling(dest: &Path, suffix: &str) -> PathBuf {
-    let mut name = dest.file_name().unwrap_or_default().to_os_string();
-    name.push(suffix);
-    dest.with_file_name(name)
-}
-
-/// Downloads land in `<dest>.cosmog-part` and are renamed onto `dest` only on success, so
-/// resume only ever continues bytes a Cosmog transfer wrote and `dest` is never clobbered early.
-#[allow(clippy::too_many_arguments)]
-async fn run_download(
-    store: &Arc<dyn ObjectStore>,
-    ctx: &TransferCtx,
-    db: &Db,
-    account_id: &str,
-    bucket: &str,
-    key: &str,
-    dest: &Path,
-    opts: &GetOptions,
-    resume_part: bool,
-) -> AppResult<()> {
-    let part = sibling(dest, PART_SUFFIX);
-    let explicit_range = opts.range_start.is_some() || opts.range_end.is_some();
-    let bucket_encrypted = db
-        .get_encryption_config(account_id, bucket)
-        .await
-        .ok()
-        .flatten()
-        .is_some();
-    // Encrypted buckets restart from zero; explicit ranges are retried verbatim.
-    let resumable = !bucket_encrypted && !explicit_range;
-
-    if bucket_encrypted && !explicit_range && opts.version_id.is_none() {
-        let has_key = load_identity(account_id, bucket).await.ok().flatten().is_some();
-        if !has_key {
-            if let Ok(meta) = store.head_object(bucket, key).await {
-                if is_marked_encrypted(&meta.user_metadata) {
-                    return Err(missing_identity(bucket));
-                }
-            }
-        }
-    }
-
-    let mut last_err: Option<AppError> = None;
-    let mut got = None;
-    for attempt in 0..MAX_ATTEMPTS {
-        if ctx.cancel.is_cancelled() {
-            last_err = Some(AppError::Canceled(format!("transfer {} canceled", ctx.transfer_id)));
-            break;
-        }
-        if attempt > 0 {
-            tokio::time::sleep(Duration::from_secs(1u64 << (attempt - 1))).await;
-        }
-        let mut o = opts.clone();
-        o.resume = false;
-        // Attempt 0 of a fresh enqueue must not trust a part file some other transfer left.
-        if resumable && (attempt > 0 || resume_part) {
-            if let Ok(meta) = tokio::fs::metadata(&part).await {
-                if meta.len() > 0 {
-                    o.range_start = Some(meta.len());
-                    o.resume = true;
-                    o.resume_unmodified_since = meta
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs() as i64);
-                }
-            }
-        }
-        match store
-            .get_object(bucket, key, part.clone(), o, ctx.clone())
-            .await
-        {
-            Ok(r) => {
-                got = Some(r);
-                break;
-            }
-            Err(e) => {
-                let again = e.is_retriable() && attempt + 1 < MAX_ATTEMPTS;
-                last_err = Some(e);
-                if !again {
-                    break;
-                }
-            }
-        }
-    }
-
-    let Some(res) = got else {
-        let err = last_err.expect("loop always sets last_err before giving up");
-        // Failed resumable downloads keep the part for retry; nothing else is worth keeping.
-        if matches!(err, AppError::Canceled(_)) || !resumable {
-            remove_download_temps(&part).await;
-        }
-        return Err(err);
-    };
-
-    let finish: AppResult<()> = async {
-        let marked = is_marked_encrypted(&res.user_metadata);
-        if !explicit_range && marked && has_age_magic(&part).await {
-            let secret = load_identity(account_id, bucket)
-                .await?
-                .ok_or_else(|| missing_identity(bucket))?;
-            let identity = crate::crypto::parse_identity(&secret)?;
-            let dec = sibling(dest, DEC_SUFFIX);
-            crate::crypto::decrypt_file(&part, &dec, identity).await?;
-            tokio::fs::rename(&dec, dest).await?;
-            let _ = tokio::fs::remove_file(&part).await;
-        } else {
-            if marked && !explicit_range {
-                tracing::warn!(key, "object marked encrypted but not age ciphertext; saved raw");
-            }
-            tokio::fs::rename(&part, dest).await?;
-        }
-        Ok(())
-    }
-    .await;
-    if finish.is_err() {
-        // dest was never touched; drop the ciphertext part and any partial plaintext.
-        remove_download_temps(&part).await;
-        let _ = tokio::fs::remove_file(sibling(dest, DEC_SUFFIX)).await;
-    }
-    finish
-}
-
-const PART_SUFFIX: &str = ".cosmog-part";
-const DEC_SUFFIX: &str = ".cosmog-dec";
-
-async fn remove_download_temps(part: &Path) {
-    let _ = tokio::fs::remove_file(part).await;
-    // Parallel GETs preallocate under this sibling name (see s3 get_object_parallel).
-    let _ = tokio::fs::remove_file(sibling(part, ".sparse")).await;
-}
-
-fn is_marked_encrypted(meta: &std::collections::HashMap<String, String>) -> bool {
-    meta.get("cosmog-encrypted").is_some_and(|v| v == "1")
-}
-
-async fn has_age_magic(path: &Path) -> bool {
-    use tokio::io::AsyncReadExt;
-    let mut header = vec![0u8; crate::crypto::AGE_MAGIC.len()];
-    match tokio::fs::File::open(path).await {
-        Ok(mut f) => f.read_exact(&mut header).await.is_ok() && crate::crypto::is_age_ciphertext(&header),
-        Err(_) => false,
-    }
-}
-
-async fn load_identity(account_id: &str, bucket: &str) -> AppResult<Option<String>> {
-    let aid = account_id.to_string();
-    let bkt = bucket.to_string();
-    tokio::task::spawn_blocking(move || crate::secrets::get_enc_identity(&aid, &bkt))
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?
-}
-
-fn missing_identity(bucket: &str) -> AppError {
-    AppError::EncryptionIdentityMissing(format!(
-        "identity for bucket '{bucket}' not present in the OS keychain. \
-         Import a previously exported identity file to decrypt this object."
-    ))
-}
-
-/// Shared multipart-progress journal: the in-memory resume snapshot plus the
-/// lock serializing its persistence to `transfers.parts_json`.
-struct PartsJournal {
-    db: crate::db::Db,
-    resume: Arc<Mutex<ResumeState>>,
-    db_lock: Arc<AsyncMutex<()>>,
-    /// Set at terminal; late spawned flushes must not resurrect a cleared upload_id.
-    closed: AtomicBool,
-}
-
-impl PartsJournal {
-    /// Persist the current snapshot; writers re-snapshot under `db_lock` so the last
-    /// write always wins and an older queued write can never clobber it.
-    async fn flush(&self, transfer_id: &str) {
-        let _guard = self.db_lock.lock().await;
-        if self.closed.load(Ordering::SeqCst) {
-            return;
-        }
-        let snapshot = self.resume.lock().unwrap().clone();
-        if snapshot.upload_id.is_empty() {
-            return;
-        }
-        let uid = Some(snapshot.upload_id.clone());
-        let _ = self
-            .db
-            .update_transfer_multipart(transfer_id, uid, &snapshot)
-            .await;
-    }
-
-    async fn close_and_clear(&self, transfer_id: &str) {
-        let _guard = self.db_lock.lock().await;
-        self.closed.store(true, Ordering::SeqCst);
-        let _ = self.db.clear_transfer_multipart(transfer_id).await;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Regression: resize-down recording the *target* while in-flight permits were
-    /// unreclaimable let later resize-ups exceed the configured limit.
-    #[tokio::test]
-    async fn resize_down_then_up_never_exceeds_limit() {
-        let sem = ResizableSemaphore::new(4);
-        let p1 = sem.acquire().await.unwrap();
-        let p2 = sem.acquire().await.unwrap();
-        let p3 = sem.acquire().await.unwrap();
-        let p4 = sem.acquire().await.unwrap();
-        assert_eq!(sem.available(), 0);
-
-        // All permits in flight: nothing reclaimable, but capacity must not shrink.
-        sem.resize(2);
-        assert_eq!(sem.current.lock().unwrap().clone(), 4);
-
-        drop((p1, p2, p3, p4));
-        // Permits are back; resize-up must not add any on top of them.
-        sem.resize(4);
-        assert_eq!(sem.available(), 4);
-
-        let mut held = Vec::new();
-        for _ in 0..4 {
-            held.push(sem.acquire().await.unwrap());
-        }
-        assert!(
-            sem.sem.try_acquire().is_err(),
-            "capacity exceeded the limit after resize down+up"
-        );
-
-        drop(held);
-        sem.resize(2);
-        assert_eq!(sem.available(), 2);
-    }
 }

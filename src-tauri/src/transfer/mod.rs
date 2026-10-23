@@ -3,6 +3,9 @@
 
 pub mod encrypt;
 pub mod manager;
+mod semaphore;
+mod sink;
+mod worker;
 
 use std::sync::Arc;
 

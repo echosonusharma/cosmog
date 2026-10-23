@@ -23,7 +23,7 @@ Desktop and Android app for managing S3-compatible object storage. Tauri 2, Soli
 | `NwTreePicker` | SAF tree picker bridge, polled from Rust |
 | `SecretStore` | EncryptedSharedPreferences backed by Android Keystore |
 
-Rust side: `saf.rs` (SAF upload staging, download finalize, tree walk) and `night_watcher_headless.rs`. Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8 cannot see JNI call sites). The generated Android project is committed under `src-tauri/gen/android/`.
+Rust side: `saf/` (`read` upload staging + hashing, `write` download finalize, `tree` walk, `picker`, `service`) and `night_watcher_headless.rs`. Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8 cannot see JNI call sites). The generated Android project is committed under `src-tauri/gen/android/`.
 
 ---
 
@@ -63,12 +63,12 @@ src/
   styles/     CSS, one file per feature area
 src-tauri/
   src/commands/   Tauri command handlers, one file per domain (full list: invoke_handler in lib.rs)
-  src/db/         SQLite schema + domain methods
-  src/store/      ObjectStore trait + S3Store (logging, region retry, Android TLS)
-  src/transfer/   TransferManager, worker pool, encrypt
+  src/db/         SQLite schema + domain methods (cache/: objects, index, browse, search, facets, stats)
+  src/store/      ObjectStore trait + S3Store (s3/: download, upload, copy, classify), logging, region retry, Android TLS
+  src/transfer/   TransferManager (manager), worker, sink (progress + parts journal), semaphore, encrypt
   src/mcp/        Local MCP server (desktop only): mod, auth, tools, format
   src/crypto.rs, secrets.rs, state.rs, scheduler.rs (auto-reindex), app_lifecycle.rs (tray/background-run)
-  src/night_watcher.rs, night_watcher_headless.rs, saf.rs, sync.rs, bulk.rs
+  src/night_watcher/ (scan, reconcile, upload, fs, desktop), night_watcher_headless.rs, saf/, sync.rs, bulk.rs
   tests/          Integration tests (Night Watcher e2e needs --features nw-test-hooks)
 ```
 
@@ -96,14 +96,14 @@ Per-bucket and transparent, using the [age format](https://age-encryption.org) (
 
 One-way background sync of a local directory to an S3 prefix. Local deletes only drop the state row (`delete_policy = "keep"`); remote objects are never deleted.
 
-**Core (`night_watcher.rs`):** a periodic full scan per watch (`full_scan_secs`, default 300) is the source of truth. Change detection is an `mtime + size` fast path; on a miss the file is hashed (blake3). Changed files go through the normal encrypt/enqueue upload path; `nw_file_state` records the fingerprint on completion, `nw_file_retry` backs off failing files. The core is generic over an `NwCtx` trait, so it runs without a `tauri::AppHandle`.
+**Core (`night_watcher/`):** a periodic full scan per watch (`full_scan_secs`, default 300) is the source of truth. Change detection is an `mtime + size` fast path; on a miss the file is hashed (blake3). Changed files go through the normal encrypt/enqueue upload path; `nw_file_state` records the fingerprint on completion, `nw_file_retry` backs off failing files. The core is generic over an `NwCtx` trait, so it runs without a `tauri::AppHandle`.
 
 **Desktop:** runs in-process, plus a `notify` watcher as a near-instant accelerator. `app_lifecycle.rs` keeps the process alive after the window closes (tray, close-to-hide, `autostart --hidden`) while an enabled watch or the MCP server exists (`should_background()`). With no system tray, closing the window quits.
 
 **Android:** directories are SAF `content://` trees (no inotify), so it relies on the periodic scan. It runs in `NightWatchService` (`:nightwatch` process), not the main process, because wry calls `process::exit(0)` when the Activity is destroyed.
 
 - Both processes open the same SQLite file (path from JNI `context.getDataDir()`); WAL + `busy_timeout=5000` cover it. Only the `:nightwatch` process runs the loop, so `nw_file_state` has one writer.
-- The SAF tree is walked via `DocumentsContract` (JNI in `saf.rs`); changed documents are staged under `<data_dir>/nw_stage/` before upload.
+- The SAF tree is walked via `DocumentsContract` (JNI in `saf/tree.rs`); changed documents are staged under `<data_dir>/nw_stage/` before upload.
 - `START_STICKY` recreates the service after an LMK kill. Android 14+ caps dataSync services at ~6h: `onTimeout` stops cleanly and an exact alarm (`NwRestartReceiver`) re-arms, with the next foreground resume as fallback.
 
 ## MCP Server
