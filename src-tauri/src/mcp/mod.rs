@@ -179,6 +179,10 @@ async fn handle_post(State(ctx): State<Arc<McpCtx>>, headers: HeaderMap, body: B
     };
 
     // Single JSON-RPC message only: batching removed in the 2025-06-18 transport.
+    // An array has no top-level id and would otherwise be acked as a notification, leaving the client waiting.
+    if value.is_array() {
+        return json_response(&rpc_error(Value::Null, -32600, "batch requests are not supported"));
+    }
     match process_message(&ctx, &headers, &value).await {
         Some((status, r)) => json_status(status, &r),
         None => accepted(),

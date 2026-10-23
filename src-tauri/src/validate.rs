@@ -91,5 +91,31 @@ pub async fn validate_download_dest(local_path: &str) -> AppResult<PathBuf> {
             parent.display()
         )));
     }
+    // The worker writes `<dest>.cosmog-part` beside dest, so a directory dest would write outside it and then fail.
+    if tokio::fs::metadata(path).await.map(|m| m.is_dir()).unwrap_or(false) {
+        return Err(AppError::InvalidInput(format!(
+            "local_path is a directory, give a file path: {}",
+            path.display()
+        )));
+    }
     Ok(path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn download_dest_rejects_directories_and_missing_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let err = validate_download_dest(&root).await.unwrap_err();
+        assert!(err.to_string().contains("is a directory"), "{err}");
+
+        let file = dir.path().join("out.bin");
+        assert_eq!(validate_download_dest(&file.to_string_lossy()).await.unwrap(), file);
+
+        let orphan = dir.path().join("missing/out.bin");
+        assert!(validate_download_dest(&orphan.to_string_lossy()).await.is_err());
+    }
 }

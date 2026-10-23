@@ -301,6 +301,7 @@ async fn objects_search(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let recursive = bopt(args, "recursive").unwrap_or(true);
     let limit = iopt(args, "limit").unwrap_or(200).clamp(1, 1000) as u32;
     let cursor = iopt(args, "cursor");
+    let synced_at = indexed_at(ctx, &account, &bucket).await?;
 
     let scope = match prefix {
         Some(p) => SearchScope::Prefix { prefix: p, recursive },
@@ -333,7 +334,11 @@ async fn objects_search(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let (csv, rendered, budget) =
         format::csv_table(&["key", "size", "last_modified", "storage_class"], &rows);
     let next = res.next_cursor.map(|c| c.to_string());
-    Ok(format::listing(csv, rendered, next.is_some(), next, budget))
+    let mut out = format::listing(csv, rendered, next.is_some(), next, budget);
+    if let Some(text) = out["content"][0]["text"].as_str() {
+        out["content"][0]["text"] = json!(format!("{text}\nindex_synced_at: {synced_at}"));
+    }
+    Ok(out)
 }
 
 async fn object_head(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
@@ -359,8 +364,9 @@ async fn object_head(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
 async fn bucket_stats(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let account = sreq(args, "account_id")?;
     let bucket = sreq(args, "bucket_name")?;
+    let synced_at = indexed_at(ctx, &account, &bucket).await?;
     let s = ctx.state.db.bucket_stats(&account, &bucket).await.map_err(map_err)?;
-    let mut out = String::new();
+    let mut out = format!("index_synced_at: {synced_at}\n");
     out.push_str(&format!("object_count: {}\n", s.object_count));
     out.push_str(&format!("total_bytes: {}\n", s.total_bytes));
     out.push_str(&format!("distinct_extensions: {}\n", s.extension_count));
@@ -509,6 +515,17 @@ fn check_account(ctx: &McpCtx, acct: &str) -> Result<(), Value> {
         )));
     }
     Ok(())
+}
+
+/// Search and stats read the local index; without a full scan they would pass off browse-cached rows as complete.
+async fn indexed_at(ctx: &McpCtx, account: &str, bucket: &str) -> Result<i64, Value> {
+    let status = ctx.state.db.bucket_index_get(account, bucket).await.map_err(map_err)?;
+    match status.last_full_sync_at {
+        Some(ts) if status.enabled => Ok(ts),
+        _ => Err(format::error(
+            "this bucket is not indexed. Enable indexing for it in the Cosmog app and wait for the first scan, or use s3_objects_list.",
+        )),
+    }
 }
 
 fn require_root(ctx: &McpCtx) -> Result<&std::path::Path, Value> {
