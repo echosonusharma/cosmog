@@ -301,7 +301,7 @@ async fn objects_search(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let recursive = bopt(args, "recursive").unwrap_or(true);
     let limit = iopt(args, "limit").unwrap_or(200).clamp(1, 1000) as u32;
     let cursor = iopt(args, "cursor");
-    let synced_at = indexed_at(ctx, &account, &bucket).await?;
+    let (synced_at, _) = indexed_at(ctx, &account, &bucket).await?;
 
     let scope = match prefix {
         Some(p) => SearchScope::Prefix { prefix: p, recursive },
@@ -364,10 +364,12 @@ async fn object_head(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
 async fn bucket_stats(ctx: &McpCtx, args: &Value) -> Result<Value, Value> {
     let account = sreq(args, "account_id")?;
     let bucket = sreq(args, "bucket_name")?;
-    let synced_at = indexed_at(ctx, &account, &bucket).await?;
+    let (synced_at, index_count) = indexed_at(ctx, &account, &bucket).await?;
     let s = ctx.state.db.bucket_stats(&account, &bucket).await.map_err(map_err)?;
     let mut out = format!("index_synced_at: {synced_at}\n");
-    out.push_str(&format!("object_count: {}\n", s.object_count));
+    // Live cache count drifts from the scan snapshot as objects change.
+    out.push_str(&format!("index_object_count: {index_count}\n"));
+    out.push_str(&format!("cached_object_count: {}\n", s.object_count));
     out.push_str(&format!("total_bytes: {}\n", s.total_bytes));
     out.push_str(&format!("distinct_extensions: {}\n", s.extension_count));
     out.push_str("top_storage_classes:\n");
@@ -518,10 +520,11 @@ fn check_account(ctx: &McpCtx, acct: &str) -> Result<(), Value> {
 }
 
 /// Search and stats read the local index; without a full scan they would pass off browse-cached rows as complete.
-async fn indexed_at(ctx: &McpCtx, account: &str, bucket: &str) -> Result<i64, Value> {
+/// Last full-scan time and object count at that scan.
+async fn indexed_at(ctx: &McpCtx, account: &str, bucket: &str) -> Result<(i64, i64), Value> {
     let status = ctx.state.db.bucket_index_get(account, bucket).await.map_err(map_err)?;
     match status.last_full_sync_at {
-        Some(ts) if status.enabled => Ok(ts),
+        Some(ts) if status.enabled => Ok((ts, status.object_count)),
         _ => Err(format::error(
             "this bucket is not indexed. Enable indexing for it in the Cosmog app and wait for the first scan, or use s3_objects_list.",
         )),

@@ -427,7 +427,10 @@ impl ObjectStore for S3Store {
             size: resp.content_length().unwrap_or_default(),
             etag: resp.e_tag().map(|s| s.to_string()),
             last_modified: resp.last_modified().map(|d| d.secs()),
-            storage_class: resp.storage_class().map(|s| s.as_str().to_string()),
+            // S3 omits the header for STANDARD objects.
+            storage_class: Some(
+                resp.storage_class().map_or("STANDARD", |s| s.as_str()).to_string(),
+            ),
             content_type: resp.content_type().map(|s| s.to_string()),
             version_id: resp.version_id().map(|s| s.to_string()),
             user_metadata,
