@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "Выйти из фоновой синхронизации",
   "nightwatcher.intro.lead": "Дозор, который не спит",
   "nightwatcher.intro.body": "Night Watcher охраняет папку, храня её надёжную копию в вашем бакете и односторонне синхронизируя каждое изменение сразу по мере появления.",
+  "nightwatcher.alarms.body": "Android ежедневно приостанавливает фоновую синхронизацию и не даёт Night Watcher перезапуститься, пока Cosmog не разрешено ставить будильники. Без этого синхронизация возобновится при следующем открытии приложения.",
+  "nightwatcher.alarms.action": "Разрешить будильники",
   "nightwatcher.watched.title": "Отслеживаемые папки",
   "nightwatcher.watched.loading": "Загрузка наблюдений…",
   "nightwatcher.watched.empty": "Пока нет отслеживаемых папок. Добавьте первую ниже.",

@@ -453,6 +453,8 @@ pub fn run() {
             commands::night_watcher::nw_set_watch_enabled,
             commands::night_watcher::nw_get_status,
             commands::night_watcher::nw_pick_tree,
+            commands::night_watcher::nw_can_schedule_exact_alarms,
+            commands::night_watcher::nw_request_exact_alarms,
 
             get_device_info,
 

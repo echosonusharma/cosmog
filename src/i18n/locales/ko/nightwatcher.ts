@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "백그라운드 동기화 종료",
   "nightwatcher.intro.lead": "잠들지 않는 파수꾼",
   "nightwatcher.intro.body": "Night Watcher는 디렉터리의 안전한 사본을 버킷에 보관하며, 변경 사항이 생길 때마다 단방향으로 동기화해 지켜 줘요.",
+  "nightwatcher.alarms.body": "Cosmog에 알람 설정을 허용하지 않으면 Android는 매일 백그라운드 동기화를 일시 중지하고 Night Watcher가 스스로 다시 시작하지 못하게 합니다. 허용하지 않으면 앱을 다시 열 때 동기화가 재개됩니다.",
+  "nightwatcher.alarms.action": "알람 허용",
   "nightwatcher.watched.title": "감시 중인 디렉터리",
   "nightwatcher.watched.loading": "감시 목록을 불러오는 중…",
   "nightwatcher.watched.empty": "아직 감시 중인 디렉터리가 없어요. 아래에서 추가해 주세요.",

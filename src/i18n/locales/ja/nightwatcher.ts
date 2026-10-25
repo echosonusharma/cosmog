@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "バックグラウンド同期を終了",
   "nightwatcher.intro.lead": "眠らない番人",
   "nightwatcher.intro.body": "Night Watcher はディレクトリを見守り、バケットに安全なコピーを保ちます。変更が起きるたびに一方向で同期します。",
+  "nightwatcher.alarms.body": "アラームの設定を許可しないかぎり、Android は毎日バックグラウンド同期を一時停止し、Night Watcher の自動再開も阻止します。許可しない場合、同期は次にアプリを開いたときに再開します。",
+  "nightwatcher.alarms.action": "アラームを許可",
   "nightwatcher.watched.title": "監視中のディレクトリ",
   "nightwatcher.watched.loading": "ウォッチを読み込み中…",
   "nightwatcher.watched.empty": "監視中のディレクトリはまだありません。下から追加してください。",

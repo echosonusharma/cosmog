@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "Quit background sync",
   "nightwatcher.intro.lead": "The watch that never sleeps",
   "nightwatcher.intro.body": "Night Watcher guards a directory by keeping a safe copy in your bucket, syncing every change one-way as it happens.",
+  "nightwatcher.alarms.body": "Android pauses background sync daily, and blocks Night Watcher from restarting itself, unless Cosmog is allowed to set alarms. Without it, syncing resumes the next time you open the app.",
+  "nightwatcher.alarms.action": "Allow alarms",
   "nightwatcher.watched.title": "Watched directories",
   "nightwatcher.watched.loading": "Loading watches…",
   "nightwatcher.watched.empty": "No directories are being watched yet. Add one below.",

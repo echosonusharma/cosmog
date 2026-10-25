@@ -57,3 +57,9 @@ export const nwPickTree = (): Promise<{ uri: string; display_name: string }> =>
 
 export const nwQuitBackground = (): Promise<void> =>
   invoke("nw_quit_background");
+
+export const nwCanScheduleExactAlarms = (): Promise<boolean> =>
+  invoke("nw_can_schedule_exact_alarms");
+
+export const nwRequestExactAlarms = (): Promise<void> =>
+  invoke("nw_request_exact_alarms");

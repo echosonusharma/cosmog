@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "退出后台同步",
   "nightwatcher.intro.lead": "永不眠的守望者",
   "nightwatcher.intro.body": "Night Watcher 会守护一个目录,在你的存储桶中保存安全副本,并在每次变更发生时单向同步。",
+  "nightwatcher.alarms.body": "除非允许 Cosmog 设置闹钟,否则 Android 每天都会暂停后台同步,并阻止 Night Watcher 自行重启。未授权时,同步将在你下次打开应用时恢复。",
+  "nightwatcher.alarms.action": "允许闹钟",
   "nightwatcher.watched.title": "受监视的目录",
   "nightwatcher.watched.loading": "正在加载监视…",
   "nightwatcher.watched.empty": "尚未监视任何目录。请在下方添加。",

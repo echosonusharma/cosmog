@@ -221,3 +221,19 @@ pub async fn nw_get_status(state: State<'_, AppState>) -> AppResult<Vec<WatchSta
     }
     Ok(out)
 }
+
+/// Android: whether the OS lets us schedule exact alarms. Without the grant,
+/// Night Watcher cannot restart itself and waits for the next app open.
+/// Always true off Android.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn nw_can_schedule_exact_alarms(_state: State<'_, AppState>) -> AppResult<bool> {
+    crate::saf::nw_can_schedule_exact_alarms().map_err(AppError::Internal)
+}
+
+/// Android: open the system "Alarms & reminders" screen so the user can grant it.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn nw_request_exact_alarms(_state: State<'_, AppState>) -> AppResult<()> {
+    crate::saf::nw_request_exact_alarms().map_err(AppError::Internal)
+}

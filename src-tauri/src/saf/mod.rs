@@ -10,7 +10,10 @@ pub use picker::{nw_pick_tree, SafTree};
 pub use read::{hash_saf_document, stage_saf_upload, SafStagedUpload};
 #[cfg(target_os = "android")]
 pub use service::nw_wakelock_idle;
-pub use service::{nw_wakelock_heartbeat, set_nightwatch_boot_flag, set_nightwatch_service, set_transfer_service};
+pub use service::{
+    nw_can_schedule_exact_alarms, nw_request_exact_alarms, nw_wakelock_heartbeat,
+    set_nightwatch_boot_flag, set_nightwatch_service, set_transfer_service,
+};
 pub use tree::{collect_tree_files, release_tree_permission, SafEntry};
 pub use write::{delete_saf_document, finalize_saf_download};
 

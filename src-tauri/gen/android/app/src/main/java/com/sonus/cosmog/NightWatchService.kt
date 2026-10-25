@@ -54,17 +54,31 @@ class NightWatchService : Service() {
             stopSelf()
             return
         }
+        foregrounded = true
 
-        // Kick the headless Rust sync loop in this process. Guarded so a native
-        // failure never crashes the service.
+        startLoop()
+    }
+
+    // Kick the headless Rust sync loop in this process. Guarded so a native
+    // failure never crashes the service.
+    private fun startLoop() {
         try {
             startNwSync()
+            syncing = true
         } catch (t: Throwable) {
             android.util.Log.w("NightWatchService", "startNwSync failed: $t")
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Also runs when onCreate bailed on a refused startForeground, hence the gate.
+        if (foregrounded) {
+            // A start aimed at a live service skips onCreate, the only other place
+            // the loop is kicked, so an idle service gets another chance here.
+            if (!syncing) startLoop()
+            // Only a running loop discharges a deferred resume.
+            if (syncing) setBootPending(this, false)
+        }
         // Sticky: this runs in its own :nightwatch process with no Activity, so
         // an LMK kill would otherwise leave background sync dead until the user
         // reopens the app. START_STICKY has the OS recreate the service (onCreate
@@ -93,6 +107,7 @@ class NightWatchService : Service() {
         android.util.Log.w("NightWatchService", "dataSync FGS timed out; rescheduling")
         setBootPending(this, true)
         scheduleRestart(this)
+        syncing = false
         try {
             stopNwSync()
         } catch (t: Throwable) {
@@ -104,6 +119,8 @@ class NightWatchService : Service() {
     }
 
     override fun onDestroy() {
+        foregrounded = false
+        syncing = false
         try {
             stopNwSync()
         } catch (t: Throwable) {
@@ -121,6 +138,13 @@ class NightWatchService : Service() {
         // it this long after the LAST acquire/heartbeat, so a dead loop cannot
         // pin the CPU. The Rust loop heartbeats well inside this window.
         private const val WAKELOCK_TIMEOUT_MS = 10L * 60L * 1000L
+
+        // Companion-held like the wakelock below: one instance, dedicated process.
+        @Volatile
+        private var foregrounded = false
+
+        @Volatile
+        private var syncing = false
 
         // Held in the companion (not per-instance) so the Rust heartbeat can
         // re-acquire it without a live service reference. This process is the
@@ -247,6 +271,42 @@ class NightWatchService : Service() {
         private const val RESTART_DELAY_MS = 60L * 60L * 1000L
         private const val RESTART_REQ = 424244
 
+        // Boot hop delay: long enough to be out of the boot broadcast, short
+        // enough not to lose a morning of sync.
+        const val BOOT_RESTART_DELAY_MS = 15L * 1000L
+
+        // Not pre-granted to fresh installs targeting A13+. Without it every restart
+        // alarm is inexact, and an inexact alarm carries no FGS-start allowlist.
+        @JvmStatic
+        fun canScheduleExactAlarms(ctx: Context): Boolean = try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                true
+            } else {
+                val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                am.canScheduleExactAlarms()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("NightWatchService", "canScheduleExactAlarms failed: $t")
+            false
+        }
+
+        // Opens the system "Alarms & reminders" screen; the grant exists only there.
+        // False when nothing handled it (some OEM ROMs), so the UI can say so.
+        @JvmStatic
+        fun requestExactAlarms(ctx: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+            return try {
+                val i = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    .setData(android.net.Uri.fromParts("package", ctx.packageName, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(i)
+                true
+            } catch (t: Throwable) {
+                android.util.Log.w("NightWatchService", "requestExactAlarms failed: $t")
+                false
+            }
+        }
+
         private fun restartPendingIntent(ctx: Context): PendingIntent {
             val i = Intent(ctx, NwRestartReceiver::class.java)
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -259,12 +319,13 @@ class NightWatchService : Service() {
         // start an FGS from the background; an inexact one would not, so fall back
         // to that only when exact alarms are unavailable and rely on boot-pending.
         @JvmStatic
-        fun scheduleRestart(ctx: Context) {
+        @JvmOverloads
+        fun scheduleRestart(ctx: Context, delayMs: Long = RESTART_DELAY_MS) {
             try {
                 val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                val at = SystemClock.elapsedRealtime() + RESTART_DELAY_MS
+                val at = SystemClock.elapsedRealtime() + delayMs
                 val pi = restartPendingIntent(ctx)
-                val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+                val exact = canScheduleExactAlarms(ctx)
                 if (exact) {
                     am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pi)
                 } else {
@@ -339,8 +400,9 @@ class NightWatchService : Service() {
         fun resumeIfPending(ctx: Context) {
             if (!isEnabled(ctx)) return
             if (readFlag(ctx, KEY_BOOT_PENDING) != true) return
+            // Cleared by the service itself once its loop runs, not here: this start
+            // can still be refused, and then the flag is the only thing left.
             start(ctx)
-            setBootPending(ctx, false)
         }
     }
 }
