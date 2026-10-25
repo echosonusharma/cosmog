@@ -105,6 +105,7 @@ One-way background sync of a local directory to an S3 prefix. Local deletes only
 - Both processes open the same SQLite file (path from JNI `context.getDataDir()`); WAL + `busy_timeout=5000` cover it. Only the `:nightwatch` process runs the loop, so `nw_file_state` has one writer.
 - The SAF tree is walked via `DocumentsContract` (JNI in `saf/tree.rs`); changed documents are staged under `<data_dir>/nw_stage/` before upload.
 - `START_STICKY` recreates the service after an LMK kill. Android 14+ caps dataSync services at ~6h: `onTimeout` stops cleanly and an exact alarm (`NwRestartReceiver`) re-arms, with the next foreground resume as fallback.
+- Reboot resume: `BOOT_COMPLETED` is an FGS-start exemption up to Android 14, so `BootReceiver` starts the service directly, no permission needed. Android 15+ forbids a boot receiver from starting a `dataSync` FGS, so it arms a 15s alarm and `NwRestartReceiver` does the start, an alarm being an exemption. That hop and the hourly timeout restart both need `SCHEDULE_EXACT_ALARM`, which is not pre-granted to fresh installs targeting Android 13+: the Night Watcher page prompts for it (`nw_can_schedule_exact_alarms` / `nw_request_exact_alarms`) when it is missing, and without it a restart waits for the next app open. `nw_boot_pending` tracks that, set by the receiver and cleared by the service only once its sync loop is running, so a refused start keeps the fallback armed.
 
 ## MCP Server
 

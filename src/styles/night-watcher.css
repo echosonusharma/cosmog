@@ -70,6 +70,27 @@
   background: color-mix(in srgb, var(--red) 8%, var(--bg-elev-1));
 }
 
+.nw-alarm-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nw-alarm-btn {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.nw-alarm-btn:hover { border-color: var(--accent-line); }
+
 /* ── watch list ─────────────────────────────────────────────────────────── */
 
 .nw-list { display: flex; flex-direction: column; gap: 10px; }

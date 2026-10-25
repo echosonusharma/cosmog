@@ -10,26 +10,22 @@ import android.os.Build
  * Watcher enabled. Registered for BOOT_COMPLETED and LOCKED_BOOT_COMPLETED so
  * it fires whether or not the device is unlocked.
  *
- * A12+ (API 31+) restriction: starting a dataSync foreground service from
- * BOOT_COMPLETED is not an allowed background-start exemption and throws
- * ForegroundServiceStartNotAllowedException, which would crash the resume. The
- * sanctioned fix is a WorkManager expedited worker, but WorkManager is not a
- * declared dependency of this module (and build.gradle.kts is out of scope for
- * this change), so we cannot enqueue one here. Fallback: on A12+ we defer the
- * FGS start by persisting a "boot pending" flag, which MainActivity.onResume
- * consumes the next time the app is foregrounded (an allowed start context).
- * Pre-A12 we start immediately as before.
+ * The boot broadcast is itself an exemption from the A12+ background FGS-start
+ * restriction, so up to A14 we just start. A15 forbids a boot receiver from
+ * starting a dataSync FGS, so there we hop through a short exact alarm, which
+ * is still an exemption. Exact alarms denied leaves nothing legal to try: the
+ * pending flag hands it to the next app open.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         try {
             if (!NightWatchService.isEnabled(context)) return
+            NightWatchService.setBootPending(context, true)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Cannot legally start a dataSync FGS from boot on A12+.
-                NightWatchService.setBootPending(context, true)
-            } else {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                 NightWatchService.start(context)
+            } else if (NightWatchService.canScheduleExactAlarms(context)) {
+                NightWatchService.scheduleRestart(context, NightWatchService.BOOT_RESTART_DELAY_MS)
             }
         } catch (t: Throwable) {
             android.util.Log.w("BootReceiver", "boot relaunch failed: $t")

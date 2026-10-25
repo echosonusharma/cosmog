@@ -13,7 +13,7 @@ import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
 import {
   nwListWatches, nwAddWatch, nwDeleteWatch, nwSetWatchEnabled, nwGetStatus,
-  nwPickTree, nwQuitBackground,
+  nwPickTree, nwQuitBackground, nwCanScheduleExactAlarms, nwRequestExactAlarms,
 } from "../api/nightWatcher";
 import type { NightWatch, WatchStatus } from "../types";
 import { nightWatchAddSchema, parseSchema } from "../validation";
@@ -51,6 +51,8 @@ export default function NightWatcher() {
   const [watches, setWatches] = createStore<{ list: NightWatch[]; loaded: boolean }>({ list: [], loaded: false });
   const [status, setStatus] = createStore<{ list: WatchStatus[] }>({ list: [] });
   const [accounts] = createResource(listAccounts);
+  // Assume granted until told otherwise, so the warning never flashes on load.
+  const [alarmsOk, setAlarmsOk] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
 
   async function refetchWatches() {
@@ -59,6 +61,12 @@ export default function NightWatcher() {
       setWatches("list", reconcile(w, { key: "id" }));
       setWatches("loaded", true);
     } catch { /* keep previous list on a transient poll error */ }
+  }
+  async function refetchAlarms() {
+    if (!IS_MOBILE_OS) return;
+    try {
+      setAlarmsOk(await nwCanScheduleExactAlarms());
+    } catch { /* leave the last known answer */ }
   }
   async function refetchStatus() {
     try {
@@ -92,7 +100,17 @@ export default function NightWatcher() {
       refetchWatches();
       refetchStatus();
     }, 2500);
-    onCleanup(() => clearInterval(t));
+    // On focus rather than on the interval: only the user coming back from the
+    // settings screen can change the answer.
+    refetchAlarms();
+    const onVisible = () => { if (!document.hidden) refetchAlarms(); };
+    window.addEventListener("focus", refetchAlarms);
+    document.addEventListener("visibilitychange", onVisible);
+    onCleanup(() => {
+      clearInterval(t);
+      window.removeEventListener("focus", refetchAlarms);
+      document.removeEventListener("visibilitychange", onVisible);
+    });
   });
 
   const statusFor = (id: string): WatchStatus | undefined =>
@@ -121,6 +139,12 @@ export default function NightWatcher() {
       if (errCode(e) === "canceled") return;
       toast.err(e);
     }
+  }
+
+  async function allowAlarms() {
+    try {
+      await nwRequestExactAlarms();
+    } catch (e) { toast.err(e); }
   }
 
   async function quitBackground() {
@@ -201,6 +225,15 @@ export default function NightWatcher() {
             </span>
           </div>
         </div>
+
+        <Show when={IS_MOBILE_OS && !alarmsOk() && watches.list.some((w) => w.enabled)}>
+          <div class="nw-note nw-note-warn nw-alarm-note" role="alert">
+            <span>{t("nightwatcher.alarms.body")}</span>
+            <button class="nw-alarm-btn" onClick={allowAlarms}>
+              {t("nightwatcher.alarms.action")}
+            </button>
+          </div>
+        </Show>
 
         <div class="settings-section">
           <div class="settings-section-title">{t("nightwatcher.watched.title")}</div>

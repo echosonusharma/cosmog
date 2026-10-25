@@ -10,6 +10,8 @@ export default {
   "nightwatcher.quit": "Salir de la sincronización en segundo plano",
   "nightwatcher.intro.lead": "La guardia que nunca duerme",
   "nightwatcher.intro.body": "Night Watcher protege un directorio manteniendo una copia segura en tu bucket y sincronizando cada cambio en un solo sentido en cuanto ocurre.",
+  "nightwatcher.alarms.body": "Android pausa la sincronización en segundo plano a diario e impide que Night Watcher se reinicie solo, a menos que permitas que Cosmog programe alarmas. Sin ese permiso, la sincronización se reanuda la próxima vez que abras la app.",
+  "nightwatcher.alarms.action": "Permitir alarmas",
   "nightwatcher.watched.title": "Directorios vigilados",
   "nightwatcher.watched.loading": "Cargando vigilancias…",
   "nightwatcher.watched.empty": "Aún no se vigila ningún directorio. Añade uno abajo.",
