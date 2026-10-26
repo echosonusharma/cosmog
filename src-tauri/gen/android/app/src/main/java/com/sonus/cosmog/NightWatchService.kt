@@ -29,7 +29,8 @@ class NightWatchService : Service() {
     // Implemented in Rust (night_watcher_headless.rs). Runs in THIS (:nightwatch)
     // process, independent of the Tauri/wry Activity, so background sync survives
     // the Activity being destroyed. Idempotent on the Rust side.
-    private external fun startNwSync()
+    // False = loop did not come up; Rust fails without throwing.
+    private external fun startNwSync(): Boolean
     private external fun stopNwSync()
 
     override fun onCreate() {
@@ -49,25 +50,45 @@ class NightWatchService : Service() {
                 startForeground(FG_NOTIFICATION_ID, notif)
             }
         } catch (t: Throwable) {
-            android.util.Log.w("NightWatchService", "startForeground refused: $t")
+            armRetry("startForeground refused: $t")
             releaseWakelock()
             stopSelf()
             return
         }
         foregrounded = true
 
-        startLoop()
+        if (!startLoop()) bailToRetry()
     }
 
     // Kick the headless Rust sync loop in this process. Guarded so a native
     // failure never crashes the service.
-    private fun startLoop() {
-        try {
+    private fun startLoop(): Boolean {
+        syncing = try {
             startNwSync()
-            syncing = true
         } catch (t: Throwable) {
             android.util.Log.w("NightWatchService", "startNwSync failed: $t")
+            false
         }
+        return syncing
+    }
+
+    // Every failure path re-arms: dying quietly leaves sync off with nothing
+    // scheduled and nothing for the next app open to consume.
+    private fun armRetry(reason: String) {
+        android.util.Log.w("NightWatchService", "$reason; retrying later")
+        setBootPending(this, true)
+        scheduleRestart(this, nextRetryDelayMs(this))
+        // Gates onStartCommand, so a start aimed at this dying instance is ignored.
+        foregrounded = false
+    }
+
+    // No loop: drop the foreground state rather than show an "active" notification
+    // over a dead service.
+    private fun bailToRetry() {
+        armRetry("sync loop did not start")
+        releaseWakelock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -77,7 +98,12 @@ class NightWatchService : Service() {
             // the loop is kicked, so an idle service gets another chance here.
             if (!syncing) startLoop()
             // Only a running loop discharges a deferred resume.
-            if (syncing) setBootPending(this, false)
+            if (syncing) {
+                clearRetryCount(this)
+                setBootPending(this, false)
+            } else {
+                bailToRetry()
+            }
         }
         // Sticky: this runs in its own :nightwatch process with no Activity, so
         // an LMK kill would otherwise leave background sync dead until the user
@@ -108,6 +134,9 @@ class NightWatchService : Service() {
         setBootPending(this, true)
         scheduleRestart(this)
         syncing = false
+        // Same gate as armRetry: this instance is dying, so a start landing between
+        // here and onDestroy must not clear the pending flag on it.
+        foregrounded = false
         try {
             stopNwSync()
         } catch (t: Throwable) {
@@ -203,9 +232,10 @@ class NightWatchService : Service() {
 
         const val PREFS_NAME = "cosmog_nw"
         const val KEY_ENABLED = "nw_enabled"
-        // Set by BootReceiver on A12+ when it cannot start the dataSync FGS at
-        // boot (see BootReceiver). Consumed by resumeIfPending() on next launch.
+        // Set whenever a resume is deferred or a start fails; cleared by
+        // onStartCommand once the Rust loop is confirmed up.
         const val KEY_BOOT_PENDING = "nw_boot_pending"
+        const val KEY_RETRY_COUNT = "nw_retry_count"
 
         private fun ensureChannel(ctx: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -243,20 +273,31 @@ class NightWatchService : Service() {
                 .build()
         }
 
+        // False when the OS refused the start.
         @JvmStatic
-        fun start(ctx: Context) {
+        fun start(ctx: Context): Boolean {
             // Android 12+ throws ForegroundServiceStartNotAllowedException when
             // the app is backgrounded. Never let that propagate across JNI.
-            try {
+            return try {
                 val intent = Intent(ctx, NightWatchService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     ctx.startForegroundService(intent)
                 } else {
                     ctx.startService(intent)
                 }
+                true
             } catch (t: Throwable) {
                 android.util.Log.w("NightWatchService", "start refused: $t")
+                false
             }
+        }
+
+        // Refused start re-arms instead of ending the chain.
+        @JvmStatic
+        fun startOrRetry(ctx: Context) {
+            if (start(ctx)) return
+            setBootPending(ctx, true)
+            scheduleRestart(ctx, nextRetryDelayMs(ctx))
         }
 
         @JvmStatic
@@ -274,6 +315,23 @@ class NightWatchService : Service() {
         // Boot hop delay: long enough to be out of the boot broadcast, short
         // enough not to lose a morning of sync.
         const val BOOT_RESTART_DELAY_MS = 15L * 1000L
+
+        // Refused start / failed loop: causes are usually transient, and a failed
+        // attempt burns almost no dataSync budget.
+        const val FAILED_START_RETRY_MS = 5L * 60L * 1000L
+        private const val MAX_RETRY_SHIFT = 4
+
+        // 5m, 10m, 20m, 40m, 80m, then flat, so a permanent cause stops waking the
+        // device every 5. On disk, not in a static: startOrRetry runs in the main
+        // process, which the OS reclaims between alarms, and the reset runs in
+        // :nightwatch, so an in-memory counter would never survive or be seen.
+        private fun nextRetryDelayMs(ctx: Context): Long {
+            val n = readRaw(ctx, KEY_RETRY_COUNT)?.toIntOrNull() ?: 0
+            writeRaw(ctx, KEY_RETRY_COUNT, (n + 1).toString())
+            return FAILED_START_RETRY_MS shl minOf(n, MAX_RETRY_SHIFT)
+        }
+
+        private fun clearRetryCount(ctx: Context) = writeRaw(ctx, KEY_RETRY_COUNT, "0")
 
         // Not pre-granted to fresh installs targeting A13+. Without it every restart
         // alarm is inexact, and an inexact alarm carries no FGS-start allowlist.
@@ -348,19 +406,19 @@ class NightWatchService : Service() {
         // so a write from :nightwatch (FGS timeout) was invisible to the main one.
         private fun flagFile(ctx: Context, key: String) = java.io.File(ctx.filesDir, "$key.flag")
 
-        private fun readFlag(ctx: Context, key: String): Boolean? = try {
+        private fun readRaw(ctx: Context, key: String): String? = try {
             val f = flagFile(ctx, key)
-            if (f.exists()) f.readText().trim() == "1" else null
+            if (f.exists()) f.readText().trim() else null
         } catch (_: Throwable) {
             null
         }
 
-        private fun writeFlag(ctx: Context, key: String, value: Boolean) {
+        private fun writeRaw(ctx: Context, key: String, value: String) {
             try {
                 // Temp + rename: the other process must never read a truncated flag.
                 val dst = flagFile(ctx, key)
                 val tmp = java.io.File(ctx.filesDir, "$key.flag.${android.os.Process.myPid()}.tmp")
-                tmp.writeText(if (value) "1" else "0")
+                tmp.writeText(value)
                 if (!tmp.renameTo(dst)) {
                     tmp.delete()
                     throw java.io.IOException("rename failed")
@@ -370,24 +428,30 @@ class NightWatchService : Service() {
             }
         }
 
+        private fun readFlag(ctx: Context, key: String): Boolean? = readRaw(ctx, key)?.let { it == "1" }
+
+        private fun writeFlag(ctx: Context, key: String, value: Boolean) =
+            writeRaw(ctx, key, if (value) "1" else "0")
+
         // Falls back to the legacy prefs value for installs that predate the flag file.
         @JvmStatic
         fun isEnabled(ctx: Context): Boolean = readFlag(ctx, KEY_ENABLED)
             ?: ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
 
         // Persist whether Night Watcher should relaunch after boot. Read by
-        // BootReceiver on BOOT_COMPLETED / LOCKED_BOOT_COMPLETED.
+        // BootReceiver on BOOT_COMPLETED.
         @JvmStatic
         fun setBootFlag(ctx: Context, enabled: Boolean) {
             writeFlag(ctx, KEY_ENABLED, enabled)
             if (!enabled) {
                 writeFlag(ctx, KEY_BOOT_PENDING, false)
+                clearRetryCount(ctx)
                 cancelRestart(ctx)
             }
         }
 
-        // Mark that a resume was deferred (A12+ cannot start a dataSync FGS from
-        // BOOT_COMPLETED; FGS timeout). Consumed by resumeIfPending().
+        // Mark that a resume was deferred (boot, FGS timeout, failed start).
+        // Consumed by onStartCommand once the loop runs.
         @JvmStatic
         fun setBootPending(ctx: Context, pending: Boolean) {
             writeFlag(ctx, KEY_BOOT_PENDING, pending)
@@ -395,14 +459,14 @@ class NightWatchService : Service() {
 
         // Called from a foreground context (MainActivity.onResume) where an FGS
         // start is allowed. If a resume was deferred and Night Watcher is still
-        // enabled, start the service now and clear the pending flag.
+        // enabled, start the service now.
         @JvmStatic
         fun resumeIfPending(ctx: Context) {
             if (!isEnabled(ctx)) return
             if (readFlag(ctx, KEY_BOOT_PENDING) != true) return
             // Cleared by the service itself once its loop runs, not here: this start
             // can still be refused, and then the flag is the only thing left.
-            start(ctx)
+            startOrRetry(ctx)
         }
     }
 }

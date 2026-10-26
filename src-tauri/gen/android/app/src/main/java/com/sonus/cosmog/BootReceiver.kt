@@ -7,8 +7,8 @@ import android.os.Build
 
 /**
  * Relaunches NightWatchService after a device reboot if the user left Night
- * Watcher enabled. Registered for BOOT_COMPLETED and LOCKED_BOOT_COMPLETED so
- * it fires whether or not the device is unlocked.
+ * Watcher enabled. BOOT_COMPLETED only: flags live in credential-encrypted
+ * filesDir, unreadable pre-unlock.
  *
  * The boot broadcast is itself an exemption from the A12+ background FGS-start
  * restriction, so up to A14 we just start. A15 forbids a boot receiver from
@@ -23,7 +23,7 @@ class BootReceiver : BroadcastReceiver() {
             NightWatchService.setBootPending(context, true)
 
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                NightWatchService.start(context)
+                NightWatchService.startOrRetry(context)
             } else if (NightWatchService.canScheduleExactAlarms(context)) {
                 NightWatchService.scheduleRestart(context, NightWatchService.BOOT_RESTART_DELAY_MS)
             }
