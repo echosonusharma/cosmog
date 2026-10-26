@@ -65,7 +65,8 @@ pub fn set_nightwatch_service(active: bool) -> Result<(), String> {
         .get()
         .ok_or("NightWatchService class not cached (initNwClasses not called)")?;
     let cls: &jni::objects::JClass = cls_ref.as_obj().into();
-    let method = if active { "start" } else { "stop" };
+    // startOrRetry, not start: a refusal must re-arm rather than leave sync off.
+    let method = if active { "startOrRetry" } else { "stop" };
     env.call_static_method(
         cls,
         method,

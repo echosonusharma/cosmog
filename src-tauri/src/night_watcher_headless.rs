@@ -222,16 +222,17 @@ fn sweep_nw_stage(db_path: &Path) {
 }
 
 /// Fallible core of `startNwSync`, isolated so the JNI shim can `catch_unwind`.
-fn start_inner() {
+/// False means no loop is running; the service retries.
+fn start_inner() -> bool {
     if NW_RUNNING.swap(true, Ordering::SeqCst) {
-        return;
+        return true;
     }
     let data_dir = match resolve_data_dir() {
         Ok(d) => d,
         Err(e) => {
             eprintln!("startNwSync: resolve_data_dir failed: {e}");
             NW_RUNNING.store(false, Ordering::SeqCst);
-            return;
+            return false;
         }
     };
     init_logging(&data_dir.join("logs"));
@@ -247,7 +248,7 @@ fn start_inner() {
             Err(e) => {
                 eprintln!("startNwSync: build runtime failed: {e}");
                 NW_RUNNING.store(false, Ordering::SeqCst);
-                return;
+                return false;
             }
         }
     }
@@ -261,7 +262,7 @@ fn start_inner() {
             Err(e) => {
                 warn!("startNwSync: build_ctx failed: {e}");
                 NW_RUNNING.store(false, Ordering::SeqCst);
-                return;
+                return false;
             }
         }
     }
@@ -272,6 +273,7 @@ fn start_inner() {
     rt.spawn(wakelock_heartbeat(ctx.clone(), token.clone()));
     rt.spawn(run_loop(ctx, token));
     info!("headless night watcher started (service process)");
+    true
 }
 
 /// Hold the wakelock (Java cap 10 min) only while a scan or upload is active, and poll
@@ -319,10 +321,15 @@ fn stop_inner() {
 pub extern "system" fn Java_com_sonus_cosmog_NightWatchService_startNwSync(
     _env: jni::JNIEnv,
     _this: jni::objects::JObject,
-) {
-    if std::panic::catch_unwind(AssertUnwindSafe(start_inner)).is_err() {
-        eprintln!("startNwSync: panicked (contained)");
-        NW_RUNNING.store(false, Ordering::SeqCst);
+) -> jni::sys::jboolean {
+    match std::panic::catch_unwind(AssertUnwindSafe(start_inner)) {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => {
+            eprintln!("startNwSync: panicked (contained)");
+            NW_RUNNING.store(false, Ordering::SeqCst);
+            0
+        }
     }
 }
 

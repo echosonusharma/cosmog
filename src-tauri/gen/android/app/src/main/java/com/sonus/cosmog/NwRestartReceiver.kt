@@ -9,13 +9,13 @@ import android.content.Intent
  * (A14+), and after boot on A15+ where the boot receiver may not start a
  * dataSync FGS itself. An exact alarm firing grants a temporary background
  * FGS-start allowlist, so start() succeeds here where a plain background start
- * would be refused.
+ * would be refused. A refusal re-arms rather than ending the chain.
  */
 class NwRestartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         try {
             if (!NightWatchService.isEnabled(context)) return
-            NightWatchService.start(context)
+            NightWatchService.startOrRetry(context)
         } catch (t: Throwable) {
             android.util.Log.w("NwRestartReceiver", "restart failed: $t")
         }
