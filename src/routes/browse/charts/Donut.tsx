@@ -1,4 +1,4 @@
-import { For, createMemo } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 
 export interface DonutSegment {
   label: string;
@@ -8,7 +8,14 @@ export interface DonutSegment {
 
 // SVG donut. Segments drawn as dash-offset arcs on stacked circles so there
 // is no dependency and it themes with plain CSS colors.
-export function Donut(props: { segments: DonutSegment[]; size?: number; thickness?: number }) {
+export function Donut(props: {
+  segments: DonutSegment[];
+  size?: number;
+  thickness?: number;
+  /** Fills the hole: big value on top, small caption under it. */
+  centerValue?: string;
+  centerLabel?: string;
+}) {
   const size = () => props.size ?? 132;
   const thickness = () => props.thickness ?? 18;
   const r = () => (size() - thickness()) / 2;
@@ -43,6 +50,22 @@ export function Donut(props: { segments: DonutSegment[]; size?: number; thicknes
           )}
         </For>
       </g>
+      <Show when={props.centerValue}>
+        <text
+          class="donut-center-val"
+          x="50%"
+          y="50%"
+          dy={props.centerLabel ? "-0.15em" : "0.35em"}
+          text-anchor="middle"
+        >
+          {props.centerValue}
+        </text>
+      </Show>
+      <Show when={props.centerLabel}>
+        <text class="donut-center-lbl" x="50%" y="50%" dy="1.15em" text-anchor="middle">
+          {props.centerLabel}
+        </text>
+      </Show>
     </svg>
   );
 }

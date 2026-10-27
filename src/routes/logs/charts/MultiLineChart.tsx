@@ -18,6 +18,15 @@ export interface ChartSeries {
 // x buckets are UTC days; render them in UTC so they don't shift a day in UTC- zones.
 const utcDate = (ts: number) => uPlot.tzDate(new Date(ts * 1000), "Etc/UTC");
 
+// Day ticks as M/D: the window is short enough that the year is noise.
+function fmtDay(ts: number): string {
+  return new Date(ts * 1000).toLocaleDateString(language(), {
+    timeZone: "UTC",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
 // Counts only: whole-number y steps so rounded labels never repeat.
 const COUNT_INCRS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6, 2e6, 5e6, 1e7];
 
@@ -35,6 +44,8 @@ export function MultiLineChart(props: {
   series: ChartSeries[];
   height?: number;
   formatY?: (v: number) => string;
+  /** Static swatch row so series colors read without hovering. */
+  legend?: boolean;
 }) {
   let host!: HTMLDivElement;
   let wrap!: HTMLDivElement;
@@ -135,7 +146,14 @@ export function MultiLineChart(props: {
       tzDate: (ts) => utcDate(ts),
       scales: { x: { time: true } },
       axes: [
-        { stroke: muted, grid: { stroke: border }, ticks: { stroke: border } },
+        {
+          stroke: muted,
+          grid: { stroke: border },
+          ticks: { stroke: border, size: 4 },
+          // Thin day ticks so a 30-day window doesn't print a label per day.
+          space: width < 520 ? 56 : 76,
+          values: (_u: uPlot, splits: number[]) => splits.map(fmtDay),
+        },
         {
           stroke: muted,
           grid: { stroke: border },
@@ -195,6 +213,18 @@ export function MultiLineChart(props: {
 
   return (
     <div class="api-dash-chart-wrap api-dash-chart-wrap-hover" ref={wrap}>
+      <Show when={props.legend}>
+        <div class="api-dash-chart-legend">
+          <For each={props.series}>
+            {(s) => (
+              <span class="api-dash-chart-legend-item" title={s.fullLabel ?? s.label}>
+                <span class="api-dash-chart-legend-dot" style={{ background: s.color }} />
+                {s.fullLabel ?? s.label}
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
       <div class="ts-chart api-dash-chart" ref={host} />
       <Show when={hoverTip()}>
         {(tip) => (

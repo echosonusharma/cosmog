@@ -89,6 +89,15 @@
   color: var(--muted);
   width: 28px;
   height: 28px;
+  opacity: 0.4;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.api-dash-card:hover .api-dash-info-btn,
+.api-dash-stat:hover .api-dash-info-btn,
+.api-dash-info-btn:hover,
+.api-dash-info-btn:focus-visible {
+  opacity: 1;
 }
 
 .api-dash-info-btn:hover {
@@ -185,9 +194,19 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 18px;
+  /* Cap the content on ultrawide screens; the background stays full-bleed. */
+  padding-inline: max(18px, calc((100% - 1640px) / 2));
   background:
     radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
     radial-gradient(ellipse 60% 40% at 90% 0%, color-mix(in srgb, #4f9dff 10%, transparent), transparent 50%),
+    var(--bg);
+}
+
+/* The accent wash reads weaker on light surfaces, so lift it there. */
+:root[data-theme="light"] .api-dash-scroll {
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 0%, color-mix(in srgb, var(--blue) 14%, transparent), transparent 50%),
     var(--bg);
 }
 
@@ -229,13 +248,18 @@
   overflow: hidden;
 }
 
+/* Neutral wash by default: only the primary and error tiles carry a hue. */
 .api-dash-stat::before {
   content: "";
   position: absolute;
   inset: 0;
   opacity: 0.35;
   pointer-events: none;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%);
+}
+
+.api-dash-stat:not(.api-dash-stat-primary):hover {
+  border-color: var(--border-strong);
 }
 
 .api-dash-stat-primary {
@@ -243,8 +267,16 @@
   box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+.api-dash-stat-primary::before {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%);
+}
+
 .api-dash-stat-err::before {
   background: linear-gradient(135deg, color-mix(in srgb, var(--err) 22%, transparent), transparent 60%);
+}
+
+.api-dash-stat-err .api-dash-stat-val {
+  color: var(--err);
 }
 
 .api-dash-stat-val {
@@ -379,9 +411,6 @@
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
-  height: 360px;
-  min-height: 360px;
-  max-height: 360px;
   overflow: hidden;
 }
 
@@ -402,6 +431,13 @@
   overscroll-behavior: contain;
   padding-right: 4px;
   gap: 5px;
+  /* Caps the row height: the taller card sets it, the shorter one stretches. */
+  max-height: 220px;
+}
+
+/* Fade the last row instead of slicing it in half mid-glyph. */
+.api-dash-grid .api-dash-bars[data-overflow="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
 }
 
 .api-dash-card-title {
@@ -421,6 +457,29 @@
 
 .api-dash-chart {
   margin-top: 4px;
+}
+
+.api-dash-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 2px;
+}
+
+.api-dash-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-soft);
+}
+
+.api-dash-chart-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .api-dash-chart-wrap {
@@ -639,6 +698,7 @@
   .api-dash-info-btn {
     width: 32px;
     height: 32px;
+    opacity: 1;
   }
 
   .api-dash-account-filters {
@@ -735,6 +795,15 @@
 
   .api-dash-donut-row .donut {
     align-self: center;
+  }
+
+  .api-dash-donut-row .donut-center-val {
+    font-size: 14px;
+  }
+
+  .api-dash-donut-row .donut-center-lbl {
+    font-size: 8.5px;
+    letter-spacing: 0.04em;
   }
 
   .api-dash-grid {
