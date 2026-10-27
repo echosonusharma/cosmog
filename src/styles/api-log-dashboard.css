@@ -437,6 +437,7 @@
 
 /* Fade the last row instead of slicing it in half mid-glyph. */
 .api-dash-grid .api-dash-bars[data-overflow="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
 }
 
