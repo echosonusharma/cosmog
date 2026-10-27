@@ -195,7 +195,7 @@
   overflow-x: hidden;
   padding: 18px;
   /* Cap the content on ultrawide screens; the background stays full-bleed. */
-  padding-inline: max(18px, calc((100% - 1640px) / 2));
+  padding-inline: max(18px, calc((100% - 1920px) / 2));
   background:
     radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
     radial-gradient(ellipse 60% 40% at 90% 0%, color-mix(in srgb, #4f9dff 10%, transparent), transparent 50%),
