@@ -18,6 +18,7 @@ import {
   opLabel,
 } from "../utils/requestLogMeta";
 import Spinner from "../utils/Spinner";
+import { ScrollFade } from "../utils/ScrollFade";
 import { language, t, tp, type TKey } from "../i18n";
 
 
@@ -485,6 +486,9 @@ export function ApiLogDashboard(props: { active: boolean }) {
     return segs;
   });
 
+  // Donut center: sum the drawn segments, including the rolled-up "other".
+  const opDonutTotal = createMemo(() => opDonut().reduce((n, seg) => n + seg.value, 0));
+
   const maxOpCount = createMemo(() =>
     Math.max(1, ...(stats()?.by_operation ?? []).slice(0, 12).map((o) => o.count)),
   );
@@ -583,7 +587,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                       infoKey="latency"
                     />
                     <DashStat
-                      class="api-dash-stat-err"
+                      class={s().error_count > 0 ? "api-dash-stat-err" : undefined}
                       val={errorRate()}
                       lbl={tp("logs.dash.statErrors", s().error_count)}
                       infoKey="errors"
@@ -600,6 +604,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                         x={dailyTotal().x}
                         series={dailyTotal().series}
                         height={chartHeight()}
+                        legend
                       />
                     </div>
                   </Show>
@@ -674,9 +679,15 @@ export function ApiLogDashboard(props: { active: boolean }) {
                         infoKey="by-operation"
                       />
                       <div class="api-dash-donut-row">
-                        <Donut segments={opDonut()} size={donutSize()} thickness={donutThickness()} />
+                        <Donut
+                          segments={opDonut()}
+                          size={donutSize()}
+                          thickness={donutThickness()}
+                          centerValue={opDonutTotal().toLocaleString(language())}
+                          centerLabel={t("logs.dash.seriesRequests")}
+                        />
                       </div>
-                      <div class="api-dash-bars">
+                      <ScrollFade class="api-dash-bars">
                         <For each={s().by_operation.slice(0, 12)}>
                           {(op, i) => (
                             <div class="api-dash-bar-row">
@@ -695,7 +706,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                             </div>
                           )}
                         </For>
-                      </div>
+                      </ScrollFade>
                     </div>
 
                     <div class="api-dash-card">
@@ -705,10 +716,16 @@ export function ApiLogDashboard(props: { active: boolean }) {
                       />
                       <Show when={accountDonut().length > 0}>
                         <div class="api-dash-donut-row">
-                          <Donut segments={accountDonut()} size={donutSize()} thickness={donutThickness()} />
+                          <Donut
+                            segments={accountDonut()}
+                            size={donutSize()}
+                            thickness={donutThickness()}
+                            centerValue={s().by_account.length.toLocaleString(language())}
+                            centerLabel={t("logs.dash.statAccounts")}
+                          />
                         </div>
                       </Show>
-                      <div class="api-dash-bars">
+                      <ScrollFade class="api-dash-bars">
                         <For each={selectedAccounts()}>
                           {(acc) => (
                             <div class="api-dash-bar-row">
@@ -734,7 +751,7 @@ export function ApiLogDashboard(props: { active: boolean }) {
                             </div>
                           )}
                         </For>
-                      </div>
+                      </ScrollFade>
                     </div>
                     </div>
 
