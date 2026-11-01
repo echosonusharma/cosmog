@@ -1,5 +1,6 @@
 //! One-way local dir to S3 sync. The periodic full scan is the source of truth; notify is only an
-//! accelerator (no inotify under SAF). delete_policy="keep" never deletes remote.
+//! accelerator (no inotify under SAF). A healthy watcher stretches the scan to WATCHED_SCAN_SECS.
+//! delete_policy="keep" never deletes remote.
 
 #[cfg(not(target_os = "android"))]
 mod desktop;
@@ -74,6 +75,47 @@ impl NwCtx for AppState {
 
 /// Loop tick only; per-watch cadence comes from `full_scan_secs`.
 const TICK_SECS: u64 = 30;
+
+/// Scan cadence floor while a healthy notify watcher covers the watch.
+const WATCHED_SCAN_SECS: i64 = 3600;
+
+// Watches with a live, error-free notify watcher (desktop only).
+static WATCHER_OK: std::sync::LazyLock<dashmap::DashSet<String>> =
+    std::sync::LazyLock::new(dashmap::DashSet::new);
+
+// Watches whose next tick must scan regardless of cadence.
+static FORCE_SCAN: std::sync::LazyLock<dashmap::DashSet<String>> =
+    std::sync::LazyLock::new(dashmap::DashSet::new);
+
+/// Returns whether the health actually changed.
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn set_watcher_ok(watch_id: &str, ok: bool) -> bool {
+    if ok {
+        WATCHER_OK.insert(watch_id.to_string())
+    } else {
+        WATCHER_OK.remove(watch_id).is_some()
+    }
+}
+
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn request_rescan(watch_id: &str) {
+    FORCE_SCAN.insert(watch_id.to_string());
+}
+
+#[cfg_attr(target_os = "android", allow(dead_code))]
+fn forget_watcher(watch_id: &str) {
+    WATCHER_OK.remove(watch_id);
+    FORCE_SCAN.remove(watch_id);
+}
+
+/// Events cover changes between scans, so a healthy watcher stretches the scan to a backstop.
+fn scan_interval(watch_id: &str, full_scan_secs: i64) -> i64 {
+    if WATCHER_OK.contains(watch_id) {
+        full_scan_secs.max(WATCHED_SCAN_SECS)
+    } else {
+        full_scan_secs
+    }
+}
 
 /// Consecutive upload failures before a file is paused for RETRY_PAUSE_SECS.
 const MAX_UPLOAD_RETRIES: i64 = 3;
@@ -159,16 +201,20 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
         if token.is_cancelled() {
             break;
         }
-        let due = w
-            .last_scan_at
-            .map(|t| now - t >= w.full_scan_secs)
-            .unwrap_or(true);
+        let forced = FORCE_SCAN.contains(&w.id);
+        let due = forced
+            || w
+                .last_scan_at
+                .map(|t| now - t >= scan_interval(&w.id, w.full_scan_secs))
+                .unwrap_or(true);
         if !due {
             continue;
         }
+        // A busy watch keeps its force flag so the next tick rescans after it.
         if !state.nw_scan_claim(&w.id) {
             continue;
         }
+        FORCE_SCAN.remove(&w.id);
         let _ = crate::saf::nw_wakelock_heartbeat();
         let state = state.clone();
         let task_token = token.clone();
@@ -209,8 +255,36 @@ pub async fn reconcile_file_for_test<S: NwCtx>(
         .map(|r| r.enqueued)
 }
 
+#[cfg(all(feature = "nw-test-hooks", not(target_os = "android")))]
+pub async fn reconcile_dir_for_test<S: NwCtx>(
+    state: &S,
+    watch: &NightWatch,
+    rel_dir: &str,
+    abs: &Path,
+) -> u64 {
+    desktop::reconcile_dir(state, watch, &fs::Matcher::build(watch), rel_dir, abs).await
+}
+
 #[cfg(feature = "nw-test-hooks")]
 pub async fn reconcile_watch_for_test<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
     let token = CancellationToken::new();
     reconcile_watch(state, watch, &token).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn healthy_watcher_stretches_scan_interval() {
+        let id = "t-interval";
+        assert_eq!(scan_interval(id, 300), 300, "no watcher: user cadence");
+        set_watcher_ok(id, true);
+        assert_eq!(scan_interval(id, 300), WATCHED_SCAN_SECS);
+        // A cadence above the floor is kept.
+        assert_eq!(scan_interval(id, 7200), 7200);
+        assert!(set_watcher_ok(id, false), "healthy -> degraded is a change");
+        assert!(!set_watcher_ok(id, false), "already degraded: no change");
+        assert_eq!(scan_interval(id, 300), 300, "degraded watcher: back to user cadence");
+    }
 }

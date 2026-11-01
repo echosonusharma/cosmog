@@ -53,7 +53,9 @@ use cosmog_lib::db::accounts::NewAccount;
 use cosmog_lib::db::night_watcher::NewWatch;
 use cosmog_lib::db::Db;
 use cosmog_lib::error::AppResult;
-use cosmog_lib::night_watcher::{reconcile_file_for_test, reconcile_watch_for_test, NwCtx};
+use cosmog_lib::night_watcher::{
+    reconcile_dir_for_test, reconcile_file_for_test, reconcile_watch_for_test, NwCtx,
+};
 use cosmog_lib::store::{GetOptions, ListOptions, ObjectStore};
 use cosmog_lib::transfer::{TransferCtx, TransferManager};
 
@@ -334,6 +336,79 @@ async fn e2e_full_sync_lifecycle() {
         ctx.db.file_state_get("w-e2e", "sub/nested.bin").await.unwrap().is_none(),
         "full-scan mark-and-sweep must drop the nw_file_state row for a deleted file"
     );
+
+    drop(tmp);
+    common::cleanup_bucket(&store, &bucket).await;
+}
+
+/// A directory moved in can surface as a single event for the dir. Walking it must
+/// upload every nested file under the right key and still honor the ignore file.
+#[tokio::test]
+#[serial_test::serial]
+async fn e2e_dir_event_uploads_nested_files() {
+    require_minio!();
+    let store = common::make_store().await;
+    let bucket = common::create_test_bucket(&store, "cosmog-nw-dir").await;
+
+    let (ctx, tmp, acct) = make_ctx(store.clone()).await;
+    let watch_dir = tempfile::tempdir().expect("watch dir");
+    let root = watch_dir.path();
+    let ignore_path = root.join(".cosmogignore");
+    tokio::fs::write(&ignore_path, "*.log\n").await.unwrap();
+
+    let moved = root.join("moved");
+    tokio::fs::create_dir_all(moved.join("deep")).await.unwrap();
+    tokio::fs::write(moved.join("a.txt"), b"aaa").await.unwrap();
+    tokio::fs::write(moved.join("deep").join("b.txt"), b"bbbb").await.unwrap();
+    tokio::fs::write(moved.join("skip.log"), b"ignored").await.unwrap();
+
+    ctx.db
+        .insert_watch(
+            "w-dir",
+            NewWatch {
+                account_id: acct.clone(),
+                bucket: bucket.clone(),
+                local_dir: root.to_string_lossy().to_string(),
+                key_prefix: "inbox".into(),
+                ignore_file: Some(ignore_path.to_string_lossy().to_string()),
+                full_scan_secs: 300,
+                tree_uri: None,
+            },
+        )
+        .await
+        .unwrap();
+    let watch = ctx.db.get_watch("w-dir").await.unwrap().unwrap();
+
+    let enqueued = reconcile_dir_for_test(&ctx, &watch, "moved", &moved).await;
+    assert_eq!(enqueued, 2, "two non-ignored files under the dir");
+
+    for (key, size) in [("inbox/moved/a.txt", 3), ("inbox/moved/deep/b.txt", 4)] {
+        let meta = wait_for(|| {
+            let s = store.clone();
+            let b = bucket.clone();
+            async move { s.head_object(&b, key).await.ok() }
+        })
+        .await
+        .unwrap_or_else(|| panic!("{key} should be uploaded"));
+        assert_eq!(meta.size, size, "{key} size");
+    }
+    let st = wait_for(|| {
+        let db = ctx.db.clone();
+        async move { db.file_state_get("w-dir", "moved/deep/b.txt").await.ok().flatten() }
+    })
+    .await
+    .expect("nested file state keyed by its full rel path");
+    assert!(st.synced_etag.is_some());
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        store.head_object(&bucket, "inbox/moved/skip.log").await.is_err(),
+        "ignored file inside the walked dir must not upload"
+    );
+
+    // Second dir event with nothing changed enqueues nothing.
+    let again = reconcile_dir_for_test(&ctx, &watch, "moved", &moved).await;
+    assert_eq!(again, 0, "unchanged files must be skipped");
 
     drop(tmp);
     common::cleanup_bucket(&store, &bucket).await;

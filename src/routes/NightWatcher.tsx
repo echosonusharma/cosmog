@@ -266,7 +266,9 @@ export default function NightWatcher() {
                           <span class="nw-meta-chip">
                             {t("nightwatcher.item.lastScan", { when: st()?.last_scan_at ? formatRelative(st()!.last_scan_at!) : t("nightwatcher.item.never") })}
                           </span>
-                          <span class="nw-meta-chip">{t("nightwatcher.item.scanEvery", { n: w.full_scan_secs })}</span>
+                          <span class="nw-meta-chip">
+                            {t(IS_MOBILE_OS ? "nightwatcher.item.scanEvery" : "nightwatcher.item.liveFallback", { n: w.full_scan_secs })}
+                          </span>
                         </div>
                         <Show when={st()?.last_error}>
                           <div class="nw-item-error" role="alert">
@@ -314,6 +316,11 @@ export default function NightWatcher() {
           <Show when={IS_MOBILE_OS}>
             <div class="nw-note">
               {t("nightwatcher.add.androidNote")}
+            </div>
+          </Show>
+          <Show when={!IS_MOBILE_OS}>
+            <div class="nw-note">
+              {t("nightwatcher.add.desktopNote")}
             </div>
           </Show>
 
@@ -386,7 +393,9 @@ export default function NightWatcher() {
               />
             </Show>
 
-            <label class="settings-label">{t("nightwatcher.form.scanInterval")}</label>
+            <label class="settings-label">
+              {t(IS_MOBILE_OS ? "nightwatcher.form.scanInterval" : "nightwatcher.form.fallbackInterval")}
+            </label>
             <div class="num-field">
               <input
                 type="number"
