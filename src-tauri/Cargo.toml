@@ -65,7 +65,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 blake3 = "1"
 
 [target.'cfg(not(target_os = "android"))'.dependencies.notify]
-version = "6"
+version = "8"
 
 [target.'cfg(not(target_os = "android"))'.dependencies.ignore]
 version = "0.4"

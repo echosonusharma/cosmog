@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use notify::event::ModifyKind;
+use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -96,6 +96,8 @@ async fn sync_handles(
                     warn!(watch = %wid, "notify requested rescan");
                     request_rescan(&wid);
                 }
+                // Opens and reads change nothing; our own hashing would otherwise retrigger.
+                Ok(ev) if is_read_only_access(&ev.kind) => {}
                 Ok(ev) => {
                     // Windows reports a dir as modified when a child changes; only walk new dirs.
                     let walk = matches!(
@@ -178,6 +180,11 @@ async fn reconcile_paths(state: &AppState, paths: Vec<(PathBuf, bool)>) {
     }
 }
 
+/// Access events except close-after-write, which marks a finished write.
+fn is_read_only_access(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::Access(a) if !matches!(a, AccessKind::Close(AccessMode::Write)))
+}
+
 /// Not following symlinks, matching collect_files.
 fn is_real_dir(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
@@ -213,4 +220,20 @@ pub(super) async fn reconcile_dir<S: NwCtx>(
         }
     }
     enqueued
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{AccessKind, AccessMode, CreateKind};
+
+    #[test]
+    fn read_only_access_is_filtered_but_writes_are_kept() {
+        assert!(is_read_only_access(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(is_read_only_access(&EventKind::Access(AccessKind::Read)));
+        assert!(is_read_only_access(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(!is_read_only_access(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(!is_read_only_access(&EventKind::Create(CreateKind::File)));
+        assert!(!is_read_only_access(&EventKind::Modify(ModifyKind::Any)));
+    }
 }
