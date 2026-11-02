@@ -33,6 +33,8 @@ let _channelsReady = false;
 let _actionsReady = false;
 
 async function permitted(): Promise<boolean> {
+  // macOS WKWebView lacks window.Notification, which the plugin check reads.
+  if (!IS_MOBILE_OS) return true;
   if (_granted) return true;
   // Re-check every call: the user may grant permission from system settings
   // mid-session. Only the interactive prompt is one-shot.
