@@ -5,6 +5,7 @@ export default {
   "logs.tab.requests": "API-запросы",
   "logs.tab.system": "Система",
   "logs.common.noResults": "Ничего не найдено",
+  "logs.common.clearFilters": "Сбросить фильтры",
   "logs.common.clearSearch": "Очистить поиск",
   "logs.common.clear": "Очистить",
 

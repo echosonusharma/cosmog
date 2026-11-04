@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "완료, 실패, 취소된 항목이 모두 제거돼요.",
   "transfers.clear.confirm": "지우기",
   "transfers.empty.all": "아직 전송이 없어요",
+  "transfers.empty.hint": "시작한 업로드와 다운로드가 여기에 표시돼요.",
+  "transfers.showAll": "모든 전송 보기",
   "transfers.empty.active": "진행 중인 전송이 없어요",
   "transfers.empty.done": "완료된 전송이 없어요",
   "transfers.empty.failed": "실패한 전송이 없어요",

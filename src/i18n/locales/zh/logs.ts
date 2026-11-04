@@ -5,6 +5,7 @@ export default {
   "logs.tab.requests": "API 请求",
   "logs.tab.system": "系统",
   "logs.common.noResults": "无结果",
+  "logs.common.clearFilters": "清除筛选",
   "logs.common.clearSearch": "清除搜索",
   "logs.common.clear": "清空",
 

@@ -19,6 +19,12 @@ export function SystemLog(props: { active?: boolean }) {
   const [search, setSearch] = createSignal("");
   const [levelFilter, setLevelFilter] = createSignal("");
   const [sourceFilter, setSourceFilter] = createSignal<string>("");
+  const hasFilters = () => !!(search() || levelFilter() || sourceFilter());
+  function clearFilters() {
+    setSearch("");
+    setLevelFilter("");
+    setSourceFilter("");
+  }
   const [focusIdx, setFocusIdx] = createSignal(0);
   const [hoverLocked, setHoverLocked] = createSignal(false);
   let hoverLockTimer: ReturnType<typeof setTimeout> | undefined;
@@ -207,8 +213,11 @@ export function SystemLog(props: { active?: boolean }) {
           fallback={
             <div class="empty-state">
               <span class="logs-empty-text">
-                {search() || levelFilter() || sourceFilter() ? t("logs.common.noResults") : t("logs.system.empty")}
+                {hasFilters() ? t("logs.common.noResults") : t("logs.system.empty")}
               </span>
+              <Show when={hasFilters()}>
+                <button class="btn-secondary" onClick={clearFilters}>{t("logs.common.clearFilters")}</button>
+              </Show>
             </div>
           }
         >

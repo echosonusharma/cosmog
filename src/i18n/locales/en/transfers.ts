@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "All finished, failed, and canceled entries will be removed.",
   "transfers.clear.confirm": "Clear",
   "transfers.empty.all": "No transfers yet",
+  "transfers.empty.hint": "Uploads and downloads you start will show up here.",
+  "transfers.showAll": "Show all transfers",
   "transfers.empty.active": "No active transfers",
   "transfers.empty.done": "No completed transfers",
   "transfers.empty.failed": "No failed transfers",

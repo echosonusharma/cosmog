@@ -64,7 +64,8 @@ export default {
   "browse.col.empty": "빈 폴더",
 
   "browse.list.folder": "폴더",
-  "browse.list.emptyPrefix": "빈 프리픽스",
+  "browse.list.emptyFolder": "이 폴더는 비어 있어요",
+  "browse.list.emptyBucket": "이 버킷은 비어 있어요",
   "browse.list.loadingMore": "더 불러오는 중…",
   "browse.list.loadMore_other": "더 불러오기 ({count}개 불러옴)",
 
@@ -78,6 +79,8 @@ export default {
   "browse.buckets.add": "버킷 추가",
   "browse.buckets.loading": "버킷을 불러오는 중…",
   "browse.buckets.none": "아직 버킷이 없어요",
+  "browse.buckets.noneHint": "버킷을 만들어 파일 저장을 시작하세요.",
+  "browse.buckets.clearFilter": "필터 지우기",
   "browse.buckets.noMatch": "\"{filter}\"와 일치하는 버킷이 없어요",
   "browse.buckets.config": "버킷 설정",
   "browse.buckets.deleteTitle": "버킷을 삭제할까요?",

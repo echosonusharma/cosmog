@@ -5,6 +5,7 @@ export default {
   "logs.tab.requests": "API 요청",
   "logs.tab.system": "시스템",
   "logs.common.noResults": "결과 없음",
+  "logs.common.clearFilters": "필터 지우기",
   "logs.common.clearSearch": "검색 지우기",
   "logs.common.clear": "지우기",
 

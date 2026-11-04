@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "Todas as entradas concluídas, com falha e canceladas serão removidas.",
   "transfers.clear.confirm": "Limpar",
   "transfers.empty.all": "Nenhuma transferência ainda",
+  "transfers.empty.hint": "Os envios e downloads que você iniciar aparecerão aqui.",
+  "transfers.showAll": "Ver todas as transferências",
   "transfers.empty.active": "Nenhuma transferência ativa",
   "transfers.empty.done": "Nenhuma transferência concluída",
   "transfers.empty.failed": "Nenhuma transferência com falha",

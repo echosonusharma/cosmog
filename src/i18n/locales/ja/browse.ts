@@ -64,7 +64,8 @@ export default {
   "browse.col.empty": "空のフォルダ",
 
   "browse.list.folder": "フォルダ",
-  "browse.list.emptyPrefix": "空のプレフィックス",
+  "browse.list.emptyFolder": "このフォルダは空です",
+  "browse.list.emptyBucket": "このバケットは空です",
   "browse.list.loadingMore": "読み込み中…",
   "browse.list.loadMore_other": "さらに読み込む（{count} 件読み込み済み）",
 
@@ -78,6 +79,8 @@ export default {
   "browse.buckets.add": "バケットを追加",
   "browse.buckets.loading": "バケットを読み込み中…",
   "browse.buckets.none": "バケットがまだありません",
+  "browse.buckets.noneHint": "バケットを作成してファイルの保存を始めましょう。",
+  "browse.buckets.clearFilter": "フィルタを解除",
   "browse.buckets.noMatch": "「{filter}」に一致するバケットはありません",
   "browse.buckets.config": "バケット設定",
   "browse.buckets.deleteTitle": "バケットを削除しますか？",

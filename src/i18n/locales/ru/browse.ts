@@ -70,7 +70,8 @@ export default {
   "browse.col.empty": "Пустая папка",
 
   "browse.list.folder": "Папка",
-  "browse.list.emptyPrefix": "Пустой префикс",
+  "browse.list.emptyFolder": "Эта папка пуста",
+  "browse.list.emptyBucket": "Этот бакет пуст",
   "browse.list.loadingMore": "Загрузка…",
   "browse.list.loadMore_one": "Загрузить ещё (загружено: {count})",
   "browse.list.loadMore_few": "Загрузить ещё (загружено: {count})",
@@ -90,6 +91,8 @@ export default {
   "browse.buckets.add": "Добавить бакет",
   "browse.buckets.loading": "Загрузка бакетов…",
   "browse.buckets.none": "Бакетов пока нет",
+  "browse.buckets.noneHint": "Создайте бакет, чтобы начать хранить файлы.",
+  "browse.buckets.clearFilter": "Сбросить фильтр",
   "browse.buckets.noMatch": "Нет бакетов, подходящих под «{filter}»",
   "browse.buckets.config": "Настройки бакета",
   "browse.buckets.deleteTitle": "Удалить бакет?",

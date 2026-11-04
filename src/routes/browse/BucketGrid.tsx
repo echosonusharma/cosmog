@@ -203,12 +203,19 @@ export function BucketGrid(props: { accountId: string; accountName: string }) {
                   <div class="empty-state">
                     <span class="empty-icon"><IconBucket size={40} /></span>
                     {t("browse.buckets.none")}
+                    <span class="empty-state-hint">{t("browse.buckets.noneHint")}</span>
+                    <button class="btn-primary" onClick={() => setShowNew(true)}>
+                      <IconPlus size={14} /> {t("browse.buckets.new")}
+                    </button>
                   </div>
                 }>
             <Show when={filtered().length === 0 && filter()}>
               <div class="empty-state">
                 <span class="empty-icon"><IconBucket size={40} /></span>
                 {t("browse.buckets.noMatch", { filter: filter() })}
+                <button class="btn-secondary" onClick={() => setFilter("")}>
+                  <IconX size={12} /> {t("browse.buckets.clearFilter")}
+                </button>
               </div>
             </Show>
             <div class="bucket-grid" classList={{ loading: buckets.loading }}>

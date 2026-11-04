@@ -66,7 +66,8 @@ export default {
   "browse.col.empty": "Empty folder",
 
   "browse.list.folder": "Folder",
-  "browse.list.emptyPrefix": "Empty prefix",
+  "browse.list.emptyFolder": "This folder is empty",
+  "browse.list.emptyBucket": "This bucket is empty",
   "browse.list.loadingMore": "Loading more…",
   "browse.list.loadMore_one": "Load more ({count} loaded)",
   "browse.list.loadMore_other": "Load more ({count} loaded)",
@@ -82,6 +83,8 @@ export default {
   "browse.buckets.add": "Add Bucket",
   "browse.buckets.loading": "Loading buckets…",
   "browse.buckets.none": "No buckets yet",
+  "browse.buckets.noneHint": "Create one to start storing files.",
+  "browse.buckets.clearFilter": "Clear filter",
   "browse.buckets.noMatch": "No buckets match \"{filter}\"",
   "browse.buckets.config": "Bucket config",
   "browse.buckets.deleteTitle": "Delete bucket?",

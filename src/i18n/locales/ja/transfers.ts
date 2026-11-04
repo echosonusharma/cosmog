@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "完了、失敗、キャンセル済みの項目がすべて削除されます。",
   "transfers.clear.confirm": "消去",
   "transfers.empty.all": "転送はまだありません",
+  "transfers.empty.hint": "開始したアップロードとダウンロードがここに表示されます。",
+  "transfers.showAll": "すべての転送を表示",
   "transfers.empty.active": "進行中の転送はありません",
   "transfers.empty.done": "完了した転送はありません",
   "transfers.empty.failed": "失敗した転送はありません",

@@ -5,6 +5,7 @@ export default {
   "logs.tab.requests": "API Requests",
   "logs.tab.system": "System",
   "logs.common.noResults": "No results",
+  "logs.common.clearFilters": "Clear filters",
   "logs.common.clearSearch": "Clear search",
   "logs.common.clear": "Clear",
 

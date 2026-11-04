@@ -406,6 +406,12 @@ export function RequestLogs(props: { active?: boolean }) {
     clearTimeout(searchTimeout);
     load();
   }
+  const hasFilters = () => !!(search() || opFilter() || statusFilter());
+  function clearFilters() {
+    setOpFilter("");
+    setStatusFilter("");
+    clearSearch();
+  }
 
   async function doClear() {
     const ok = await confirmDestructive({
@@ -500,8 +506,11 @@ export function RequestLogs(props: { active?: boolean }) {
             <Show when={!fetchError()}>
               <div class="empty-state">
                 <span class="logs-empty-text">
-                  {search() || opFilter() || statusFilter() ? t("logs.common.noResults") : t("logs.req.empty")}
+                  {hasFilters() ? t("logs.common.noResults") : t("logs.req.empty")}
                 </span>
+                <Show when={hasFilters()}>
+                  <button class="btn-secondary" onClick={clearFilters}>{t("logs.common.clearFilters")}</button>
+                </Show>
               </div>
             </Show>
           }

@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "所有已完成、失败和已取消的记录都将被移除。",
   "transfers.clear.confirm": "清除",
   "transfers.empty.all": "暂无传输",
+  "transfers.empty.hint": "你开始的上传和下载会显示在这里。",
+  "transfers.showAll": "显示所有传输",
   "transfers.empty.active": "没有进行中的传输",
   "transfers.empty.done": "没有已完成的传输",
   "transfers.empty.failed": "没有失败的传输",

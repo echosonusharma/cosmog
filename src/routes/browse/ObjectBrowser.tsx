@@ -607,6 +607,8 @@ export function ObjectBrowser(props: {
           onDelete={handleDelete}
           onCtxFile={openCtx}
           onCtxFolder={openCtxFolder}
+          onNewFolder={() => setShowNewFolder(props.prefix)}
+          onUpload={() => setShowUpload(props.prefix)}
         />
       </div>
 

@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "Se eliminarán todas las entradas finalizadas, fallidas y canceladas.",
   "transfers.clear.confirm": "Borrar",
   "transfers.empty.all": "Aún no hay transferencias",
+  "transfers.empty.hint": "Las subidas y descargas que inicies aparecerán aquí.",
+  "transfers.showAll": "Ver todas las transferencias",
   "transfers.empty.active": "No hay transferencias activas",
   "transfers.empty.done": "No hay transferencias completadas",
   "transfers.empty.failed": "No hay transferencias fallidas",

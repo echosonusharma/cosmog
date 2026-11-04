@@ -66,7 +66,8 @@ export default {
   "browse.col.empty": "Pasta vazia",
 
   "browse.list.folder": "Pasta",
-  "browse.list.emptyPrefix": "Prefixo vazio",
+  "browse.list.emptyFolder": "Esta pasta está vazia",
+  "browse.list.emptyBucket": "Este bucket está vazio",
   "browse.list.loadingMore": "Carregando mais…",
   "browse.list.loadMore_one": "Carregar mais ({count} carregado)",
   "browse.list.loadMore_other": "Carregar mais ({count} carregados)",
@@ -82,6 +83,8 @@ export default {
   "browse.buckets.add": "Adicionar bucket",
   "browse.buckets.loading": "Carregando buckets…",
   "browse.buckets.none": "Nenhum bucket ainda",
+  "browse.buckets.noneHint": "Crie um para começar a armazenar arquivos.",
+  "browse.buckets.clearFilter": "Limpar filtro",
   "browse.buckets.noMatch": "Nenhum bucket corresponde a \"{filter}\"",
   "browse.buckets.config": "Configuração do bucket",
   "browse.buckets.deleteTitle": "Excluir bucket?",

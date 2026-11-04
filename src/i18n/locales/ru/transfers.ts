@@ -12,6 +12,8 @@ export default {
   "transfers.clear.body": "Все завершённые, неудачные и отменённые записи будут удалены.",
   "transfers.clear.confirm": "Очистить",
   "transfers.empty.all": "Передач пока нет",
+  "transfers.empty.hint": "Здесь появятся загрузки и скачивания, которые вы запустите.",
+  "transfers.showAll": "Показать все передачи",
   "transfers.empty.active": "Нет активных передач",
   "transfers.empty.done": "Нет завершённых передач",
   "transfers.empty.failed": "Нет неудачных передач",

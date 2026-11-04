@@ -6,7 +6,7 @@ import { isShownKey } from "../../state/settings";
 import { formatBytes, formatDate, basename } from "../../utils/fmt";
 import {
   FileIcon, fileTypeLabel,
-  IconBack, IconDownload, IconLink, IconTrash, IconBucket, IconMore,
+  IconBack, IconDownload, IconLink, IconTrash, IconBucket, IconMore, IconPlus, IconUpload,
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
@@ -35,6 +35,8 @@ export function ListView(props: {
   onDelete: (obj: CachedObjectMeta) => void;
   onCtxFile: (e: MouseEvent, obj: CachedObjectMeta) => void;
   onCtxFolder: (e: MouseEvent, sub: string) => void;
+  onNewFolder: () => void;
+  onUpload: () => void;
   pendingFolders?: string[];
 }) {
   const listItems = createMemo<ListItem[]>(() => {
@@ -130,7 +132,15 @@ export function ListView(props: {
           <Show when={props.browseData.initialLoaded && !props.browseData.loading && !props.browseData.error && listItems().length === 0}>
             <div class="empty-state">
               <span class="empty-icon"><IconBucket size={36} /></span>
-              {t("browse.list.emptyPrefix")}
+              {props.prefix ? t("browse.list.emptyFolder") : t("browse.list.emptyBucket")}
+              <div class="empty-state-actions">
+                <button class="btn-secondary" onClick={props.onNewFolder}>
+                  <IconPlus size={14} /> {t("browse.toolbar.newFolder")}
+                </button>
+                <button class="btn-primary" onClick={props.onUpload}>
+                  <IconUpload size={14} /> {t("common.upload")}
+                </button>
+              </div>
             </div>
           </Show>
 

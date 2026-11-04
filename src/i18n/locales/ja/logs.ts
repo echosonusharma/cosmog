@@ -5,6 +5,7 @@ export default {
   "logs.tab.requests": "APIリクエスト",
   "logs.tab.system": "システム",
   "logs.common.noResults": "結果なし",
+  "logs.common.clearFilters": "フィルタを解除",
   "logs.common.clearSearch": "検索をクリア",
   "logs.common.clear": "クリア",
 

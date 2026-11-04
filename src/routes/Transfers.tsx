@@ -198,6 +198,12 @@ export default function Transfers() {
                 <div class="empty-state">
                   <span class="empty-icon"><IconTransfer size={36} /></span>
                   {t(`transfers.empty.${filter()}`)}
+                  <Show when={filter() === "all"}>
+                    <span class="empty-state-hint">{t("transfers.empty.hint")}</span>
+                  </Show>
+                  <Show when={filter() !== "all" && transfers.length > 0}>
+                    <button class="btn-secondary" onClick={() => setFilter("all")}>{t("transfers.showAll")}</button>
+                  </Show>
                 </div>
               }>
           <div class="transfer-list">

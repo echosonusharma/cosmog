@@ -64,7 +64,8 @@ export default {
   "browse.col.empty": "空文件夹",
 
   "browse.list.folder": "文件夹",
-  "browse.list.emptyPrefix": "空前缀",
+  "browse.list.emptyFolder": "此文件夹为空",
+  "browse.list.emptyBucket": "此存储桶为空",
   "browse.list.loadingMore": "正在加载更多…",
   "browse.list.loadMore_other": "加载更多（已加载 {count} 项）",
 
@@ -78,6 +79,8 @@ export default {
   "browse.buckets.add": "添加存储桶",
   "browse.buckets.loading": "正在加载存储桶…",
   "browse.buckets.none": "还没有存储桶",
+  "browse.buckets.noneHint": "创建一个存储桶即可开始存储文件。",
+  "browse.buckets.clearFilter": "清除筛选",
   "browse.buckets.noMatch": "没有匹配“{filter}”的存储桶",
   "browse.buckets.config": "存储桶配置",
   "browse.buckets.deleteTitle": "删除存储桶？",
