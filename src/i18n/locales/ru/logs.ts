@@ -45,6 +45,7 @@ export default {
   "logs.req.badgeError": "✕ ошибка",
   "logs.req.badgeOk": "✓ ок",
   "logs.req.account": "аккаунт",
+  "logs.req.operation": "операция",
   "logs.req.bucket": "бакет",
   "logs.req.duration": "длительность",
   "logs.req.time": "время",

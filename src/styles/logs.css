@@ -224,21 +224,29 @@
 .logs-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 /* ── request log rows ────────────────────────────────────────────────────── */
-/* Fixed height set inline from ROW_H (40 desktop / 64 mobile). Detail opens
-   in a side pane / bottom sheet — never inside the row. */
+/* Fixed height set inline from ROW_H (32 desktop / 64 mobile). Detail opens
+   in a side pane / bottom sheet, never inside the row. */
+
+.req-log-list {
+  flex: 1 1 0;
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  container-type: inline-size;
+}
+
+.req-log-head { display: none; }
 
 .req-log-row {
   --row-color: var(--muted);
   box-sizing: border-box;
   overflow: hidden;
   border-bottom: 1px solid var(--border);
-  border-left: 4px solid var(--row-color);
-  background: color-mix(in srgb, var(--row-color) 4%, transparent);
+  border-left: 3px solid var(--row-color);
   cursor: pointer;
-  transition: background 0.1s;
+  contain: strict;
 }
-.req-log-row:hover { background: color-mix(in srgb, var(--row-color) 10%, var(--bg-hover)); }
-.req-log-row.kb-active { background: color-mix(in srgb, var(--row-color) 10%, var(--bg-hover)); outline: 1px solid color-mix(in srgb, var(--row-color) 40%, transparent); outline-offset: -1px; }
+.req-log-row:hover { background: var(--bg-hover); }
+.req-log-row.kb-active { background: var(--bg-hover); outline: 1px solid color-mix(in srgb, var(--row-color) 40%, transparent); outline-offset: -1px; }
 .req-log-row.req-log-error.kb-active { background: rgba(239,68,68,0.14); outline-color: rgba(239,68,68,0.4); }
 .req-log-row.req-log-error { background: rgba(239,68,68,0.06); }
 .req-log-row.req-log-error:hover { background: rgba(239,68,68,0.12); }
@@ -254,34 +262,25 @@
   min-width: 0;
 }
 
-.req-log-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  flex-shrink: 0;
-  box-shadow: 0 0 6px currentColor;
-}
-
 .req-log-ts {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--text-soft);
   white-space: nowrap;
   flex-shrink: 0;
   min-width: 62px;
 }
 .req-log-ts-date {
-  font-size: 9.5px;
-  opacity: 0.6;
-  margin-right: 3px;
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-left: 7px;
 }
 
 .req-log-op {
-  font-size: 11px; font-weight: 600;
-  padding: 2px 9px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600;
   white-space: nowrap; flex-shrink: 0;
-  background: color-mix(in srgb, var(--op-color) 15%, transparent);
+  overflow: hidden; text-overflow: ellipsis;
   color: var(--op-color);
-  border: 1px solid color-mix(in srgb, var(--op-color) 30%, transparent);
-  letter-spacing: 0.01em;
 }
 
 .req-log-account {
@@ -289,9 +288,6 @@
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
-  background: var(--bg-active);
-  border: 1px solid var(--border);
-  padding: 1px 7px; border-radius: 4px;
   max-width: 130px;
   overflow: hidden; text-overflow: ellipsis;
 }
@@ -304,33 +300,94 @@
 }
 
 .req-log-bucket {
-  color: var(--text-soft);
+  color: var(--text-muted);
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
 }
 
 .req-log-sep {
   color: var(--text-faint);
-  opacity: 0.4;
-  padding: 0 1px;
+  opacity: 0.6;
+  padding: 0 4px;
   flex-shrink: 0;
 }
 
+/* dir part shrinks first; file name keeps its tail visible */
 .req-log-key {
-  color: var(--text-soft);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 100 auto;
+  min-width: 0;
+}
+.req-log-key-name {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
 .req-log-duration {
   font-family: var(--font-mono); font-size: 11.5px;
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
   white-space: nowrap; flex-shrink: 0;
   min-width: 52px; text-align: right;
   margin-left: auto; /* push right even when target absent */
-  transition: color 0.2s;
+}
+.req-log-duration.duration-slow { color: var(--warn); }
+.req-log-error .req-log-duration { color: var(--err); }
+
+/* desktop: aligned columns + header */
+@media (min-width: 769px) {
+  .req-log-head,
+  .req-log-main {
+    display: grid;
+    grid-template-columns: 124px 128px 124px minmax(0, 1fr) 72px;
+    column-gap: 14px;
+    align-items: center;
+  }
+  .req-log-ts { grid-column: 1; }
+  .req-log-op { grid-column: 2; }
+  .req-log-account { grid-column: 3; max-width: none; }
+  .req-log-target { grid-column: 4; }
+  .req-log-duration { grid-column: 5; margin-left: 0; min-width: 0; }
+
+  .req-log-head {
+    flex-shrink: 0;
+    height: 28px;
+    box-sizing: border-box;
+    padding: 0 14px 0 10px;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    overflow-y: hidden;
+    scrollbar-gutter: stable;
+  }
+  .req-log-head > span {
+    font-family: var(--font-sans, inherit);
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .req-log-list .logs-body { scrollbar-gutter: stable; }
+
+  /* narrow list (detail pane open): drop account column */
+  @container (max-width: 720px) {
+    .req-log-head,
+    .req-log-main { grid-template-columns: 124px 128px minmax(0, 1fr) 72px; }
+    .req-log-account { display: none; }
+    .req-log-target { grid-column: 3; }
+    .req-log-duration { grid-column: 4; }
+  }
 }
 
 /* ── detail pane (desktop right) + sheet (mobile) ───────────────────────── */
@@ -569,9 +626,6 @@
   padding: 12px; font-size: 12px; color: var(--text-faint);
 }
 
-.duration-fast   { color: #22c55e; }
-.duration-medium { color: #f59e0b; }
-.duration-slow   { color: #ef4444; }
 
 /* ── log source chips ────────────────────────────────────────────────────── */
 

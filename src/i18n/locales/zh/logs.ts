@@ -45,6 +45,7 @@ export default {
   "logs.req.badgeError": "✕ 错误",
   "logs.req.badgeOk": "✓ 成功",
   "logs.req.account": "账户",
+  "logs.req.operation": "操作",
   "logs.req.bucket": "存储桶",
   "logs.req.duration": "耗时",
   "logs.req.time": "时间",

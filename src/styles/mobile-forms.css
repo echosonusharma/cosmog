@@ -485,14 +485,13 @@
   /* spacer is desktop-only; on mobile duration pins right via margin-auto */
   .req-log-main > .flex-1 { display: none; }
   .req-log-ts { font-size: 10.5px; min-width: 56px; }
-  .req-log-op { font-size: 10.5px; padding: 1px 7px; }
+  .req-log-op { font-size: 10.5px; }
   .req-log-account { max-width: 100px; font-size: 10.5px; flex: 0 1 auto; min-width: 0; }
   .req-log-duration { margin-left: auto; }
   /* path on its own line; row height locked at 64px */
   .req-log-target {
     order: 10;
     flex-basis: 100%; width: 100%;
-    padding-left: 15px;
     font-size: 10.5px;
   }
   .req-log-row { border-left-width: 3px; }

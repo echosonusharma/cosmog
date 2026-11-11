@@ -45,6 +45,7 @@ export default {
   "logs.req.badgeError": "✕ error",
   "logs.req.badgeOk": "✓ ok",
   "logs.req.account": "account",
+  "logs.req.operation": "operation",
   "logs.req.bucket": "bucket",
   "logs.req.duration": "duration",
   "logs.req.time": "time",

@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, onMount, onCleanup, untrack, Index, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, createSelector, onMount, onCleanup, untrack, For, Show } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { listRequestLogs, clearRequestLogs } from "../api/requestLogs";
@@ -15,29 +15,40 @@ import { useBackHandler } from "../utils/androidBack";
 
 import { OP_KEYS, opLabel, opColor } from "../utils/requestLogMeta";
 import { highlightText } from "../utils/highlight";
+import { JsonCode } from "../utils/JsonCode";
 import Spinner from "../utils/Spinner";
 import { language, t } from "../i18n";
 
 // Fixed row height: must match CSS. Detail lives outside the list (right pane
 // / bottom sheet), so the virtualizer never measures variable heights.
-const ROW_H_DESKTOP = 40;
+const ROW_H_DESKTOP = 32;
 const ROW_H_MOBILE = 64;
 const rowH = () => (isMobile() ? ROW_H_MOBILE : ROW_H_DESKTOP);
 
 function durationClass(ms: number): string {
-  if (ms < 200) return "duration-fast";
-  if (ms < 800) return "duration-medium";
-  return "duration-slow";
+  return ms >= 1000 ? "duration-slow" : "";
+}
+
+// Intl formatters are costly to build; cache one pair per language.
+let fmtLang = "";
+let timeFmt: Intl.DateTimeFormat;
+let dateFmt: Intl.DateTimeFormat;
+function formatters() {
+  const lang = language();
+  if (lang !== fmtLang) {
+    fmtLang = lang;
+    timeFmt = new Intl.DateTimeFormat(lang, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    dateFmt = new Intl.DateTimeFormat(lang, { month: "short", day: "numeric" });
+  }
+  return { timeFmt, dateFmt };
 }
 
 function fmtTime(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString(language(), { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return formatters().timeFmt.format(ts * 1000);
 }
 
 function fmtDate(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleDateString(language(), { month: "short", day: "numeric" });
+  return formatters().dateFmt.format(ts * 1000);
 }
 
 function fmtDuration(ms: number): string {
@@ -45,11 +56,10 @@ function fmtDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function truncateKey(key: string | null, max = 120): string {
-  if (!key) return "";
-  if (key.length <= max) return key;
-  const half = Math.floor((max - 3) / 2);
-  return `${key.slice(0, half)}…${key.slice(-half)}`;
+// Split so the dir part can ellipsize while the file name stays visible.
+function splitKey(key: string): [string, string] {
+  const cut = key.lastIndexOf("/", key.length - 2) + 1;
+  return [key.slice(0, cut), key.slice(cut)];
 }
 
 function prettyJson(raw: string): string {
@@ -137,7 +147,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
           <div class="req-log-params-header">
             <span class="req-log-chip-label">{t("logs.req.params")}</span>
           </div>
-          <pre class="req-log-params-json">{prettyJson(props.log.request_params!)}</pre>
+          <JsonCode class="req-log-params-json" text={prettyJson(props.log.request_params!)} />
         </div>
       </Show>
 
@@ -146,7 +156,7 @@ function RequestLogDetail(props: { log: RequestLog }) {
           <div class="req-log-params-header">
             <span class="req-log-chip-label">{t("logs.req.response")}</span>
           </div>
-          <pre class="req-log-params-json">{prettyJson(props.log.response_meta!)}</pre>
+          <JsonCode class="req-log-params-json" text={prettyJson(props.log.response_meta!)} />
         </div>
       </Show>
 
@@ -211,26 +221,18 @@ export function RequestLogs(props: { active?: boolean }) {
     opFilter();
     lockHover(600);
     setFocusIdx(0);
+    scrollDiv?.scrollTo({ top: 0 });
   });
   createEffect(() => {
     const n = logs().length;
     if (hoverLocked()) lockHover(250);
     setFocusIdx((i) => (n === 0 ? -1 : Math.max(0, Math.min(i, n - 1))));
   });
-  createEffect(() => {
+  // Keyboard-only: scrolling on hover focus fights wheel scrolling.
+  function scrollFocusIntoView() {
     const i = focusIdx();
-    if (i < 0) return;
-    // virtualizer scroll + DOM fallback
-    try {
-      (rowVirtualizer as any).scrollToIndex?.(i, { align: "auto" as const });
-    } catch {}
-    if (scrollDiv) {
-      const row = scrollDiv.querySelectorAll<HTMLElement>(".req-log-row")[i];
-      row?.scrollIntoView({ block: "nearest" });
-    }
-    // keep detail pane in sync when navigating via keyboard (optional: auto-open)
-    // we keep hoverLocked check so mouse under stationary cursor doesn't steal
-  });
+    if (i >= 0) rowVirtualizer.scrollToIndex(i, { align: "auto" });
+  }
 
   useBackHandler(() => selectedId() !== null, () => {
     setSelectedId(null);
@@ -246,6 +248,11 @@ export function RequestLogs(props: { active?: boolean }) {
     estimateSize: () => rowH(),
     overscan: 12,
   });
+
+  // Keyed by index: scrolling mounts/unmounts edge rows only, the rest stay put.
+  const visibleIdx = createMemo(() => rowVirtualizer.getVirtualItems().map((v) => v.index));
+  const isFocusedIdx = createSelector(focusIdx);
+  const isSelectedId = createSelector(selectedId);
 
   const refreshViewport = () => {
     if (!scrollDiv) return;
@@ -374,10 +381,12 @@ export function RequestLogs(props: { active?: boolean }) {
         e.preventDefault();
         setFocusIdx((i) => Math.min(n - 1, Math.max(0, i) + 1));
         lockHover(300);
+        scrollFocusIntoView();
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setFocusIdx((i) => Math.max(0, (i < 0 ? 0 : i) - 1));
         lockHover(300);
+        scrollFocusIntoView();
       } else if (e.key === "Enter") {
         const i = focusIdx();
         if (i < 0 || i >= n) return;
@@ -433,7 +442,8 @@ export function RequestLogs(props: { active?: boolean }) {
     }
   }
 
-  const today = () => fmtDate(Date.now() / 1000);
+  // recomputed on each load so it rolls over past midnight
+  const today = createMemo(() => { logs(); return fmtDate(Date.now() / 1000); });
 
   function selectRow(id: string) {
     setSelectedId((cur) => (cur === id ? null : id));
@@ -516,46 +526,52 @@ export function RequestLogs(props: { active?: boolean }) {
           }
         >
           <div class="req-log-layout">
+            <div class="req-log-list">
+            <div class="req-log-head">
+              <span class="req-log-ts">{t("logs.req.time")}</span>
+              <span class="req-log-op">{t("logs.req.operation")}</span>
+              <span class="req-log-account">{t("logs.req.account")}</span>
+              <span class="req-log-target">{t("logs.req.bucket")} / {t("logs.req.key")}</span>
+              <span class="req-log-duration">{t("logs.req.duration")}</span>
+            </div>
             <div
               ref={(el) => { scrollDiv = el; setVirtScrollEl(el); }}
               class="logs-body min-h-0"
               id="req-log-scroll"
             >
               <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
-                <Index each={rowVirtualizer.getVirtualItems()}>
-                  {(vrow) => {
-                    const log = () => logs()[vrow().index];
+                <For each={visibleIdx()}>
+                  {(idx) => {
+                    const log = createMemo(() => logs()[idx]);
                     return (
                       <Show when={log()}>
                         {(() => {
-                          const dateLabel = () => fmtDate(log()!.created_at);
+                          const dateLabel = createMemo(() => fmtDate(log()!.created_at));
                           const color = () => opColor(log()!.operation);
                           const isErr = () => log()!.status === "error";
-                          const isSelected = () => selectedId() === log()!.id;
-                          const isFocused = () => focusIdx() === vrow().index;
+                          const isSelected = () => isSelectedId(log()!.id);
+                          const isFocused = () => isFocusedIdx(idx);
                           return (
                             <div
                               class={`req-log-row${isErr() ? " req-log-error" : ""}${isSelected() ? " req-log-open" : ""}${isFocused() ? " kb-active" : ""}`}
                               style={{
                                 position: "absolute", top: 0, left: 0, width: "100%",
                                 height: `${rowH()}px`,
-                                transform: `translateY(${vrow().start}px)`,
+                                transform: `translateY(${idx * rowH()}px)`,
                                 "--row-color": isErr() ? "#ef4444" : color(),
                               }}
                               onClick={() => selectRow(log()!.id)}
                               onMouseMove={() => {
                                 if (hoverLocked()) return;
-                                setFocusIdx(vrow().index);
+                                setFocusIdx(idx);
                               }}
                             >
                               <div class="req-log-main">
-                                <span class="req-log-dot" style={{ background: isErr() ? "#ef4444" : "#22c55e" }} />
-
                                 <span class="req-log-ts">
+                                  {fmtTime(log()!.created_at)}
                                   <Show when={dateLabel() !== today()}>
                                     <span class="req-log-ts-date">{dateLabel()}</span>
                                   </Show>
-                                  {fmtTime(log()!.created_at)}
                                 </span>
 
                                 <span class="req-log-op" style={{ "--op-color": color() }}>
@@ -573,7 +589,8 @@ export function RequestLogs(props: { active?: boolean }) {
                                     </Show>
                                     <Show when={log()!.key}>
                                       <span class="req-log-sep">/</span>
-                                      <span class="req-log-key">{highlightText(truncateKey(log()!.key), search())}</span>
+                                      <span class="req-log-key">{highlightText(splitKey(log()!.key!)[0], search())}</span>
+                                      <span class="req-log-key-name">{highlightText(splitKey(log()!.key!)[1], search())}</span>
                                     </Show>
                                   </span>
                                 </Show>
@@ -588,11 +605,12 @@ export function RequestLogs(props: { active?: boolean }) {
                       </Show>
                     );
                   }}
-                </Index>
+                </For>
               </div>
               <Show when={loadingMore()}>
                 <div class="req-log-more"><Spinner /> {t("logs.req.loadingMore")}</div>
               </Show>
+            </div>
             </div>
 
             <Show when={!isMobile() && selectedId()}>

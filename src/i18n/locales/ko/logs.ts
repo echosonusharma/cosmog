@@ -45,6 +45,7 @@ export default {
   "logs.req.badgeError": "✕ 오류",
   "logs.req.badgeOk": "✓ 성공",
   "logs.req.account": "계정",
+  "logs.req.operation": "작업",
   "logs.req.bucket": "버킷",
   "logs.req.duration": "소요 시간",
   "logs.req.time": "시간",
