@@ -10,12 +10,30 @@ use super::NwCtx;
 use crate::db::night_watcher::NightWatch;
 use crate::error::{AppError, AppResult};
 
+pub(super) enum ScanOutcome {
+    Complete,
+    /// Stopped early (shutdown, or the watch was disabled/deleted); nothing was swept.
+    Aborted,
+}
+
+/// How often a running scan re-reads its watch row.
+const WATCH_RECHECK_EVERY: u64 = 64;
+
+/// The scan holds a snapshot of the watch; disable/delete must still stop it.
+async fn watch_stopped<S: NwCtx>(state: &S, watch_id: &str) -> bool {
+    match state.db().get_watch(watch_id).await {
+        Ok(Some(w)) => !w.enabled,
+        Ok(None) => true,
+        Err(_) => false,
+    }
+}
+
 /// Per-file errors are logged, never fatal.
 pub(super) async fn reconcile_watch<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
     token: &CancellationToken,
-) -> AppResult<()> {
+) -> AppResult<ScanOutcome> {
     if watch.tree_uri.is_some() {
         return reconcile_watch_saf(state, watch, token).await;
     }
@@ -38,7 +56,11 @@ pub(super) async fn reconcile_watch<S: NwCtx>(
         // A partial walk must never sweep: its incomplete seen set would mass-delete live rows.
         if token.is_cancelled() {
             info!(watch = %watch.id, "night watcher: scan aborted by cancellation");
-            return Ok(());
+            return Ok(ScanOutcome::Aborted);
+        }
+        if scanned % WATCH_RECHECK_EVERY == 0 && watch_stopped(state, &watch.id).await {
+            info!(watch = %watch.id, "night watcher: scan aborted, watch disabled or deleted");
+            return Ok(ScanOutcome::Aborted);
         }
         scanned += 1;
         if matcher.is_ignored(&rel) {
@@ -69,7 +91,7 @@ pub(super) async fn reconcile_watch<S: NwCtx>(
         scanned, ignored, enqueued, errors, pruned,
         "night watcher: scan complete"
     );
-    Ok(())
+    Ok(ScanOutcome::Complete)
 }
 
 /// Sweeps only on a clean walk. An empty walk over a watch with state means unmounted/unreadable.
@@ -130,7 +152,7 @@ async fn reconcile_watch_saf<S: NwCtx>(
     state: &S,
     watch: &NightWatch,
     token: &CancellationToken,
-) -> AppResult<()> {
+) -> AppResult<ScanOutcome> {
     let uri = watch.tree_uri.clone().expect("tree_uri present");
     let scan_start = Utc::now().timestamp();
     // read_errors seeds `errors` (blocks sweep), matching the desktop path.
@@ -149,7 +171,11 @@ async fn reconcile_watch_saf<S: NwCtx>(
         }
         if token.is_cancelled() {
             info!(watch = %watch.id, "night watcher: SAF scan aborted by cancellation");
-            return Ok(());
+            return Ok(ScanOutcome::Aborted);
+        }
+        if scanned % WATCH_RECHECK_EVERY == 0 && watch_stopped(state, &watch.id).await {
+            info!(watch = %watch.id, "night watcher: SAF scan aborted, watch disabled or deleted");
+            return Ok(ScanOutcome::Aborted);
         }
         scanned += 1;
         if matcher.is_ignored(&entry.rel_path) {
@@ -179,5 +205,5 @@ async fn reconcile_watch_saf<S: NwCtx>(
         scanned, ignored, enqueued, errors, pruned,
         "night watcher: SAF scan complete"
     );
-    Ok(())
+    Ok(ScanOutcome::Complete)
 }

@@ -36,6 +36,9 @@ import { ListView } from "./ListView";
 import Spinner from "../../utils/Spinner";
 import { t, tp } from "../../i18n";
 
+// S3 DeleteObjects limit per call.
+const DELETE_BATCH = 1000;
+
 export function ObjectBrowser(props: {
   accountId: string;
   accountName: string;
@@ -245,6 +248,7 @@ export function ObjectBrowser(props: {
   });
 
   createEffect(() => { props.prefix; props.bucket; props.accountId; setSelected(new Set<string>()); });
+  createEffect(() => { props.bucket; props.accountId; setPendingFolders([]); });
   createEffect(() => { viewMode(); setSelected(new Set<string>()); setPreviewTarget(null); });
   // Hiding dotfiles must also drop them from the selection, or bulk actions hit invisible keys.
   createEffect(() => {
@@ -275,7 +279,13 @@ export function ObjectBrowser(props: {
     setSelected(s);
   }
 
+  // Props are live: a bucket switch mid-operation must not retarget later calls.
+  const sameTarget = (accountId: string, bucket: string) =>
+    props.accountId === accountId && props.bucket === bucket;
+
   async function handleDeleteFolder(sub: string) {
+    const accountId = props.accountId;
+    const bucket = props.bucket;
     const ok = await confirmDestructive({
       title: t("browse.delete.folderTitle"),
       body: t("browse.delete.folderBody", { sub }),
@@ -284,15 +294,18 @@ export function ObjectBrowser(props: {
     });
     if (!ok) return;
     try {
-      const keys = await listKeysUnderPrefix(props.accountId, props.bucket, sub);
+      const keys = await listKeysUnderPrefix(accountId, bucket, sub);
       const errors: Array<{ key: string; message: string }> = [];
-      for (let i = 0; i < keys.length; i += 1000) {
-        const res = await deleteObjects(props.accountId, props.bucket, keys.slice(i, i + 1000));
+      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+        const res = await deleteObjects(accountId, bucket, keys.slice(i, i + DELETE_BATCH));
         errors.push(...res.errors);
       }
-      if (previewTarget()?.key.startsWith(sub)) setPreviewTarget(null);
-      setSelected((prev) => new Set([...prev].filter((k) => !k.startsWith(sub))));
-      setRefresh((n) => n + 1);
+      if (sameTarget(accountId, bucket)) {
+        if (previewTarget()?.key.startsWith(sub)) setPreviewTarget(null);
+        setSelected((prev) => new Set([...prev].filter((k) => !k.startsWith(sub))));
+        setPendingFolders((prev) => prev.filter((f) => !f.startsWith(sub)));
+        setRefresh((n) => n + 1);
+      }
       if (errors.length) {
         toast.warn(
           t("browse.delete.partialFolder", {
@@ -303,8 +316,8 @@ export function ObjectBrowser(props: {
         );
         return;
       }
-      notify(t("browse.delete.folderDone"), `${sub} · ${props.bucket}`, {
-        largeBody: t("browse.delete.folderDoneLarge", { sub, bucket: props.bucket }),
+      notify(t("browse.delete.folderDone"), `${sub} · ${bucket}`, {
+        largeBody: t("browse.delete.folderDoneLarge", { sub, bucket }),
       });
     } catch (e) { toast.err(e); }
   }
@@ -330,6 +343,8 @@ export function ObjectBrowser(props: {
   async function handleBulkDelete() {
     const keys = Array.from(selected());
     if (!keys.length) return;
+    const accountId = props.accountId;
+    const bucket = props.bucket;
     const ok = await confirmDestructive({
       title: tp("browse.delete.bulkTitle", keys.length),
       body: keys.slice(0, 5).join("\n") + (keys.length > 5 ? "\n" + t("browse.delete.andMore", { count: keys.length - 5 }) : "") + "\n\n" + t("browse.delete.irreversible"),
@@ -338,28 +353,40 @@ export function ObjectBrowser(props: {
     });
     if (!ok) return;
     try {
-      const res = await deleteObjects(props.accountId, props.bucket, keys);
-      const gone = new Set(res.deleted);
-      if (previewTarget() && gone.has(previewTarget()!.key)) setPreviewTarget(null);
-      // Failed keys stay selected so the user can retry.
-      setSelected(new Set(res.errors.map((e) => e.key)));
-      setRefresh((n) => n + 1);
+      // S3 caps a delete call at 1000 keys.
+      const res: Awaited<ReturnType<typeof deleteObjects>> = { deleted: [], errors: [] };
+      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+        const part = await deleteObjects(accountId, bucket, keys.slice(i, i + DELETE_BATCH));
+        res.deleted.push(...part.deleted);
+        res.errors.push(...part.errors);
+      }
+      if (sameTarget(accountId, bucket)) {
+        const gone = new Set(res.deleted);
+        if (previewTarget() && gone.has(previewTarget()!.key)) setPreviewTarget(null);
+        // Failed keys stay selected so the user can retry.
+        setSelected(new Set(res.errors.map((e) => e.key)));
+        setRefresh((n) => n + 1);
+      }
       if (res.errors.length) {
         const first = res.errors[0];
         toast.warn(
           t("browse.delete.partialBucket", {
-            deleted: res.deleted.length, failed: res.errors.length, bucket: props.bucket,
+            deleted: res.deleted.length, failed: res.errors.length, bucket,
             key: first.key, message: first.message,
           }),
           t("browse.delete.partialTitle"),
         );
       } else {
         const n = res.deleted.length;
-        notify(tp("browse.delete.bulkDone", n), props.bucket, {
-          largeBody: tp("browse.delete.bulkDoneLarge", n, { bucket: props.bucket }),
+        notify(tp("browse.delete.bulkDone", n), bucket, {
+          largeBody: tp("browse.delete.bulkDoneLarge", n, { bucket }),
         });
       }
-    } catch (e) { toast.err(e); }
+    } catch (e) {
+      toast.err(e);
+      // Earlier batches may have gone through; show the real state.
+      if (sameTarget(accountId, bucket)) setRefresh((n) => n + 1);
+    }
   }
 
   async function handleCopyLink(obj: CachedObjectMeta) {
@@ -723,17 +750,18 @@ export function ObjectBrowser(props: {
                                 }} />}
       </Show>
 
-      <Show when={versionTarget()}>
+      {/* keyed: plain value, so the modal can still read the key after closing mid-request */}
+      <Show when={versionTarget()} keyed>
         {(obj) => <VersionHistoryModal
                     accountId={props.accountId}
                     bucket={props.bucket}
-                    objectKey={obj().key}
+                    objectKey={obj.key}
                     onClose={() => setVersionTarget(null)}
                     onChanged={() => {
                       setRefresh((n) => n + 1);
                       // If the object whose versions changed is the one on screen,
                       // force the preview to re-download the new latest content.
-                      if (previewTarget()?.key === obj().key) setPreviewReload((n) => n + 1);
+                      if (previewTarget()?.key === obj.key) setPreviewReload((n) => n + 1);
                     }} />}
       </Show>
 

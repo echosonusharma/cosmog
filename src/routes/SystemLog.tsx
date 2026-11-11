@@ -66,12 +66,17 @@ export function SystemLog(props: { active?: boolean }) {
       if (start === raw.length) return;
       anchor = raw.length >= 2 ? [raw[raw.length - 2], raw[raw.length - 1]] : null;
       const cut = clearedAt();
-      const parse = (rs: string[]) => {
-        const out = rs.map(parseLine).filter(Boolean) as ParsedLine[];
-        return cut ? out.filter((l) => l.ts > cut) : out;
+      const parse = (rs: string[]) => rs.map(parseLine).filter(Boolean) as ParsedLine[];
+      // Full reparse only: drop what was cleared. Untimestamped continuation
+      // lines follow the line above them.
+      const afterClear = (out: ParsedLine[]) => {
+        if (!cut) return out;
+        let lastTs = "";
+        return out.filter((l) => { if (l.ts) lastTs = l.ts; return lastTs > cut; });
       };
-      if (start < 0) setLines(parse(raw).slice(-MAX_LINES));
+      if (start < 0) setLines(afterClear(parse(raw)).slice(-MAX_LINES));
       else {
+        // Lines past the anchor are new by construction; no timestamp filter.
         const fresh = parse(raw.slice(start));
         if (fresh.length) setLines((prev) => [...prev, ...fresh].slice(-MAX_LINES));
       }

@@ -435,6 +435,10 @@ pub async fn preview_object(
             if !crate::crypto::is_age_ciphertext(&preview.bytes) {
                 return Ok(preview);
             }
+            // Same RAM guard as marked objects: too big to decrypt in memory.
+            if head.size as u64 > MAX_PREVIEW_DECRYPT_BYTES {
+                return Ok(preview);
+            }
             // Age bytes detected without the marker: fall through to the
             // full-fetch decrypt path below, which re-checks and warns.
         }

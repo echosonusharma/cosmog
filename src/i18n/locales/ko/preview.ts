@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "다른 키로 암호화되었거나 cosmog에서 암호화한 파일이 아니에요. 원래 키가 있다면 버킷 암호화 메뉴에서 불러와 주세요.",
   "preview.error.failedTitle": "미리보기에 실패했어요",
   "preview.editTooLarge": "파일이 너무 커서 미리보기에서 편집할 수 없어요",
+  "preview.editNotUtf8": "UTF-8 텍스트가 아니어서 여기서 편집하면 파일이 손상돼요",
   "preview.saveConflict": "편집 중에 파일이 변경되어 저장하지 않았어요",
   "preview.saved": "{name} 저장됨",
   "preview.savedBody": "\"{bucket}\"의 \"{key}\" 변경 사항을 저장했어요",

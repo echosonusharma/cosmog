@@ -862,7 +862,8 @@ impl ObjectStore for S3Store {
             bytes_total: Some(total),
         });
 
-        if total <= ctx.multipart_threshold && ctx.resume.is_none() {
+        // Empty files can't be multipart (zero parts), even on a resumed row.
+        if total == 0 || (total <= ctx.multipart_threshold && ctx.resume.is_none()) {
             return self
                 .put_single(bucket, key, source, total, opts, ctx)
                 .await;

@@ -5,7 +5,7 @@ import {
   currentView, setCurrentView,
   accounts, browseState, selectAccount, navigateToBucket,
   sidebarBuckets, sidebarBucketsError,
-  setOpenAddAccount,
+  setOpenAddAccount, bucketsRefreshTick,
 } from "../../state/app";
 import { providerLabel } from "../../providers";
 import {
@@ -50,9 +50,14 @@ export function Sidebar(props: {
   });
   // Encrypted bucket names for the active account. Refetches when the account
   // switches. Errors swallowed so a keychain hiccup can never crash the sidebar.
-  const [encSet] = createResource<Set<string>, string | null>(
-    () => props.activeAccount?.id ?? null,
-    async (id) => (id ? new Set(await listEncryptedBuckets(id).catch(() => [] as string[])) : new Set<string>()),
+  const [encSet] = createResource(
+    // Tick: encryption toggled on a bucket bumps it.
+    // String key: refetch only when the id or tick really changes.
+    () => `${bucketsRefreshTick()}|${props.activeAccount?.id ?? ""}`,
+    async (k) => {
+      const id = k.slice(k.indexOf("|") + 1);
+      return id ? new Set(await listEncryptedBuckets(id).catch(() => [] as string[])) : new Set<string>();
+    },
   );
   return (
     <aside class={`sidebar ${props.collapsed ? "collapsed" : ""}`}>

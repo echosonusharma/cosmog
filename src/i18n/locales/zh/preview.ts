@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "该文件使用了不同的密钥加密，或并非由 Cosmog 加密。如果你有原始密钥，请从存储桶加密菜单中加载。",
   "preview.error.failedTitle": "预览失败",
   "preview.editTooLarge": "文件太大，无法在预览中编辑",
+  "preview.editNotUtf8": "文件不是 UTF-8 文本，在此编辑会损坏文件",
   "preview.saveConflict": "编辑期间文件已更改，未保存",
   "preview.saved": "已保存 {name}",
   "preview.savedBody": "已将更改保存到 \"{bucket}\" 中的 \"{key}\"",

@@ -1,4 +1,5 @@
-import { createResource, createSignal, createEffect, Show, For } from "solid-js";
+import { createResource, createSignal, createEffect, on, Show, For } from "solid-js";
+import { accountsRefreshTick } from "../state/app";
 import { IconMcp, IconCopy, IconRefresh } from "../utils/icons";
 import { toast } from "../state/toast";
 import { confirmDialog } from "../state/confirm";
@@ -65,6 +66,8 @@ const CLIENTS: ClientDef[] = [
 
 export default function Mcp() {
   const [cfg, { refetch, mutate }] = createResource(mcpGetConfig);
+  // Pick up accounts added/removed in Settings.
+  createEffect(on(accountsRefreshTick, () => { refetch(); }, { defer: true }));
   const [reveal, setReveal] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [portDraft, setPortDraft] = createSignal(4123);
@@ -110,9 +113,8 @@ export default function Mcp() {
   async function toggleTool(name: string, enabled: boolean) {
     const c = cfg();
     if (!c) return;
-    const disabled = new Set(
-      c.advertised_tools.filter((x) => !x.enabled).map((x) => x.name),
-    );
+    // Start from the stored list: tools hidden by the write/delete gates must stay disabled.
+    const disabled = new Set(c.disabled_tools);
     if (enabled) disabled.delete(name);
     else disabled.add(name);
     await patch({ disabled_tools: [...disabled] });

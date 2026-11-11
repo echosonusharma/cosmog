@@ -129,8 +129,9 @@ impl S3Store {
                 if let Some(total) = head.content_length().map(|n| n as u64) {
                     if total > ctx.multipart_threshold {
                         let meta = head.metadata().cloned().unwrap_or_default();
+                        let etag = head.e_tag().map(str::to_string);
                         return self
-                            .get_object_parallel(bucket, key, &dest, total, &opts, &ctx, meta)
+                            .get_object_parallel(bucket, key, &dest, total, etag, &opts, &ctx, meta)
                             .await;
                     }
                 }
@@ -178,7 +179,9 @@ impl S3Store {
             tokio::fs::create_dir_all(parent).await?;
         }
         // Append only on an explicit resume; inferring from dest.exists() appended onto unrelated files.
-        let resume_offset = if opts.resume && dest.exists() {
+        // No Content-Range means the server ignored Range and sent the whole body: start over.
+        let ranged = resp.content_range().is_some();
+        let resume_offset = if opts.resume && ranged && dest.exists() {
             opts.range_start.unwrap_or(0)
         } else {
             0
@@ -241,12 +244,15 @@ impl S3Store {
         Ok(DownloadResult { bytes: bytes_done, user_metadata })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn get_object_parallel(
         &self,
         bucket: &str,
         key: &str,
         dest: &PathBuf,
         total: u64,
+        // Pins every range to the object that was HEADed; an overwrite mid-download fails instead of mixing.
+        etag: Option<String>,
         opts: &GetOptions,
         ctx: &TransferCtx,
         user_metadata: std::collections::HashMap<String, String>,
@@ -267,6 +273,7 @@ impl S3Store {
         let bucket_s = bucket.to_string();
         let key_s = key.to_string();
         let version_id = opts.version_id.clone();
+        let etag_s = etag;
         let dest_s = sparse.clone();
         let progress = ctx.progress.clone();
         let cancel = ctx.cancel.clone();
@@ -284,6 +291,7 @@ impl S3Store {
             let bucket = bucket_s.clone();
             let key = key_s.clone();
             let version_id = version_id.clone();
+            let etag = etag_s.clone();
             let dest = dest_s.clone();
             let progress = progress.clone();
             let cancel = cancel.clone();
@@ -299,7 +307,12 @@ impl S3Store {
                 let length = (total - offset).min(part_size);
                 let range = format!("bytes={}-{}", offset, offset + length - 1);
 
-                let mut req = client.get_object().bucket(&bucket).key(&key).range(range);
+                let mut req = client
+                    .get_object()
+                    .bucket(&bucket)
+                    .key(&key)
+                    .range(range)
+                    .set_if_match(etag);
                 if let Some(vid) = &version_id {
                     req = req.version_id(vid);
                 }

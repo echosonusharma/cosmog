@@ -13,6 +13,7 @@ export interface McpConfig {
   running_port: number | null;
   url: string;
   advertised_tools: McpTool[];
+  disabled_tools: string[];
   accounts: McpAccount[];
 }
 

@@ -376,16 +376,25 @@ impl TransferManager {
         let external_for_task = external_sink;
 
         tokio::spawn(async move {
-            let _permit = match sem.acquire().await {
-                Ok(p) => p,
-                Err(_) => return,
+            // Queued transfers must stay cancellable while waiting for a slot.
+            let permit = tokio::select! {
+                biased;
+                _ = ctx.cancel.cancelled() => None,
+                p = sem.acquire() => match p {
+                    Ok(p) => Some(p),
+                    Err(_) => return,
+                },
             };
-            let _ = db
-                .update_transfer_status(&id_for_task, TransferStatus::Active, None)
-                .await;
+            if permit.is_some() {
+                let _ = db
+                    .update_transfer_status(&id_for_task, TransferStatus::Active, None)
+                    .await;
+            }
 
             // catch_unwind so abort, terminal event/status and cancels.remove still run once on panic.
-            let result = {
+            let result = if permit.is_none() {
+                Err(AppError::Canceled(String::new()))
+            } else {
                 let store_job = store_for_task.clone();
                 let db_job = db.clone();
                 let ctx_job = ctx.clone();

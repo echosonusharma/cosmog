@@ -40,6 +40,7 @@ pub async fn delete_folder(
     let mut continuation: Option<String> = None;
     const BATCH: usize = 1000;
     let mut buffer: Vec<String> = Vec::with_capacity(BATCH);
+    let mut deleted_at_restart: u64 = 0;
 
     let job: AppResult<()> = async {
         loop {
@@ -78,6 +79,29 @@ pub async fn delete_folder(
 
             if page.is_truncated {
                 continuation = page.continuation;
+                if continuation.is_none() {
+                    // No token: relisting from the top only advances while keys keep
+                    // disappearing. Stop once a round deletes nothing.
+                    if !buffer.is_empty() {
+                        flush(
+                            &store,
+                            db,
+                            account_id,
+                            bucket,
+                            &mut buffer,
+                            &mut result,
+                            &sink,
+                            &transfer_id,
+                        )
+                        .await?;
+                    }
+                    if result.deleted == deleted_at_restart {
+                        return Err(AppError::Internal(
+                            "listing is truncated without a continuation token and no further keys could be deleted".into(),
+                        ));
+                    }
+                    deleted_at_restart = result.deleted;
+                }
             } else {
                 break;
             }
@@ -384,6 +408,11 @@ pub async fn download_directory(
 
             if page.is_truncated {
                 continuation = page.continuation;
+                if continuation.is_none() {
+                    // Truncated without a token would re-list page one forever.
+                    tracing::warn!(bucket, "download_directory: listing truncated without a continuation token; stopping after this page");
+                    break;
+                }
             } else {
                 break;
             }

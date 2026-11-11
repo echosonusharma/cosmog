@@ -64,7 +64,7 @@ export function AudioPreview(props: { obj: CachedObjectMeta; encrypted?: boolean
       if (enc) {
         const maxBytes = props.obj.size > 0 ? props.obj.size + 64 : ENCRYPTED_HARD_MAX;
         const r = await previewObject(a, b, k, maxBytes);
-        if (disposed || seq !== fetchSeq) return "";
+        if (disposed || seq !== fetchSeq || props.obj.key !== k) return "";
         const blob = new Blob([new Uint8Array(r.bytes)], { type: audioMime(k, r.content_type) });
         return URL.createObjectURL(blob);
       }

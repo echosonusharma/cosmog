@@ -1,7 +1,7 @@
 import { createSignal, createResource, createMemo, createEffect, onCleanup, For, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { currentView } from "../state/app";
+import { currentView, accounts as allAccounts } from "../state/app";
 import { Select } from "../utils/Select";
 import { IconTrash, IconFolder, IconEye, IconAlertCircle } from "../utils/icons";
 import { errCode, errMsg } from "../utils/errors";
@@ -9,7 +9,6 @@ import { toast } from "../state/toast";
 import { confirmDestructive } from "../state/settings";
 import { formatRelative } from "../utils/fmt";
 import { IS_MOBILE_OS } from "../utils/notify";
-import { listAccounts } from "../api/accounts";
 import { listBuckets } from "../api/buckets";
 import {
   nwListWatches, nwAddWatch, nwDeleteWatch, nwSetWatchEnabled, nwGetStatus,
@@ -50,7 +49,8 @@ export default function NightWatcher() {
   // identity, so <For> never recreates DOM on a poll (which caused periodic loader/flicker).
   const [watches, setWatches] = createStore<{ list: NightWatch[]; loaded: boolean }>({ list: [], loaded: false });
   const [status, setStatus] = createStore<{ list: WatchStatus[] }>({ list: [] });
-  const [accounts] = createResource(listAccounts);
+  // Global list, so accounts added/removed in Settings show up here.
+  const accounts = allAccounts;
   // Assume granted until told otherwise, so the warning never flashes on load.
   const [alarmsOk, setAlarmsOk] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
@@ -180,12 +180,16 @@ export default function NightWatcher() {
     finally { setBusy(false); }
   }
 
-  async function toggleEnabled(w: NightWatch) {
+  async function toggleEnabled(w: NightWatch, box: HTMLInputElement) {
     try {
       await nwSetWatchEnabled(w.id, !w.enabled);
       await refetchWatches();
       await refetchStatus();
-    } catch (e) { toast.err(e); }
+    } catch (e) {
+      toast.err(e);
+      // The browser already flipped the box; put it back in sync.
+      box.checked = w.enabled;
+    }
   }
 
   async function removeWatch(w: NightWatch) {
@@ -283,7 +287,7 @@ export default function NightWatcher() {
                           <input
                             type="checkbox"
                             checked={w.enabled}
-                            onChange={() => toggleEnabled(w)}
+                            onChange={(e) => toggleEnabled(w, e.currentTarget)}
                           />
                           <span class="nw-toggle-label">{w.enabled ? t("nightwatcher.on") : t("nightwatcher.off")}</span>
                         </label>
@@ -401,7 +405,12 @@ export default function NightWatcher() {
                 type="number"
                 min={30}
                 value={field("full_scan_secs")}
-                onInput={(e) => patch("full_scan_secs", Math.max(30, parseInt(e.currentTarget.value) || DEFAULT_FULL_SCAN_SECS))}
+                onChange={(e) => {
+                  // Clamp on commit, not per keystroke, so the value can be typed.
+                  const v = Math.max(30, parseInt(e.currentTarget.value) || DEFAULT_FULL_SCAN_SECS);
+                  patch("full_scan_secs", v);
+                  e.currentTarget.value = String(v);
+                }}
               />
               <button type="button" class="num-field-btn" onClick={() => patch("full_scan_secs", Math.max(30, field("full_scan_secs") - 30))}>−</button>
               <button type="button" class="num-field-btn" onClick={() => patch("full_scan_secs", field("full_scan_secs") + 30)}>+</button>

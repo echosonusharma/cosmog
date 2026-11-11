@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "別のキーで暗号化されているか、Cosmog で暗号化されたファイルではありません。元のキーがある場合は、バケットの暗号化メニューから読み込んでください。",
   "preview.error.failedTitle": "プレビューに失敗しました",
   "preview.editTooLarge": "ファイルが大きすぎるため、プレビューでは編集できません",
+  "preview.editNotUtf8": "UTF-8 テキストではないため、ここで編集すると破損します",
   "preview.saveConflict": "編集中にファイルが変更されたため、保存されませんでした",
   "preview.saved": "{name} を保存しました",
   "preview.savedBody": "\"{bucket}\" の \"{key}\" への変更を保存しました",

@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "Он зашифрован другим ключом или не был зашифрован в Cosmog. Если у вас есть исходный ключ, загрузите его из меню шифрования бакета.",
   "preview.error.failedTitle": "Не удалось выполнить предпросмотр",
   "preview.editTooLarge": "Файл слишком большой для редактирования в предпросмотре",
+  "preview.editNotUtf8": "Файл не в кодировке UTF-8: редактирование здесь его повредит",
   "preview.saveConflict": "Файл изменился во время редактирования, не сохранено",
   "preview.saved": "Сохранено: {name}",
   "preview.savedBody": "Изменения в «{key}» в «{bucket}» сохранены",

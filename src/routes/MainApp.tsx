@@ -120,6 +120,17 @@ export default function MainApp() {
   // null = unknown; forces one unconditional sync so a service orphaned by a previous
   // process is stopped even though this session never saw a transition to active.
   let serviceOn: boolean | null = null;
+  // SAF copies still running after their transfer finished.
+  let finalizing = 0;
+  // Android: keep a foreground service while transfers or SAF copies are in flight, else
+  // Doze/cached-process reaping kills them. Mark applied only on invoke success so failures retry.
+  function syncService(active: number) {
+    const wantService = active > 0 || finalizing > 0;
+    if (wantService === serviceOn) return;
+    invoke("set_transfer_service", { active: wantService })
+      .then(() => { serviceOn = wantService; })
+      .catch(() => {});
+  }
   async function refreshCount() {
     try {
       const list = await listTransfers();
@@ -128,15 +139,8 @@ export default function MainApp() {
       // Publish the live list so the sticky ActiveTransfersBar (and anything
       // else that wants live progress) doesn't have to spin up a second poll.
       setActiveTransfers(list.filter((x) => x.status === "active" || x.status === "pending"));
-      // Android: keep a foreground service while transfers are in flight, else Doze/cached-process
-      // reaping kills in-flight requests. Mark applied only on invoke success so failures retry.
-      const wantService = active > 0;
-      if (wantService !== serviceOn) {
-        invoke("set_transfer_service", { active: wantService })
-          .then(() => { serviceOn = wantService; })
-          .catch(() => {});
-      }
       if (firstLoad) {
+        syncService(active);
         for (const x of list) {
           if (x.status === "done" || x.status === "failed" || x.status === "canceled") notifiedEnd.add(x.id);
           if (x.status === "active" || x.status === "pending") notifiedStart.add(x.id);
@@ -204,38 +208,44 @@ export default function MainApp() {
           const done = x.status === "done";
           // A done SAF download is only complete once bytes are copied out of app cache to the
           // user-picked location; that copy can take minutes and can fail (revoked grant, disk full).
+          const announce = () => {
+            const title = tx(done ? "done" : "failed");
+            const largeBody = done
+              ? tx("doneBody")
+              : x.error ? tx("failedBodyErr", { error: errMsg(x.error) }) : tx("failedBody");
+            notify(title, body, rich({
+              largeBody,
+              channelId: done ? CHANNEL_EVENTS : CHANNEL_ALERTS,
+              ongoing: false,
+              autoCancel: true,
+            }));
+          };
           if (done && x.direction === "download") {
             const pending = takeSafFinalize(x.id);
             if (pending) {
-              try {
-                await finalizeSafDownload(pending.cachePath, pending.safUri);
-              } catch (e) {
-                // Keep the cache copy (finalize only deletes it on success) so bytes aren't lost.
-                notify(tx("failed"), body, rich({
-                  largeBody: tx("saveFailedBody", { error: errMsg(e) }),
-                  channelId: CHANNEL_ALERTS,
-                  ongoing: false,
-                  autoCancel: true,
-                }));
-                continue;
-              }
+              // Not awaited: the copy can take minutes and must not stall the poll.
+              finalizing++;
+              finalizeSafDownload(pending.cachePath, pending.safUri)
+                .then(announce, (e) => {
+                  // Keep the cache copy (finalize only deletes it on success) so bytes aren't lost.
+                  notify(tx("failed"), body, rich({
+                    largeBody: tx("saveFailedBody", { error: errMsg(e) }),
+                    channelId: CHANNEL_ALERTS,
+                    ongoing: false,
+                    autoCancel: true,
+                  }));
+                })
+                .finally(() => { finalizing--; });
+              continue;
             }
           }
-          const title = tx(done ? "done" : "failed");
-          const largeBody = done
-            ? tx("doneBody")
-            : x.error ? tx("failedBodyErr", { error: errMsg(x.error) }) : tx("failedBody");
-          notify(title, body, rich({
-            largeBody,
-            channelId: done ? CHANNEL_EVENTS : CHANNEL_ALERTS,
-            ongoing: false,
-            autoCancel: true,
-          }));
+          announce();
           // Failed downloads intentionally keep their SAF finalize entry and 0-byte placeholder:
           // Retry re-enqueues under a new id and Transfers.retry() moves the entry over so the
           // retried download still lands at the picked location. Deleted on cancel/clear instead.
         }
       }
+      syncService(active);
     } catch { }
   }
   // Fast poll only while transfers are in flight (live speed/ETA).

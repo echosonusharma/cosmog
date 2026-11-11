@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "Ele foi criptografado com outra chave ou não foi criptografado pelo Cosmog. Se você tem a chave original, carregue-a no menu de criptografia do bucket.",
   "preview.error.failedTitle": "Falha na pré-visualização",
   "preview.editTooLarge": "Arquivo grande demais para editar na pré-visualização",
+  "preview.editNotUtf8": "O arquivo não é texto UTF-8; editar aqui o corromperia",
   "preview.saveConflict": "O arquivo mudou durante a edição; não foi salvo",
   "preview.saved": "{name} salvo",
   "preview.savedBody": "Alterações em \"{key}\" salvas no bucket \"{bucket}\"",

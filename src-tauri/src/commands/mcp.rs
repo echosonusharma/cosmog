@@ -21,6 +21,8 @@ pub struct McpConfig {
     pub running_port: Option<u16>,
     pub url: String,
     pub advertised_tools: Vec<crate::mcp::AdvertisedTool>,
+    /// Full stored list, including tools currently hidden by the write/delete gates.
+    pub disabled_tools: Vec<String>,
     pub accounts: Vec<McpAccount>,
 }
 
@@ -63,6 +65,7 @@ async fn build_config(state: &AppState) -> AppResult<McpConfig> {
             s.mcp_allow_delete,
             &s.mcp_disabled_tools,
         ),
+        disabled_tools: s.mcp_disabled_tools.clone(),
         accounts,
     })
 }

@@ -20,7 +20,7 @@ import {
 } from "../../validation";
 import Spinner from "../../utils/Spinner";
 import { t, tp } from "../../i18n";
-import { focusEnd, prefixToPath } from "./newItem";
+import { focusEnd, objectExists, prefixToPath } from "./newItem";
 
 function displayName(p: string): string {
   if (p.startsWith("content://") || p.startsWith("file://")) return displayNameFromUri(p, "file");
@@ -344,12 +344,19 @@ export function RenameModal(props: {
       return;
     }
     const target = result.data;
-    if (target === props.obj.key) { props.onClose(); return; }
+    // Snapshot: props.obj is unreadable once onClose clears the Show.
+    const src = props.obj;
+    if (target === src.key) { props.onClose(); return; }
     setBusy(true);
     try {
-      await moveObject(props.obj.account_id, props.obj.bucket, props.obj.key, props.obj.bucket, target);
+      // Move would silently replace an existing object.
+      if (await objectExists(src.account_id, src.bucket, target)) {
+        setErr(t("browse.newFile.exists"));
+        return;
+      }
+      await moveObject(src.account_id, src.bucket, src.key, src.bucket, target);
       props.onDone(target); props.onClose();
-      toast.ok(t("browse.rename.doneTitle", { name: props.obj.key.split("/").pop() || props.obj.key }), t("browse.rename.doneDetail", { target, bucket: props.obj.bucket }));
+      toast.ok(t("browse.rename.doneTitle", { name: src.key.split("/").pop() || src.key }), t("browse.rename.doneDetail", { target, bucket: src.bucket }));
     } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   }
 

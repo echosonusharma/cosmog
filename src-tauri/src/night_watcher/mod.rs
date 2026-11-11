@@ -122,6 +122,10 @@ const MAX_UPLOAD_RETRIES: i64 = 3;
 const RETRY_PAUSE_SECS: i64 = 3600;
 
 // transfer_id -> watch_id for uploads this process enqueued, so stop/disable can cancel them.
+/// (watch, rel_path) that changed while its upload was in flight; re-checked when that upload ends.
+static DIRTY: std::sync::LazyLock<dashmap::DashSet<(String, String)>> =
+    std::sync::LazyLock::new(dashmap::DashSet::new);
+
 static UPLOADS: std::sync::LazyLock<dashmap::DashMap<String, String>> =
     std::sync::LazyLock::new(dashmap::DashMap::new);
 
@@ -227,6 +231,10 @@ async fn run_once<S: NwCtx>(state: &S, token: &CancellationToken) -> AppResult<(
                 return;
             }
             let res = reconcile_watch(&state, &w, &task_token).await;
+            // A partial walk is not a scan: leave last_scan_at so the rest is picked up soon.
+            if matches!(res, Ok(scan::ScanOutcome::Aborted)) {
+                return;
+            }
             let err = res.as_ref().err().map(|e| e.to_wire_string());
             if let Err(ref e) = res {
                 warn!(watch = %w.id, "night watcher scan failed: {e}");
@@ -268,7 +276,7 @@ pub async fn reconcile_dir_for_test<S: NwCtx>(
 #[cfg(feature = "nw-test-hooks")]
 pub async fn reconcile_watch_for_test<S: NwCtx>(state: &S, watch: &NightWatch) -> AppResult<()> {
     let token = CancellationToken::new();
-    reconcile_watch(state, watch, &token).await
+    reconcile_watch(state, watch, &token).await.map(|_| ())
 }
 
 #[cfg(test)]

@@ -62,6 +62,7 @@ export function ImageEditor(props: {
   let imgEl: HTMLImageElement | undefined;
   let cropper: Cropper | undefined;
   let ownBlob: string | null = null;
+  let disposed = false;
 
   const [cropMode, setCropMode] = createSignal(false);
   const [full, setFull] = createSignal(false);
@@ -83,8 +84,12 @@ export function ImageEditor(props: {
   const [src] = createResource(
     () => (tooBig() ? null : props.obj.key),
     async () => {
-      const maxBytes = props.obj.size > 0 ? props.obj.size + 64 : EDITOR_MAX_BYTES;
+      // Listed size can be stale after an overwrite; never cap below the editor max.
+      const maxBytes = Math.max(props.obj.size + 64, EDITOR_MAX_BYTES);
       const r = await previewObject(props.obj.account_id, props.obj.bucket, props.obj.key, maxBytes);
+      // A cut-off image would be saved back as-is.
+      if (r.truncated) throw new Error(t("preview.editTooLarge"));
+      if (disposed) return "";
       const mime = r.content_type || fmt().mime;
       const url = URL.createObjectURL(new Blob([new Uint8Array(r.bytes)], { type: mime }));
       ownBlob = url;
@@ -136,6 +141,7 @@ export function ImageEditor(props: {
   });
 
   onCleanup(() => {
+    disposed = true;
     imgEl?.removeEventListener("crop", onCropEvent);
     cropper?.destroy();
     if (ownBlob) URL.revokeObjectURL(ownBlob);

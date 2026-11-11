@@ -140,6 +140,12 @@ pub(super) async fn run_download(
         }
     }
 
+    // Fresh enqueue: drop temps left by another transfer so a later attempt
+    // can't resume onto bytes of a different object.
+    if !resume_part {
+        remove_download_temps(&part).await;
+    }
+
     let mut last_err: Option<AppError> = None;
     let mut got = None;
     for attempt in 0..MAX_ATTEMPTS {

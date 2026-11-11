@@ -3,6 +3,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { formatChartCount } from "../../../utils/requestLogMeta";
 import { language } from "../../../i18n";
+import { resolvedTheme } from "../../../state/theme";
 
 export interface ChartSeries {
   label: string;
@@ -51,6 +52,7 @@ export function MultiLineChart(props: {
   let wrap!: HTMLDivElement;
   let plot: uPlot | undefined;
   let lastBuildKey = "";
+  let builtTheme = "";
   const [hoverTip, setHoverTip] = createSignal<HoverTip | null>(null);
 
   function fmtY(v: number) {
@@ -189,6 +191,7 @@ export function MultiLineChart(props: {
       wrap?.removeEventListener("mouseleave", hideTip);
       wrap?.removeEventListener("touchend", hideTip);
       plot?.destroy();
+      plot = undefined;
     });
   });
 
@@ -197,8 +200,17 @@ export function MultiLineChart(props: {
     props.series;
     props.height;
     props.formatY;
+    const theme = resolvedTheme();
     if (!host) return;
     const width = Math.max(host.clientWidth, 240);
+    // Axis/grid colors are baked in at build time. The theme attribute lands
+    // after the signal, so rebuild on the next microtask.
+    if (plot && theme !== builtTheme) {
+      builtTheme = theme;
+      queueMicrotask(() => { if (plot && host) build(Math.max(host.clientWidth, 240)); });
+      return;
+    }
+    builtTheme = theme;
     const key = buildKey(width);
     if (plot && key === lastBuildKey) {
       plot.setData([

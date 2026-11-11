@@ -201,7 +201,9 @@ where
 
     // Claim so the watcher and full scan can't double-enqueue.
     if !state.nw_claim(&watch.id, rel_path) {
-        debug!(watch = %watch.id, rel = %rel_path, "night watcher: already in flight, skipping");
+        // The in-flight upload carries older content; re-check once it ends.
+        super::DIRTY.insert((watch.id.clone(), rel_path.to_string()));
+        debug!(watch = %watch.id, rel = %rel_path, "night watcher: already in flight, will re-check after it");
         return Ok(false);
     }
     info!(watch = %watch.id, rel = %rel_path, size, "night watcher: enqueuing upload");

@@ -147,9 +147,11 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
     async ({ a, b, k, x, enc }) => {
       const seq = ++imgSeq;
       if (x === "svg" || enc) {
-        const maxBytes = props.obj.size > 0 ? props.obj.size + 64 : 20 * 1024 * 1024;
+        // Listed size can be stale after an overwrite; never cap below the default.
+        const maxBytes = Math.max(props.obj.size + 64, 20 * 1024 * 1024);
         const r = await previewObject(a, b, k, maxBytes);
-        if (disposed || seq !== imgSeq) return { url: "", key: k };
+        // Also covers a switch to a non-image target, which starts no new fetch.
+        if (disposed || seq !== imgSeq || props.obj.key !== k) return { url: "", key: k };
         const mimeType = r.content_type || (x === "svg" ? "image/svg+xml" : `image/${x}`);
         const blob = new Blob([new Uint8Array(r.bytes)], { type: mimeType });
         return { url: URL.createObjectURL(blob), key: k };
@@ -280,7 +282,11 @@ export function PreviewPane(props: { obj: CachedObjectMeta; onClose: () => void;
       const r = await previewObject(a, b, k, EDIT_MAX);
       if (id !== objId()) return;
       if (r.truncated) { toast.warn(t("preview.editTooLarge")); return; }
-      setEditSrc({ id, text: new TextDecoder().decode(new Uint8Array(r.bytes)) });
+      // Lossy decode would write U+FFFD back on save; BOM is kept for round-trip.
+      let text: string;
+      try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(new Uint8Array(r.bytes)); }
+      catch { toast.warn(t("preview.editNotUtf8")); return; }
+      setEditSrc({ id, text });
       setEditOpen(true);
     } catch (e) {
       toast.err(e);

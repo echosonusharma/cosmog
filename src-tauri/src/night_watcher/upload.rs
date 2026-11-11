@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use tracing::{debug, info, warn};
 
-use super::{NwCtx, MAX_UPLOAD_RETRIES, RETRY_PAUSE_SECS, UPLOADS};
+use super::{NwCtx, DIRTY, MAX_UPLOAD_RETRIES, RETRY_PAUSE_SECS, UPLOADS};
 use crate::db::night_watcher::{FileState, NightWatch};
 use crate::error::AppResult;
 use crate::store::PutOptions;
@@ -134,6 +134,7 @@ fn persist_sink<S: NwCtx>(
                 }
                 let _ = state.db().file_retry_clear(&watch_id, &rel_path).await;
                 state.nw_unclaim(&watch_id, &rel_path);
+                recheck_if_dirty(&state, &watch_id, &rel_path).await;
             });
         }
         TransferEvent::Failed { error, transfer_id } => {
@@ -148,6 +149,7 @@ fn persist_sink<S: NwCtx>(
             tokio::spawn(async move {
                 record_failure(&state, &watch_id, &rel_path).await;
                 state.nw_unclaim(&watch_id, &rel_path);
+                recheck_if_dirty(&state, &watch_id, &rel_path).await;
             });
         }
         TransferEvent::Canceled { transfer_id } => {
@@ -155,9 +157,28 @@ fn persist_sink<S: NwCtx>(
             debug!(watch = %watch_id, rel = %rel_path, "night watcher: upload canceled");
             cleanup_stage();
             state.nw_unclaim(&watch_id, &rel_path);
+            DIRTY.remove(&(watch_id.clone(), rel_path.clone()));
         }
         _ => {}
     })
+}
+
+/// A file that changed during its own upload would otherwise wait for the backstop scan.
+/// Desktop only: SAF watches have no per-file events and are covered by their scans.
+async fn recheck_if_dirty<S: NwCtx>(state: &S, watch_id: &str, rel_path: &str) {
+    if DIRTY.remove(&(watch_id.to_string(), rel_path.to_string())).is_none() {
+        return;
+    }
+    let Ok(Some(watch)) = state.db().get_watch(watch_id).await else {
+        return;
+    };
+    if !watch.enabled || watch.tree_uri.is_some() {
+        return;
+    }
+    let abs = Path::new(&watch.local_dir).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if let Err(e) = super::reconcile::reconcile_file(state, &watch, rel_path, &abs, None).await {
+        warn!(watch = %watch_id, rel = %rel_path, "night watcher: re-check after upload failed: {e}");
+    }
 }
 
 pub(super) async fn record_failure<S: NwCtx>(state: &S, watch_id: &str, rel_path: &str) {

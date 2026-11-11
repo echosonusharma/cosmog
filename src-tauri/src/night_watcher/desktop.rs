@@ -161,6 +161,11 @@ async fn reconcile_paths(state: &AppState, paths: Vec<(PathBuf, bool)>) {
                     None => continue,
                 },
             };
+            // A lossy key would collide with other names and can't be mapped back by scans.
+            if rel_path.to_str().is_none() {
+                warn!(watch = %w.id, path = %p.display(), "night watcher: skipping non-UTF-8 file name");
+                continue;
+            }
             let rel = normalize_rel(rel_path);
             if rel.is_empty() {
                 continue;
@@ -175,7 +180,7 @@ async fn reconcile_paths(state: &AppState, paths: Vec<(PathBuf, bool)>) {
             } else if let Err(e) = reconcile_file(state, w, &rel, &p, None).await {
                 warn!(watch = %w.id, rel = %rel, "reconcile failed: {e}");
             }
-            break;
+            // No break: overlapping or nested watches each sync the path to their own bucket.
         }
     }
 }

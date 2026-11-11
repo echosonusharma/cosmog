@@ -10,6 +10,7 @@ export default {
   "preview.error.cannotOpenHint": "It was encrypted with a different key, or was not encrypted by cosmog. If you have the original key, load it from the bucket encryption menu.",
   "preview.error.failedTitle": "Preview failed",
   "preview.editTooLarge": "File too large to edit in preview",
+  "preview.editNotUtf8": "File is not UTF-8 text, so editing here would corrupt it",
   "preview.saveConflict": "File changed while editing; not saved",
   "preview.saved": "Saved {name}",
   "preview.savedBody": "Saved changes to \"{key}\" in \"{bucket}\"",
