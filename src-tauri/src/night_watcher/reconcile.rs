@@ -179,7 +179,8 @@ where
         }
         Decision::TouchOnly => {
             // Touch only: refresh fingerprint so we don't rehash next scan.
-            let synced_etag = prev.and_then(|p| p.synced_etag);
+            let (synced_etag, enc_recipient) =
+                prev.map(|p| (p.synced_etag, p.enc_recipient)).unwrap_or_default();
             state
                 .db()
                 .file_state_upsert(
@@ -190,6 +191,7 @@ where
                         mtime,
                         size,
                         synced_etag,
+                        enc_recipient,
                     },
                 )
                 .await?;
@@ -270,6 +272,7 @@ mod tests {
             mtime,
             size,
             synced_etag: None,
+            enc_recipient: None,
         }
     }
 

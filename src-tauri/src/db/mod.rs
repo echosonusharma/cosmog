@@ -498,4 +498,11 @@ const MIGRATIONS: &[Migration] = &[
             END;
         "#,
     },
+    Migration {
+        version: 20,
+        // Recipient the synced object was encrypted to; NULL = uploaded as plaintext.
+        sql: r#"
+            ALTER TABLE nw_file_state ADD COLUMN enc_recipient TEXT;
+        "#,
+    },
 ];

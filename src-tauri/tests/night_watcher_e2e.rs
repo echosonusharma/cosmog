@@ -54,7 +54,8 @@ use cosmog_lib::db::night_watcher::NewWatch;
 use cosmog_lib::db::Db;
 use cosmog_lib::error::AppResult;
 use cosmog_lib::night_watcher::{
-    reconcile_dir_for_test, reconcile_file_for_test, reconcile_watch_for_test, NwCtx,
+    reconcile_dir_for_test, reconcile_file_for_test, reconcile_watch_for_test, rescan_bucket,
+    run_once_for_test, NwCtx,
 };
 use cosmog_lib::store::{GetOptions, ListOptions, ObjectStore};
 use cosmog_lib::transfer::{TransferCtx, TransferManager};
@@ -497,4 +498,296 @@ async fn enable_bucket_encryption(db: &Db, account_id: &str, bucket: &str) -> St
         .await
         .expect("set encryption config");
     recipient
+}
+
+/// Full scan into an encrypted bucket: every object must decrypt to the exact local bytes.
+#[tokio::test]
+#[serial_test::serial]
+async fn e2e_encrypted_scan_roundtrips_exact_bytes() {
+    use rand::RngCore;
+
+    require_minio!();
+    let store = common::make_store().await;
+    let bucket = common::create_test_bucket(&store, "cosmog-nw-encrt").await;
+
+    let (ctx, tmp, acct) = make_ctx(store.clone()).await;
+    let watch_dir = tempfile::tempdir().expect("watch dir");
+    let root = watch_dir.path();
+
+    // Empty, small, nested, and one above the 8 MiB multipart threshold.
+    let mut big = vec![0u8; 20 * 1024 * 1024 + 4321];
+    rand::thread_rng().fill_bytes(&mut big);
+    let files: Vec<(&str, Vec<u8>)> = vec![
+        ("empty.bin", Vec::new()),
+        ("small.txt", b"night watcher secret".to_vec()),
+        ("sub/dir/nested.txt", b"nested secret body".to_vec()),
+        ("big.bin", big),
+    ];
+    for (rel, body) in &files {
+        let p = root.join(rel);
+        tokio::fs::create_dir_all(p.parent().unwrap()).await.unwrap();
+        tokio::fs::write(&p, body).await.unwrap();
+    }
+
+    let (secret, recipient) = cosmog_lib::crypto::new_identity();
+    ctx.db.set_encryption_config(&acct, &bucket, &recipient).await.unwrap();
+
+    ctx.db
+        .insert_watch(
+            "w-encrt",
+            NewWatch {
+                account_id: acct.clone(),
+                bucket: bucket.clone(),
+                local_dir: root.to_string_lossy().to_string(),
+                key_prefix: "vault".into(),
+                ignore_file: None,
+                full_scan_secs: 300,
+                tree_uri: None,
+            },
+        )
+        .await
+        .unwrap();
+    let watch = ctx.db.get_watch("w-encrt").await.unwrap().unwrap();
+
+    reconcile_watch_for_test(&ctx, &watch).await.unwrap();
+
+    let dl_dir = tempfile::tempdir().unwrap();
+    for (i, (rel, body)) in files.iter().enumerate() {
+        let st = wait_for(|| {
+            let db = ctx.db.clone();
+            async move { db.file_state_get("w-encrt", rel).await.ok().flatten() }
+        })
+        .await
+        .unwrap_or_else(|| panic!("{rel}: no synced state row"));
+        // The fingerprint describes the plaintext, never the ciphertext.
+        assert_eq!(st.size, body.len() as i64, "{rel}: state size");
+        assert_eq!(st.hash, blake3::hash(body).to_hex().to_string(), "{rel}: state hash");
+
+        let key = format!("vault/{rel}");
+        let meta = store.head_object(&bucket, &key).await.unwrap_or_else(|e| panic!("{key}: {e}"));
+        assert_eq!(meta.user_metadata.get("cosmog-encrypted").map(String::as_str), Some("1"), "{key}");
+        assert!(meta.size > body.len() as i64, "{key}: ciphertext must be larger than plaintext");
+
+        let enc = dl_dir.path().join(format!("{i}.age"));
+        let dec = dl_dir.path().join(format!("{i}.plain"));
+        store
+            .get_object(&bucket, &key, enc.clone(), GetOptions::default(), TransferCtx::new("v"))
+            .await
+            .unwrap();
+        let cipher = tokio::fs::read(&enc).await.unwrap();
+        assert_eq!(cipher.len() as i64, meta.size, "{key}: downloaded size");
+        assert!(cosmog_lib::crypto::is_age_ciphertext(&cipher), "{key}: not age ciphertext");
+        let identity = cosmog_lib::crypto::parse_identity(&secret).unwrap();
+        cosmog_lib::crypto::decrypt_file(&enc, &dec, identity)
+            .await
+            .unwrap_or_else(|e| panic!("{key}: decrypt failed: {e}"));
+        let plain = tokio::fs::read(&dec).await.unwrap();
+        assert!(plain == *body, "{key}: decrypted bytes differ from the local file");
+    }
+
+    // Temp ciphertext is gone once the workers settled.
+    let enc_tmp = tmp.path().join("enc_tmp").join("nightwatch");
+    let leftovers = wait_for(|| {
+        let d = enc_tmp.clone();
+        async move {
+            let n = std::fs::read_dir(&d).map(|rd| rd.count()).unwrap_or(0);
+            (n == 0).then_some(())
+        }
+    })
+    .await;
+    assert!(leftovers.is_some(), "enc_tmp must be empty after uploads settle");
+
+    // A second scan re-uploads nothing.
+    let before = store.head_object(&bucket, "vault/big.bin").await.unwrap().etag;
+    reconcile_watch_for_test(&ctx, &watch).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let active = ctx.transfers.list(None).await.unwrap();
+    assert_eq!(active.len(), files.len(), "second scan must enqueue nothing: {active:?}");
+    assert_eq!(store.head_object(&bucket, "vault/big.bin").await.unwrap().etag, before);
+
+    drop(tmp);
+    common::cleanup_bucket(&store, &bucket).await;
+}
+
+/// Remote body of `key` plus whether it carries the encrypted marker; `None` if absent.
+async fn fetch_remote(store: &Arc<dyn ObjectStore>, bucket: &str, key: &str) -> Option<(Vec<u8>, bool)> {
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("body");
+    let res = store
+        .get_object(bucket, key, dst.clone(), GetOptions::default(), TransferCtx::new("v"))
+        .await
+        .ok()?;
+    let marked = res.user_metadata.get("cosmog-encrypted").map(String::as_str) == Some("1");
+    Some((tokio::fs::read(&dst).await.unwrap(), marked))
+}
+
+/// Rescan, then poll until the remote object satisfies `ok`; returns its body.
+async fn rescan_until<F>(ctx: &TestCtx, watch_id: &str, bucket: &str, key: &str, ok: F) -> Option<Vec<u8>>
+where
+    F: Fn(&[u8], bool) -> bool,
+{
+    let watch = ctx.db.get_watch(watch_id).await.unwrap().unwrap();
+    reconcile_watch_for_test(ctx, &watch).await.unwrap();
+    for _ in 0..50 {
+        if let Some((body, marked)) = fetch_remote(&ctx.store, bucket, key).await {
+            if ok(&body, marked) {
+                return Some(body);
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    None
+}
+
+/// Files synced before the bucket's encryption changed must be re-uploaded under the new
+/// state: enable encrypts them, rotate re-encrypts to the new key, disable restores plaintext.
+#[tokio::test]
+#[serial_test::serial]
+async fn e2e_encryption_change_reuploads_synced_files() {
+    require_minio!();
+    let store = common::make_store().await;
+    let bucket = common::create_test_bucket(&store, "cosmog-nw-encchg").await;
+
+    let (ctx, tmp, acct) = make_ctx(store.clone()).await;
+    let watch_dir = tempfile::tempdir().expect("watch dir");
+    let root = watch_dir.path();
+    let plaintext = b"synced before encryption was enabled".to_vec();
+    tokio::fs::write(root.join("doc.txt"), &plaintext).await.unwrap();
+
+    ctx.db
+        .insert_watch(
+            "w-chg",
+            NewWatch {
+                account_id: acct.clone(),
+                bucket: bucket.clone(),
+                local_dir: root.to_string_lossy().to_string(),
+                key_prefix: String::new(),
+                ignore_file: None,
+                full_scan_secs: 300,
+                tree_uri: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    // 1. Plaintext bucket: the object is the raw file.
+    let body = rescan_until(&ctx, "w-chg", &bucket, "doc.txt", |_, marked| !marked).await;
+    assert_eq!(body.as_deref(), Some(plaintext.as_slice()));
+    wait_for(|| {
+        let db = ctx.db.clone();
+        async move { db.file_state_get("w-chg", "doc.txt").await.ok().flatten() }
+    })
+    .await
+    .expect("plaintext sync recorded");
+
+    let decrypt = |secret: String, cipher: Vec<u8>| {
+        let id = cosmog_lib::crypto::parse_identity(&secret).unwrap();
+        cosmog_lib::crypto::decrypt_bytes(&id, &cipher)
+    };
+
+    // 2. Enable encryption: the unchanged local file must be re-uploaded as ciphertext.
+    let (secret_a, recipient_a) = cosmog_lib::crypto::new_identity();
+    ctx.db.set_encryption_config(&acct, &bucket, &recipient_a).await.unwrap();
+    let cipher_a = rescan_until(&ctx, "w-chg", &bucket, "doc.txt", |b, marked| {
+        marked && cosmog_lib::crypto::is_age_ciphertext(b)
+    })
+    .await
+    .expect("object must be re-uploaded encrypted after enabling encryption");
+    assert_eq!(decrypt(secret_a.clone(), cipher_a.clone()).unwrap(), plaintext);
+
+    // Settled: another scan must not upload again.
+    wait_for(|| {
+        let db = ctx.db.clone();
+        async move { db.file_state_get("w-chg", "doc.txt").await.ok().flatten() }
+    })
+    .await
+    .expect("encrypted sync recorded");
+    let watch = ctx.db.get_watch("w-chg").await.unwrap().unwrap();
+    let again = reconcile_file_for_test(&ctx, &watch, "doc.txt", &root.join("doc.txt")).await.unwrap();
+    assert!(!again, "file already synced under the current key must be skipped");
+
+    // 3. Rotate: the object must become decryptable with the new key only.
+    let (secret_b, recipient_b) = cosmog_lib::crypto::new_identity();
+    ctx.db.set_encryption_config(&acct, &bucket, &recipient_b).await.unwrap();
+    let cipher_b = rescan_until(&ctx, "w-chg", &bucket, "doc.txt", |b, marked| {
+        marked && decrypt(secret_b.clone(), b.to_vec()).is_ok()
+    })
+    .await
+    .expect("object must be re-encrypted to the rotated key");
+    assert_eq!(decrypt(secret_b.clone(), cipher_b.clone()).unwrap(), plaintext);
+    assert!(decrypt(secret_a, cipher_b).is_err(), "old key must not decrypt the rotated object");
+
+    // 4. Disable: the object goes back to plaintext.
+    ctx.db.delete_encryption_config(&acct, &bucket).await.unwrap();
+    let body = rescan_until(&ctx, "w-chg", &bucket, "doc.txt", |_, marked| !marked)
+        .await
+        .expect("object must be re-uploaded as plaintext after disabling encryption");
+    assert_eq!(body, plaintext);
+
+    drop(tmp);
+    common::cleanup_bucket(&store, &bucket).await;
+}
+
+/// An encryption change must make watches on that bucket due on the next tick despite their cadence.
+/// Empty watch dirs, so no S3 call is made and MinIO is not needed.
+#[tokio::test]
+#[serial_test::serial]
+async fn encryption_change_forces_scan_of_that_bucket_only() {
+    let (ctx, tmp, acct) = make_ctx(common::make_store().await).await;
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    for (id, bucket, dir) in [("w-enc", "enc-bucket", &dir_a), ("w-other", "other-bucket", &dir_b)] {
+        ctx.db
+            .insert_watch(
+                id,
+                NewWatch {
+                    account_id: acct.clone(),
+                    bucket: bucket.into(),
+                    local_dir: dir.path().to_string_lossy().to_string(),
+                    key_prefix: String::new(),
+                    ignore_file: None,
+                    full_scan_secs: 300,
+                    tree_uri: None,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    // Both scanned a minute ago: not due by cadence.
+    let past = chrono::Utc::now().timestamp() - 60;
+    for id in ["w-enc", "w-other"] {
+        ctx.db.set_watch_scan_result(id, past, None).await.unwrap();
+    }
+    let last_scan = |id: &'static str| {
+        let db = ctx.db.clone();
+        async move { db.get_watch(id).await.unwrap().unwrap().last_scan_at }
+    };
+
+    run_once_for_test(&ctx).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(last_scan("w-enc").await, Some(past), "no change yet: cadence holds");
+    assert_eq!(last_scan("w-other").await, Some(past));
+
+    enable_bucket_encryption(&ctx.db, &acct, "enc-bucket").await;
+    rescan_bucket(&ctx.db, &acct, "enc-bucket").await;
+    run_once_for_test(&ctx).await.unwrap();
+
+    let scanned = wait_for(|| async {
+        last_scan("w-enc").await.filter(|t| *t > past)
+    })
+    .await;
+    assert!(scanned.is_some(), "watch on the changed bucket must scan on the next tick");
+    let w = ctx.db.get_watch("w-enc").await.unwrap().unwrap();
+    assert_eq!(w.last_error, None, "forced scan must complete cleanly");
+    assert_eq!(last_scan("w-other").await, Some(past), "watch on another bucket must not scan");
+
+    // The force is one-shot: the following tick leaves both alone.
+    let after = last_scan("w-enc").await;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    run_once_for_test(&ctx).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(last_scan("w-enc").await, after, "force flag must be consumed");
+    assert_eq!(last_scan("w-other").await, Some(past));
+
+    drop(tmp);
 }

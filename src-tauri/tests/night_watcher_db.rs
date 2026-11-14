@@ -103,6 +103,7 @@ async fn file_state_upsert_overwrites_and_counts() {
         mtime: 100,
         size: 10,
         synced_etag: Some("etag1".into()),
+        enc_recipient: None,
     };
     db.file_state_upsert("w1", st).await.unwrap();
 
@@ -121,6 +122,7 @@ async fn file_state_upsert_overwrites_and_counts() {
             mtime: 200,
             size: 20,
             synced_etag: Some("etag2".into()),
+            enc_recipient: None,
         },
     )
     .await
@@ -148,6 +150,7 @@ async fn deleting_account_cascades_to_watch_and_file_state() {
             mtime: 1,
             size: 1,
             synced_etag: None,
+            enc_recipient: None,
         },
     )
     .await
@@ -166,6 +169,7 @@ fn state(rel: &str) -> FileState {
         mtime: 1,
         size: 1,
         synced_etag: None,
+        enc_recipient: None,
     }
 }
 
@@ -203,4 +207,48 @@ async fn sweep_queries_keep_rows_written_after_scan_start() {
     assert_eq!(db.file_state_list_rel_paths("w1", later).await.unwrap(), vec!["a.txt"]);
     let n = db.file_state_delete_many("w1", &["a.txt".into()], later).await.unwrap();
     assert_eq!(n, 1);
+}
+
+/// A row synced under another encryption state must read as absent (get and map), so the
+/// file re-uploads; it becomes visible again once it matches the bucket's recipient.
+#[tokio::test]
+async fn file_state_hidden_when_bucket_encryption_differs() {
+    let (db, _td) = common::tmp_db().await;
+    let acct = seed_account(&db).await;
+    db.insert_watch("w1", new_watch(&acct, "/tmp/one")).await.unwrap();
+    let bucket = db.get_watch("w1").await.unwrap().unwrap().bucket;
+    let with = |recipient: Option<&str>| FileState {
+        enc_recipient: recipient.map(str::to_string),
+        ..state("a.txt")
+    };
+    let visible = |db: cosmog_lib::db::Db| async move {
+        let got = db.file_state_get("w1", "a.txt").await.unwrap();
+        let in_map = db.file_state_map("w1").await.unwrap().contains_key("a.txt");
+        assert_eq!(got.is_some(), in_map, "get and map must agree");
+        got.map(|s| s.enc_recipient)
+    };
+
+    // Plaintext sync on a plaintext bucket.
+    db.file_state_upsert("w1", with(None)).await.unwrap();
+    assert_eq!(visible(db.clone()).await, Some(None));
+
+    // Encryption enabled afterwards: the plaintext sync no longer counts.
+    db.set_encryption_config(&acct, &bucket, "age1first").await.unwrap();
+    assert_eq!(visible(db.clone()).await, None);
+    assert_eq!(db.file_state_count("w1").await.unwrap(), 1, "row is hidden, not deleted");
+
+    // Re-synced under the current key.
+    db.file_state_upsert("w1", with(Some("age1first"))).await.unwrap();
+    assert_eq!(visible(db.clone()).await, Some(Some("age1first".to_string())));
+
+    // Rotated key, then encryption disabled: stale both times.
+    db.set_encryption_config(&acct, &bucket, "age1second").await.unwrap();
+    assert_eq!(visible(db.clone()).await, None);
+    db.delete_encryption_config(&acct, &bucket).await.unwrap();
+    assert_eq!(visible(db.clone()).await, None);
+
+    // Another bucket's config must not affect this watch.
+    db.file_state_upsert("w1", with(None)).await.unwrap();
+    db.set_encryption_config(&acct, "some-other-bucket", "age1other").await.unwrap();
+    assert_eq!(visible(db.clone()).await, Some(None));
 }

@@ -60,6 +60,26 @@ pub struct FileState {
     pub mtime: i64,
     pub size: i64,
     pub synced_etag: Option<String>,
+    /// age recipient the remote object was encrypted to; `None` = plaintext.
+    pub enc_recipient: Option<String>,
+}
+
+// Rows synced under another encryption state read as absent, so the file re-uploads.
+const FILE_STATE_SELECT: &str = "SELECT s.rel_path, s.hash, s.mtime, s.size, s.synced_etag, s.enc_recipient \
+     FROM nw_file_state s \
+     JOIN nw_watch w ON w.id = s.watch_id \
+     LEFT JOIN bucket_encryption e ON e.account_id = w.account_id AND e.bucket = w.bucket \
+     WHERE s.enc_recipient IS e.salt_hex AND s.watch_id=?1";
+
+fn row_to_file_state(row: &rusqlite::Row) -> rusqlite::Result<FileState> {
+    Ok(FileState {
+        rel_path: row.get(0)?,
+        hash: row.get(1)?,
+        mtime: row.get(2)?,
+        size: row.get(3)?,
+        synced_etag: row.get(4)?,
+        enc_recipient: row.get(5)?,
+    })
 }
 
 fn row_to_watch(row: &rusqlite::Row) -> rusqlite::Result<NightWatch> {
@@ -261,18 +281,9 @@ impl Db {
         self.conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT rel_path, hash, mtime, size, synced_etag FROM nw_file_state \
-                     WHERE watch_id=?1 AND rel_path=?2",
+                    &format!("{FILE_STATE_SELECT} AND s.rel_path=?2"),
                     params![watch_id, rel_path],
-                    |row| {
-                        Ok(FileState {
-                            rel_path: row.get(0)?,
-                            hash: row.get(1)?,
-                            mtime: row.get(2)?,
-                            size: row.get(3)?,
-                            synced_etag: row.get(4)?,
-                        })
-                    },
+                    row_to_file_state,
                 )
                 .optional()
                 .map_err(tokio_rusqlite::Error::from)
@@ -289,19 +300,8 @@ impl Db {
         let watch_id = watch_id.to_string();
         self.conn
             .call(move |conn| {
-                let mut stmt = conn.prepare_cached(
-                    "SELECT rel_path, hash, mtime, size, synced_etag FROM nw_file_state \
-                     WHERE watch_id=?1",
-                )?;
-                let rows = stmt.query_map(params![watch_id], |row| {
-                    Ok(FileState {
-                        rel_path: row.get(0)?,
-                        hash: row.get(1)?,
-                        mtime: row.get(2)?,
-                        size: row.get(3)?,
-                        synced_etag: row.get(4)?,
-                    })
-                })?;
+                let mut stmt = conn.prepare_cached(FILE_STATE_SELECT)?;
+                let rows = stmt.query_map(params![watch_id], row_to_file_state)?;
                 let mut map = std::collections::HashMap::new();
                 for r in rows {
                     let st = r?;
@@ -323,11 +323,12 @@ impl Db {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO nw_file_state(watch_id, rel_path, hash, mtime, size, synced_etag, synced_at) \
-                     VALUES(?1,?2,?3,?4,?5,?6,?7) \
+                    "INSERT INTO nw_file_state(watch_id, rel_path, hash, mtime, size, synced_etag, synced_at, enc_recipient) \
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8) \
                      ON CONFLICT(watch_id, rel_path) DO UPDATE SET \
                         hash=excluded.hash, mtime=excluded.mtime, size=excluded.size, \
-                        synced_etag=excluded.synced_etag, synced_at=excluded.synced_at",
+                        synced_etag=excluded.synced_etag, synced_at=excluded.synced_at, \
+                        enc_recipient=excluded.enc_recipient",
                     params![
                         watch_id,
                         st.rel_path,
@@ -335,7 +336,8 @@ impl Db {
                         st.mtime,
                         st.size,
                         st.synced_etag,
-                        now
+                        now,
+                        st.enc_recipient
                     ],
                 )
                 .map(|_| ())

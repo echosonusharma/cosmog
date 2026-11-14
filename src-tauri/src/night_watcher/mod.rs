@@ -108,6 +108,21 @@ fn forget_watcher(watch_id: &str) {
     FORCE_SCAN.remove(watch_id);
 }
 
+/// Forces the next tick to scan every enabled watch on (account, bucket). Best-effort, never fails.
+pub async fn rescan_bucket(db: &Db, account_id: &str, bucket: &str) {
+    // Android's loop runs in the :nightwatch process; its periodic scan picks the change up.
+    if cfg!(target_os = "android") {
+        return;
+    }
+    match db.list_enabled_watches().await {
+        Ok(watches) => watches
+            .iter()
+            .filter(|w| w.account_id == account_id && w.bucket == bucket)
+            .for_each(|w| request_rescan(&w.id)),
+        Err(e) => warn!(account = %account_id, bucket = %bucket, "night watcher: rescan request failed: {e}"),
+    }
+}
+
 /// Events cover changes between scans, so a healthy watcher stretches the scan to a backstop.
 fn scan_interval(watch_id: &str, full_scan_secs: i64) -> i64 {
     if WATCHER_OK.contains(watch_id) {
@@ -271,6 +286,11 @@ pub async fn reconcile_dir_for_test<S: NwCtx>(
     abs: &Path,
 ) -> u64 {
     desktop::reconcile_dir(state, watch, &fs::Matcher::build(watch), rel_dir, abs).await
+}
+
+#[cfg(feature = "nw-test-hooks")]
+pub async fn run_once_for_test<S: NwCtx>(state: &S) -> AppResult<()> {
+    run_once(state, &CancellationToken::new()).await
 }
 
 #[cfg(feature = "nw-test-hooks")]

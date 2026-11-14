@@ -32,6 +32,8 @@ pub(super) async fn enqueue_upload_for<S: NwCtx>(
         .await?;
 
     let key = build_key(&watch.key_prefix, rel_path);
+    // Recorded with the sync so a later key change or toggle re-uploads the file.
+    let enc_recipient = opts.encrypt.as_ref().map(|s| s.recipient.clone());
     let sink = persist_sink(
         state.clone(),
         watch.account_id.clone(),
@@ -41,6 +43,7 @@ pub(super) async fn enqueue_upload_for<S: NwCtx>(
         hash,
         mtime,
         size,
+        enc_recipient,
         stage_dir.clone(),
     );
 
@@ -87,6 +90,7 @@ fn persist_sink<S: NwCtx>(
     hash: String,
     mtime: i64,
     size: i64,
+    enc_recipient: Option<String>,
     stage_dir: Option<PathBuf>,
 ) -> ProgressSink {
     let cleanup_stage = move || {
@@ -107,6 +111,7 @@ fn persist_sink<S: NwCtx>(
             let rel_path = rel_path.clone();
             let hash = hash.clone();
             let key_prefix = key_prefix.clone();
+            let enc_recipient = enc_recipient.clone();
             cleanup_stage();
             tokio::spawn(async move {
                 // Prefix changed or watch deleted mid-upload: recording it would skip the re-upload.
@@ -126,6 +131,7 @@ fn persist_sink<S: NwCtx>(
                     mtime,
                     size,
                     synced_etag: etag,
+                    enc_recipient,
                 };
                 if let Err(e) = state.db().file_state_upsert(&watch_id, st).await {
                     warn!(watch = %watch_id, rel = %rel_path, "night watcher: persist synced state failed: {e}");
