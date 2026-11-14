@@ -23,3 +23,9 @@ export const desktopOs: DesktopOs = override() ?? detect();
 
 // Android UA also says "Linux"; tablets are not "mobile" by width but have no window controls.
 export const isAndroid = /Android/.test(navigator.userAgent);
+
+export const isTauri = "__TAURI_INTERNALS__" in window;
+
+// Undecorated desktop window: the HTML titlebar is the only way to move or close it.
+export const isDesktopShell = isTauri && !isAndroid;
+document.documentElement.classList.toggle("desktop-shell", isDesktopShell);

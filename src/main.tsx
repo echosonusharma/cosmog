@@ -10,6 +10,7 @@ import { render } from "solid-js/web";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import BootScreen from "./routes/BootScreen";
+import Titlebar from "./routes/Titlebar";
 import { boot } from "./boot";
 import "./styles/index.css";
 
@@ -30,7 +31,8 @@ const root = document.getElementById("root")!;
 // Inner panes can flash scrollbars while content settles; hide until booted.
 document.body.classList.add("booting");
 const [stage, setStage] = createSignal("Loading preferences…");
-const disposeBoot = render(() => <BootScreen stage={stage} />, root);
+// Titlebar keeps the undecorated window movable while boot runs.
+const disposeBoot = render(() => <><Titlebar bare /><BootScreen stage={stage} /></>, root);
 document.getElementById("boot-splash")?.remove();
 
 void boot(setStage).then(({ error }) => {

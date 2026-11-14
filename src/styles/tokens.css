@@ -10,6 +10,8 @@
 
 :root {
   --titlebar-h: 40px;
+  /* height of the titlebar when shown; 0 where mobile CSS hides it */
+  --chrome-top: var(--titlebar-h);
 }
 
 :root, :root[data-theme="dark"] {

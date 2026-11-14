@@ -1,29 +1,28 @@
 import { createResource, createSignal, createEffect, Show } from "solid-js";
 import { resolvedTheme } from "../state/theme";
-import { isMobile } from "../utils/breakpoint";
 import { SunIcon, MoonIcon, toggleTheme } from "../utils/icons";
 import { t } from "../i18n";
 import { checkLatestVersion, type UpdateInfo } from "../utils/updates";
 import { UpdateModal } from "./mainapp/UpdateModal";
 import { WindowControls } from "./titlebar/WindowControls";
-import { desktopOs, isAndroid } from "../utils/platform";
-
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+import { desktopOs, isDesktopShell, isTauri } from "../utils/platform";
 
 const getVersion = isTauri
   ? () => import("@tauri-apps/api/app").then((m) => m.getVersion())
   : () => Promise.resolve("");
 
-export default function Titlebar() {
+// bare: boot screen variant, drag region and window controls only.
+export default function Titlebar(props: { bare?: boolean }) {
   const [version] = createResource(getVersion);
   const [updateInfo, setUpdateInfo] = createSignal<UpdateInfo | null>(null);
   const [modalOpen, setModalOpen] = createSignal(false);
 
-  const showControls = () => isTauri && !isAndroid && !isMobile();
+  // Not width-gated: a narrow desktop window still needs its controls.
+  const showControls = () => isDesktopShell;
 
   createEffect(() => {
     const v = version();
-    if (!v) return;
+    if (!v || props.bare) return;
     checkLatestVersion(v).then(setUpdateInfo);
   });
 
@@ -43,10 +42,12 @@ export default function Titlebar() {
             </button>
           </Show>
         </div>
-        <div class="titlebar-controls">
-          <button class="titlebar-btn" aria-label={t("shell.nav.toggleTheme")} title={t("shell.nav.toggleTheme")} onClick={toggleTheme}>
-            {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
-          </button>
+        <div class="titlebar-controls" data-tauri-drag-region>
+          <Show when={!props.bare}>
+            <button class="titlebar-btn" aria-label={t("shell.nav.toggleTheme")} title={t("shell.nav.toggleTheme")} onClick={toggleTheme}>
+              {resolvedTheme() === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+          </Show>
           <Show when={showControls() && desktopOs !== "macos"}>
             <WindowControls os={desktopOs} />
           </Show>

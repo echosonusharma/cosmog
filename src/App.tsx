@@ -9,30 +9,37 @@ import { describeError, isCredentialError } from "./utils/errors";
 import { ErrorBody } from "./utils/ErrorBody";
 import { t } from "./i18n";
 
-// Boot seeds data; reload failures rethrow to the boundary below.
+// Boot seeds data; boot and reload failures rethrow inside the boundary below.
 export default function App(props: { bootError: unknown }) {
-  if (props.bootError) throw props.bootError;
-  const [loadError, setLoadError] = createSignal<unknown>(null);
-  const pendingErr = loadError();
-  if (pendingErr) throw pendingErr;
+  const [fatal, setFatal] = createSignal<unknown>(props.bootError);
+  // Thrown under the boundary so the titlebar stays mounted around the error.
+  const rethrowFatal = () => {
+    const e = fatal();
+    if (e) throw e;
+    return null;
+  };
 
   async function reloadAccounts() {
     try {
       setAccounts(await listAccounts());
     } catch (e) {
-      setLoadError(e);
+      setFatal(() => e);
     }
   }
 
   function recoverFromError(reset: () => void, targetView: View = "browse") {
     const accs = accounts();
     if (accs.length === 0) {
-      reset();
+      batch(() => {
+        setFatal(null);
+        reset();
+      });
       void reloadAccounts();
     } else {
       // batch() flushes signal writes atomically with reset(), so when the ErrorBoundary re-renders,
       // browseState.bucket is already null: Browse never remounts with a stale bucket and re-throw.
       batch(() => {
+        setFatal(null);
         setBrowseState({ bucket: null, prefix: "" });
         setCurrentView(targetView);
         reset();
@@ -76,6 +83,7 @@ export default function App(props: { bootError: unknown }) {
             </div>
           );
         }}>
+          {rethrowFatal()}
           <Show when={accounts().length > 0}
                 fallback={<Onboarding onDone={reloadAccounts} />}>
             <MainApp />

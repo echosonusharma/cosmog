@@ -5,6 +5,7 @@
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
   "permissions": [
+    "core:window:allow-start-dragging",
     "autostart:default",
     "window-state:default"
   ]

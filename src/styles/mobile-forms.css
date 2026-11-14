@@ -12,8 +12,9 @@
     flex: 1;
   }
 
-  /* ── titlebar: hidden entirely on mobile ─────────────────────────────── */
-  .titlebar { display: none; }
+  /* ── titlebar: hidden on mobile, kept on a narrow desktop window ──────── */
+  :root:not(.desktop-shell) { --chrome-top: 0px; }
+  :root:not(.desktop-shell) .titlebar { display: none; }
 
   .mobile-header-update-badge {
     -webkit-appearance: none;

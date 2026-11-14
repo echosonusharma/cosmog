@@ -23,9 +23,9 @@
 
   .sidebar {
     position: fixed;
-    top: env(safe-area-inset-top);
+    top: calc(env(safe-area-inset-top) + var(--chrome-top));
     left: 0;
-    height: calc(100dvh - env(safe-area-inset-top));
+    height: calc(100dvh - env(safe-area-inset-top) - var(--chrome-top));
     width: 280px;
     z-index: 1000;
     transform: translateX(-100%);
@@ -54,6 +54,8 @@
     background: rgba(0, 0, 0, 0.45);
     z-index: 999;
   }
+  /* narrow desktop window: keep the titlebar draggable while the drawer is open */
+  :root.desktop-shell .sidebar-drawer-backdrop { top: var(--chrome-top); }
 
   .mobile-header {
     display: flex;
@@ -112,6 +114,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* narrow desktop window: brand, update badge and theme toggle live in the titlebar */
+  :root.desktop-shell .mobile-header-brand,
+  :root.desktop-shell .mobile-header-update-badge,
+  :root.desktop-shell .mobile-header-theme { display: none; }
 
   /* sidebar account header stays dark regardless of theme */
   .sidebar-account-header {

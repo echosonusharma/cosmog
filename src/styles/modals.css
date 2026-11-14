@@ -8,6 +8,14 @@
   z-index: 1200;
   padding: 24px;
 }
+/* Overlays start below the titlebar so the window stays movable and closable. */
+.modal-backdrop,
+.sheet-modal-overlay,
+.pdf-modal-overlay,
+.editor-modal-backdrop,
+.img-editor {
+  top: var(--chrome-top);
+}
 .modal {
   background: var(--bg-elev-2);
   border: 1px solid var(--border-strong);

@@ -50,7 +50,7 @@ export function MobileHeader(props: { onOpenSidebar: () => void }) {
         </Show>
         <div class="mobile-header-section">{viewTitle()}</div>
         <button
-          class="mobile-header-btn"
+          class="mobile-header-btn mobile-header-theme"
           onClick={toggleTheme}
           aria-label={t("shell.nav.toggleTheme")}
         >

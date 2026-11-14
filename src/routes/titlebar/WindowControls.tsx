@@ -26,7 +26,7 @@ function MacControls(s: State) {
     else await w.setFullscreen(!(await w.isFullscreen()));
   }
   return (
-    <div class="wc wc-mac" classList={{ "is-blurred": !s.focused() }}>
+    <div class="wc wc-mac" data-tauri-drag-region classList={{ "is-blurred": !s.focused() }}>
       <button class="wc-btn wc-close" aria-label={t("shell.window.close")} onClick={() => s.win()?.close()}>
         <svg viewBox="0 0 12 12"><path d="M3.8 3.8l4.4 4.4M8.2 3.8L3.8 8.2" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
@@ -44,7 +44,7 @@ function MacControls(s: State) {
 function WinControls(s: State) {
   const maxLabel = () => t(s.maximized() ? "shell.window.restore" : "shell.window.maximize");
   return (
-    <div class="wc wc-win" classList={{ "is-blurred": !s.focused() }}>
+    <div class="wc wc-win" data-tauri-drag-region classList={{ "is-blurred": !s.focused() }}>
       <button class="wc-btn" title={t("shell.window.minimize")} aria-label={t("shell.window.minimize")} onClick={() => s.win()?.minimize()}>
         <svg viewBox="0 0 10 10"><path d="M0 5.5h10" stroke="currentColor" /></svg>
       </button>
@@ -69,7 +69,7 @@ function WinControls(s: State) {
 function LinuxControls(s: State) {
   const maxLabel = () => t(s.maximized() ? "shell.window.restore" : "shell.window.maximize");
   return (
-    <div class="wc wc-linux" classList={{ "is-blurred": !s.focused() }}>
+    <div class="wc wc-linux" data-tauri-drag-region classList={{ "is-blurred": !s.focused() }}>
       <button class="wc-btn" aria-label={t("shell.window.minimize")} onClick={() => s.win()?.minimize()}>
         <svg viewBox="0 0 16 16"><path d="M4.5 11.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
       </button>

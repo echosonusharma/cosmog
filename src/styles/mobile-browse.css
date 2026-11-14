@@ -300,7 +300,7 @@
     position: fixed;
     left: env(safe-area-inset-left);
     right: env(safe-area-inset-right);
-    top: calc(env(safe-area-inset-top) + var(--mobile-header-h));
+    top: calc(env(safe-area-inset-top) + var(--chrome-top) + var(--mobile-header-h));
     bottom: env(safe-area-inset-bottom);
     width: auto;
     height: auto;
