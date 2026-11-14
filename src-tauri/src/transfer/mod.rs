@@ -5,6 +5,7 @@ pub mod encrypt;
 pub mod manager;
 mod semaphore;
 mod sink;
+pub mod source_guard;
 mod worker;
 
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 pub use manager::TransferManager;
+pub use source_guard::SourceGuard;
 
 /// Progress / lifecycle event emitted by a transfer worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +124,33 @@ pub struct TransferCtx {
     /// Current upload-source fingerprint (uploads only), compared against [`ResumeState`]
     /// so a resume after the file changed aborts instead of assembling a corrupted object.
     pub source_stat: Option<SourceStat>,
+    /// Awaited after a multipart upload is created, before any part is sent.
+    pub on_upload_id: Option<UploadIdHook>,
+}
+
+type UploadIdFn = dyn Fn(String, u64) -> futures::future::BoxFuture<'static, ()> + Send + Sync;
+
+/// Durable record of a new upload_id (upload_id, part_size), so a crash cannot orphan it.
+#[derive(Clone)]
+pub struct UploadIdHook(Arc<UploadIdFn>);
+
+impl UploadIdHook {
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(String, u64) -> futures::future::BoxFuture<'static, ()> + Send + Sync + 'static,
+    {
+        Self(Arc::new(f))
+    }
+
+    pub async fn call(&self, upload_id: &str, part_size: u64) {
+        (self.0)(upload_id.to_string(), part_size).await
+    }
+}
+
+impl std::fmt::Debug for UploadIdHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UploadIdHook").finish()
+    }
 }
 
 impl TransferCtx {
@@ -135,6 +164,7 @@ impl TransferCtx {
             multipart_threshold: 8 * 1024 * 1024,
             resume: None,
             source_stat: None,
+            on_upload_id: None,
         }
     }
 

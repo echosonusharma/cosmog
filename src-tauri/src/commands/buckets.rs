@@ -35,6 +35,7 @@ pub async fn delete_bucket(
     // Stop scans/transfers targeting the bucket before remote delete: scans
     // would 404-loop and transfers would write to soon-purged cache rows.
     state.cancel_scan(&account_id, &name);
+    crate::folder_upload::cancel_jobs_for(&*state, &account_id, Some(&name)).await;
     if let Err(e) = state.transfers.cancel_for_bucket(&account_id, &name).await {
         tracing::warn!(account_id = %account_id, bucket = %name, "cancel_for_bucket failed: {e}");
     }

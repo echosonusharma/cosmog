@@ -6,6 +6,7 @@ pub mod accounts;
 pub mod cache;
 pub mod capabilities;
 pub mod encryption;
+pub mod folder_upload;
 pub mod night_watcher;
 pub mod request_logs;
 pub mod settings;
@@ -503,6 +504,119 @@ const MIGRATIONS: &[Migration] = &[
         // Recipient the synced object was encrypted to; NULL = uploaded as plaintext.
         sql: r#"
             ALTER TABLE nw_file_state ADD COLUMN enc_recipient TEXT;
+        "#,
+    },
+    Migration {
+        version: 21,
+        // Folder upload jobs, their walked items, and job-owned transfer rows.
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS folder_upload_jobs (
+                id                    TEXT PRIMARY KEY,
+                account_id            TEXT NOT NULL,
+                bucket                TEXT NOT NULL,
+                source_kind           TEXT NOT NULL DEFAULT 'path',
+                source_root           TEXT NOT NULL,
+                dest_prefix           TEXT NOT NULL,
+                state                 TEXT NOT NULL,
+                pause_reason          TEXT,
+                overwrite_policy      TEXT,
+                create_dir_markers    INTEGER NOT NULL DEFAULT 1,
+                enc_recipient         TEXT,
+                analysis_json         TEXT,
+                total_files           INTEGER NOT NULL DEFAULT 0,
+                total_bytes           INTEGER NOT NULL DEFAULT 0,
+                remote_state          TEXT NOT NULL DEFAULT 'pending',
+                remote_prefix         TEXT,
+                remote_existing       INTEGER NOT NULL DEFAULT 0,
+                remote_existing_bytes INTEGER NOT NULL DEFAULT 0,
+                remote_versioning     TEXT,
+                remote_gen            INTEGER NOT NULL DEFAULT 0,
+                error                 TEXT,
+                created_at            INTEGER NOT NULL,
+                approved_at           INTEGER,
+                started_at            INTEGER,
+                finished_at           INTEGER,
+                updated_at            INTEGER NOT NULL,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_fuj_state ON folder_upload_jobs(state);
+
+            CREATE TABLE IF NOT EXISTS folder_upload_items (
+                job_id          TEXT NOT NULL,
+                seq             INTEGER NOT NULL,
+                kind            TEXT NOT NULL,
+                rel_path        TEXT NOT NULL,
+                source_ref      TEXT,
+                size            INTEGER NOT NULL DEFAULT 0,
+                mtime_ms        INTEGER NOT NULL DEFAULT 0,
+                ext             TEXT,
+                hidden          INTEGER NOT NULL DEFAULT 0,
+                link_target     TEXT,
+                state           TEXT NOT NULL,
+                exclude_reason  TEXT,
+                remote_exists   INTEGER NOT NULL DEFAULT 0,
+                remote_size     INTEGER,
+                remote_mtime    INTEGER,
+                attempts        INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at INTEGER NOT NULL DEFAULT 0,
+                transfer_id     TEXT,
+                drift           TEXT,
+                error           TEXT,
+                done_etag       TEXT,
+                updated_at      INTEGER NOT NULL,
+                PRIMARY KEY (job_id, seq),
+                FOREIGN KEY(job_id) REFERENCES folder_upload_jobs(id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fui_rel
+                ON folder_upload_items(job_id, rel_path) WHERE state != 'excluded';
+            CREATE INDEX IF NOT EXISTS idx_fui_state
+                ON folder_upload_items(job_id, state, next_attempt_at, seq);
+            CREATE INDEX IF NOT EXISTS idx_fui_order
+                ON folder_upload_items(job_id, state, seq);
+
+            -- Per-job item counts kept by triggers, so progress never scans the items.
+            CREATE TABLE IF NOT EXISTS folder_upload_counts (
+                job_id TEXT NOT NULL,
+                state  TEXT NOT NULL,
+                kind   TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                drift  INTEGER NOT NULL,
+                late   INTEGER NOT NULL,
+                n      INTEGER NOT NULL,
+                bytes  INTEGER NOT NULL,
+                PRIMARY KEY (job_id, state, kind, reason, drift, late),
+                FOREIGN KEY(job_id) REFERENCES folder_upload_jobs(id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+            CREATE TRIGGER IF NOT EXISTS fuc_ins AFTER INSERT ON folder_upload_items BEGIN
+                INSERT INTO folder_upload_counts (job_id, state, kind, reason, drift, late, n, bytes)
+                VALUES (NEW.job_id, NEW.state, NEW.kind, COALESCE(NEW.exclude_reason, ''), NEW.drift IS NOT NULL,
+                        NEW.state = 'skipped_exists' AND NEW.remote_exists = 0, 1, NEW.size)
+                ON CONFLICT (job_id, state, kind, reason, drift, late) DO UPDATE SET n = n + 1, bytes = bytes + excluded.bytes;
+            END;
+            CREATE TRIGGER IF NOT EXISTS fuc_del AFTER DELETE ON folder_upload_items BEGIN
+                UPDATE folder_upload_counts SET n = n - 1, bytes = bytes - OLD.size
+                WHERE job_id = OLD.job_id AND state = OLD.state AND kind = OLD.kind
+                  AND reason = COALESCE(OLD.exclude_reason, '') AND drift = (OLD.drift IS NOT NULL)
+                  AND late = (OLD.state = 'skipped_exists' AND OLD.remote_exists = 0);
+            END;
+            CREATE TRIGGER IF NOT EXISTS fuc_upd
+            AFTER UPDATE OF state, kind, exclude_reason, drift, remote_exists, size ON folder_upload_items
+            WHEN OLD.state IS NOT NEW.state OR OLD.kind IS NOT NEW.kind OR OLD.size IS NOT NEW.size
+              OR OLD.exclude_reason IS NOT NEW.exclude_reason OR (OLD.drift IS NULL) != (NEW.drift IS NULL)
+              OR (OLD.remote_exists != NEW.remote_exists AND 'skipped_exists' IN (OLD.state, NEW.state))
+            BEGIN
+                UPDATE folder_upload_counts SET n = n - 1, bytes = bytes - OLD.size
+                WHERE job_id = OLD.job_id AND state = OLD.state AND kind = OLD.kind
+                  AND reason = COALESCE(OLD.exclude_reason, '') AND drift = (OLD.drift IS NOT NULL)
+                  AND late = (OLD.state = 'skipped_exists' AND OLD.remote_exists = 0);
+                INSERT INTO folder_upload_counts (job_id, state, kind, reason, drift, late, n, bytes)
+                VALUES (NEW.job_id, NEW.state, NEW.kind, COALESCE(NEW.exclude_reason, ''), NEW.drift IS NOT NULL,
+                        NEW.state = 'skipped_exists' AND NEW.remote_exists = 0, 1, NEW.size)
+                ON CONFLICT (job_id, state, kind, reason, drift, late) DO UPDATE SET n = n + 1, bytes = bytes + excluded.bytes;
+            END;
+
+            ALTER TABLE transfers ADD COLUMN job_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_transfers_job ON transfers(job_id);
         "#,
     },
 ];

@@ -4,12 +4,11 @@ import { formatBytes } from "../../utils/fmt";
 import { t, tp, language } from "../../i18n";
 import { IconInfo } from "../../utils/icons";
 import { Donut } from "./charts/Donut";
+import { foldTop } from "./charts/palette";
 import { TimeSeriesChart } from "./charts/TimeSeriesChart";
 import type { BucketStats } from "../../types";
 import Spinner from "../../utils/Spinner";
 
-// Distinct hues for the donut / file-type legend. Last is the "Other" bucket.
-const PALETTE = ["#a45cf0", "#4f9dff", "#37c9a8", "#f0b429", "#ff7a5c", "#e05cc0", "#8a94a6"];
 
 export function StatsModal(props: {
   accountId: string;
@@ -26,11 +25,8 @@ export function StatsModal(props: {
   // total, covering every type past the top 6 (incl. beyond the backend cap).
   const donutSegments = createMemo(() => {
     const s = stats();
-    const top = (s?.by_extension ?? []).slice(0, 6);
-    const restBytes = (s?.total_bytes ?? 0) - top.reduce((sum, e) => sum + e.total_bytes, 0);
-    const segs = top.map((e, i) => ({ label: e.extension, value: e.total_bytes, color: PALETTE[i] }));
-    if (restBytes > 0) segs.push({ label: t("preview.stats.other"), value: restBytes, color: PALETTE[6] });
-    return segs;
+    return foldTop(s?.by_extension ?? [], 6, s?.total_bytes ?? 0,
+      (e) => e.extension, (e) => e.total_bytes, t("preview.stats.other"));
   });
 
   // by_extension is capped by the backend; how many types aren't shown as bars.

@@ -84,15 +84,21 @@ pub async fn encrypt_to_temp(
     spec: &EncryptSpec,
     origin: TransferOrigin,
     src: &Path,
+    guard: Option<&super::SourceGuard>,
     cancel: &CancellationToken,
 ) -> AppResult<PathBuf> {
     let recipient = crate::crypto::parse_recipient(&spec.recipient)?;
     let dir = tmp_dir_for(&spec.tmp_dir, origin);
     tokio::fs::create_dir_all(&dir).await?;
     let tmp_path = dir.join(format!("{}.age", uuid::Uuid::new_v4()));
-    if let Err(e) =
-        crate::crypto::encrypt_file_cancellable(src, &tmp_path, recipient, cancel.clone()).await
-    {
+    let res = match guard {
+        Some(g) => {
+            let f = super::source_guard::open_checked(src, g).await?.into_std().await;
+            crate::crypto::encrypt_open_file_cancellable(f, &tmp_path, recipient, cancel.clone()).await
+        }
+        None => crate::crypto::encrypt_file_cancellable(src, &tmp_path, recipient, cancel.clone()).await,
+    };
+    if let Err(e) = res {
         let _ = tokio::fs::remove_file(&tmp_path).await;
         return Err(e);
     }

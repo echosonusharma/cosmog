@@ -25,6 +25,7 @@
 
 - 🗂️ **Browse** buckets and folders with fast column navigation
 - 📤 **Upload and download** with a background queue, progress tracking, and retry
+- 📁 **Upload whole folders** with a pre-upload summary, overwrite check, and resume after restart (desktop only)
 - 👁️ **Preview** images, audio, PDFs, spreadsheets, JSON, XML, text, and code without downloading
 - ✏️ **Create and edit** text based files (md, json, txt, and more, with a mime type of your choice), spreadsheets, and images (crop, rotate, flip) directly in the app
 - 🔍 **Search** across your entire bucket with full-text search

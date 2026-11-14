@@ -102,12 +102,24 @@ pub async fn encrypt_file_cancellable(
     recipient: x25519::Recipient,
     cancel: tokio_util::sync::CancellationToken,
 ) -> AppResult<()> {
-    let src = src.to_path_buf();
+    let f_in = tokio::fs::File::open(src)
+        .await
+        .map_err(|e| AppError::Internal(format!("open {}: {e}", src.display())))?
+        .into_std()
+        .await;
+    encrypt_open_file_cancellable(f_in, dst, recipient, cancel).await
+}
+
+/// [`encrypt_file_cancellable`] from an already opened (and verified) source handle.
+pub async fn encrypt_open_file_cancellable(
+    f_in: std::fs::File,
+    dst: &Path,
+    recipient: x25519::Recipient,
+    cancel: tokio_util::sync::CancellationToken,
+) -> AppResult<()> {
     let dst = dst.to_path_buf();
     let cancel_check = cancel.clone();
     let res = tokio::task::spawn_blocking(move || -> AppResult<()> {
-        let f_in = std::fs::File::open(&src)
-            .map_err(|e| AppError::Internal(format!("open {}: {e}", src.display())))?;
         let mut r = CancelRead {
             inner: std::io::BufReader::new(f_in),
             cancel,

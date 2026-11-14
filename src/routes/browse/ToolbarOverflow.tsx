@@ -1,6 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import { t } from "../../i18n";
-import { IconMore, IconActivity, IconLock, IconLockOpen, IconPlus, IconDoc } from "../../utils/icons";
+import { IconMore, IconActivity, IconLock, IconLockOpen, IconPlus, IconDoc, IconFolder } from "../../utils/icons";
 
 // Mobile overflow menu for browse-toolbar actions that don't warrant a visible
 // button; hidden on desktop via CSS.
@@ -11,6 +11,7 @@ export function ToolbarOverflow(props: {
   onOpenEncryption: () => void;
   onNewFolder: () => void;
   onNewFile: () => void;
+  onUploadFolder?: () => void;
 }) {
   const [open, setOpen] = createSignal(false);
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
@@ -41,6 +42,13 @@ export function ToolbarOverflow(props: {
           <button class="context-item" onClick={run(props.onNewFile)}>
             <span class="context-item-icon"><IconDoc size={14} /></span> {t("browse.toolbar.newFile")}
           </button>
+          <Show when={props.onUploadFolder}>
+            {(fn) => (
+              <button class="context-item" onClick={run(fn())}>
+                <span class="context-item-icon"><IconFolder size={14} /></span> {t("folderUpload.entry.uploadFolder")}
+              </button>
+            )}
+          </Show>
         </div>
       </Show>
     </div>

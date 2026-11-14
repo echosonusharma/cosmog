@@ -238,6 +238,8 @@ pub async fn update_account(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn delete_account(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    // Folder jobs first: their cancel aborts the multipart uploads the cascade would orphan.
+    crate::folder_upload::cancel_jobs_for(&*state, &id, None).await;
     // Cancel active transfers first so workers stop before the DB rows are
     // cascade-deleted (transfers/cache/index rows swept by ON DELETE CASCADE).
     if let Err(e) = state.transfers.cancel_for_account(&id).await {

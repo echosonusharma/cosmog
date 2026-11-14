@@ -10,6 +10,7 @@ import transfers from "./transfers.ts";
 import logs from "./logs.ts";
 import nightwatcher from "./nightwatcher.ts";
 import mcp from "./mcp.ts";
+import folderupload from "./folderupload.ts";
 
 export default {
   ...common,
@@ -24,4 +25,5 @@ export default {
   ...logs,
   ...nightwatcher,
   ...mcp,
+  ...folderupload,
 };

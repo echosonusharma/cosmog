@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::transfer::{DownloadResult, TransferCtx, UploadResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +101,9 @@ pub struct PutOptions {
     /// Server-side encryption: `None` default, `Sse::S3` AES256, `Sse::Kms` SSE-KMS.
     /// SSE-C deliberately unexposed (needs secure key transport).
     pub sse: Option<Sse>,
+    /// Folder uploads: every open of the source is verified against this (backend only).
+    #[serde(default)]
+    pub source_guard: Option<crate::transfer::SourceGuard>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +214,15 @@ pub trait ObjectStore: Send + Sync {
     async fn head_object(&self, bucket: &str, key: &str) -> AppResult<ObjectMeta>;
     /// Create a virtual folder by putting a zero-byte object with key `prefix/`.
     async fn create_folder(&self, bucket: &str, prefix: &str) -> AppResult<()>;
+    /// Marker that never replaces an existing object; false when the key already exists.
+    async fn create_folder_if_absent(&self, bucket: &str, prefix: &str) -> AppResult<bool> {
+        let key = format!("{}/", prefix.trim_end_matches('/'));
+        match ensure_absent(self, bucket, &key).await {
+            Ok(()) => self.create_folder(bucket, prefix).await.map(|_| true),
+            Err(AppError::Conflict(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()>;
     /// Deletes up to 1000 keys in one request; per-key failures land in the
     /// result's `errors` list instead of failing the whole call.
@@ -320,4 +332,13 @@ pub trait ObjectStore: Send + Sync {
         prefix: Option<&str>,
         key_marker: Option<String>,
     ) -> AppResult<(Vec<PendingMultipartUpload>, Option<String>)>;
+}
+
+/// If-None-Match emulation for providers that reject the header: Conflict when `key` exists.
+pub async fn ensure_absent<S: ObjectStore + ?Sized>(store: &S, bucket: &str, key: &str) -> AppResult<()> {
+    match store.head_object(bucket, key).await {
+        Ok(_) => Err(AppError::Conflict(format!("{key}: exists (checked with HEAD)"))),
+        Err(e) if e.is_not_found() => Ok(()),
+        Err(e) => Err(e),
+    }
 }

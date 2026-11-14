@@ -134,6 +134,19 @@ impl PartsJournal {
             .await;
     }
 
+    /// Final flush that keeps the upload_id (abort failed); later flushes are ignored.
+    pub(super) async fn close_keep(&self, transfer_id: &str) {
+        let _guard = self.db_lock.lock().await;
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let snapshot = self.resume.lock().unwrap().clone();
+        if !snapshot.upload_id.is_empty() {
+            let uid = Some(snapshot.upload_id.clone());
+            let _ = self.db.update_transfer_multipart(transfer_id, uid, &snapshot).await;
+        }
+    }
+
     pub(super) async fn close_and_clear(&self, transfer_id: &str) {
         let _guard = self.db_lock.lock().await;
         self.closed.store(true, Ordering::SeqCst);

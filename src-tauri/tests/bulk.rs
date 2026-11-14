@@ -1,7 +1,6 @@
 mod common;
 
-use cosmog_lib::bulk::{delete_folder, download_directory, upload_directory};
-use cosmog_lib::db::accounts::NewAccount;
+use cosmog_lib::bulk::{delete_folder, download_directory};
 use cosmog_lib::db::transfers::TransferStatus;
 use cosmog_lib::transfer::{ProgressSink, TransferManager};
 use tokio_util::sync::CancellationToken;
@@ -71,59 +70,7 @@ async fn delete_folder_removes_all_under_prefix() {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn upload_directory_cancel_stops_early() {
-    require_minio!();
-    let store = common::make_store().await;
-    let (db, _td) = common::tmp_db().await;
-    let acct = db
-        .insert_account(NewAccount {
-            name: "test".into(),
-            protocol: "s3".into(),
-            endpoint: Some(common::minio_endpoint()),
-            region: common::MINIO_REGION.into(),
-            access_key_id: common::MINIO_ACCESS_KEY.into(),
-            addressing_style: Some("path".into()),
-        })
-        .await
-        .unwrap();
-    let bucket = common::create_test_bucket(&store, "cosmog-ulcancel").await;
-    let transfers = TransferManager::new(db.clone(), 4);
-
-    let src = tempfile::tempdir().unwrap();
-    for i in 0..10 {
-        tokio::fs::write(src.path().join(format!("f{i}.txt")), b"x")
-            .await
-            .unwrap();
-    }
-
-    let cancel = CancellationToken::new();
-    cancel.cancel();
-
-    let res = upload_directory(
-        &transfers,
-        &db,
-        &_td.path().join("test.sqlite"),
-        store.clone(),
-        &acct.id,
-        &bucket,
-        "prefix",
-        src.path(),
-        |_| ProgressSink::noop(),
-        "op".into(),
-        ProgressSink::noop(),
-        cancel,
-    )
-    .await
-    .unwrap();
-
-    assert!(res.canceled);
-    assert!(res.enqueued.is_empty());
-    common::cleanup_bucket(&store, &bucket).await;
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn upload_and_download_directory_roundtrip() {
+async fn download_directory_roundtrip() {
     require_minio!();
     let store = common::make_store().await;
     let (db, _td) = common::tmp_db().await;
@@ -144,32 +91,13 @@ async fn upload_and_download_directory_roundtrip() {
     let bucket = common::create_test_bucket(&store, "cosmog-dir").await;
     let transfers = TransferManager::new(db.clone(), 4);
 
-    // Build a small tree.
-    let src_dir = tempfile::tempdir().unwrap();
-    tokio::fs::create_dir_all(src_dir.path().join("nested")).await.unwrap();
-    tokio::fs::write(src_dir.path().join("top.txt"), b"top").await.unwrap();
-    tokio::fs::write(src_dir.path().join("nested/inner.txt"), b"inner").await.unwrap();
-
-    let uploaded = upload_directory(
-        &transfers,
-        &db,
-        &_td.path().join("test.sqlite"),
-        store.clone(),
-        &acct_id,
-        &bucket,
-        "remote",
-        src_dir.path(),
-        |_| ProgressSink::noop(),
-        "op".into(),
-        ProgressSink::noop(),
-        CancellationToken::new(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(uploaded.enqueued.len(), 2);
-
-    // Wait for the queue to drain. Poll the transfer rows.
-    wait_done(&transfers, &uploaded.enqueued).await;
+    // Seed the remote tree directly (the old upload_directory walker is gone).
+    for (key, body) in [("remote/top.txt", &b"top"[..]), ("remote/nested/inner.txt", &b"inner"[..])] {
+        store
+            .put_object_bytes(&bucket, key, "text/plain", body.to_vec(), Default::default())
+            .await
+            .unwrap();
+    }
 
     // Confirm the remote side.
     let listed = store

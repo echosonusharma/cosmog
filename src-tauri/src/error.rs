@@ -95,6 +95,16 @@ app_errors! {
     DecryptionFailed => "decryption_failed", "decryption failed";
     /// Archived object (`InvalidObjectState`, e.g. Glacier) must be restored before reading.
     Archived => "archived", "archived";
+    /// Folder upload walk hit the per-job entry cap.
+    FolderTooManyFiles => "folder_too_many_files", "folder too many files";
+    /// Folder upload root is missing or unreadable (e.g. an unplugged drive).
+    FolderSourceUnavailable => "folder_source_unavailable", "folder source unavailable";
+    /// An unfinished folder upload already targets the same source and destination.
+    FolderJobExists => "folder_job_exists", "folder job exists";
+    /// Bucket encryption was turned on or off while a folder upload was unfinished.
+    FolderEncryptionChanged => "folder_encryption_changed", "folder encryption changed";
+    /// Local file kept changing while it was being uploaded.
+    SourceChanged => "source_changed", "source changed";
     Internal => "internal", "internal";
 }
 
@@ -117,6 +127,17 @@ impl AppError {
 
     pub fn is_credentials_missing(&self) -> bool {
         matches!(self, AppError::CredentialsMissing(_))
+    }
+
+    /// Connectivity lost or too slow (not TLS: a certificate problem is not transient).
+    pub fn is_network(&self) -> bool {
+        matches!(
+            self,
+            AppError::NetworkUnreachable(_)
+                | AppError::RequestTimeout(_)
+                | AppError::DnsFailure(_)
+                | AppError::ConnectionRefused(_)
+        )
     }
 
     /// Transient failures worth retrying with backoff.
@@ -325,6 +346,11 @@ mod tests {
             AppError::CredentialsInvalid(String::new()),
             AppError::TlsError(String::new()),
             AppError::Canceled(String::new()),
+            AppError::FolderTooManyFiles(String::new()),
+            AppError::FolderSourceUnavailable(String::new()),
+            AppError::FolderJobExists(String::new()),
+            AppError::FolderEncryptionChanged(String::new()),
+            AppError::SourceChanged(String::new()),
         ] {
             assert!(!e.is_retriable(), "{} must not retry", e.code());
         }

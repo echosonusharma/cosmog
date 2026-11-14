@@ -11,7 +11,7 @@ import {
 } from "../../api/objects";
 import { notify } from "../../utils/notify";
 import {
-  navigateToPrefix,
+  navigateToPrefix, currentView,
   pendingPreview, setPendingPreview,
 } from "../../state/app";
 import { useBackHandler } from "../../utils/androidBack";
@@ -35,6 +35,10 @@ import { ContextMenu, type CtxMenu } from "./ContextMenu";
 import { ListView } from "./ListView";
 import Spinner from "../../utils/Spinner";
 import { t, tp } from "../../i18n";
+import { isDesktopShell } from "../../utils/platform";
+import { FolderUploadModal } from "./folderUpload/FolderUploadModal";
+import { pickFolder } from "./folderUpload/pickFolder";
+import { useDesktopDrop } from "./folderUpload/useDesktopDrop";
 
 // S3 DeleteObjects limit per call.
 const DELETE_BATCH = 1000;
@@ -224,6 +228,15 @@ export function ObjectBrowser(props: {
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
+  // Desktop folder upload: local root + target prefix of the open modal.
+  const [folderUpload, setFolderUpload] = createSignal<{ root: string; prefix: string } | null>(null);
+  async function startFolderUpload(prefix: string) {
+    try {
+      const root = await pickFolder();
+      if (root) setFolderUpload({ root, prefix });
+    } catch (e) { toast.err(e); }
+  }
+  const uploadFolder = isDesktopShell ? (prefix: string) => void startFolderUpload(prefix) : undefined;
 
   // Android back: unwind this browser's own overlays (most-modal first) before
   // the shell handles view/prefix navigation; selection clears last.
@@ -418,15 +431,24 @@ export function ObjectBrowser(props: {
     } catch (e) { toast.err(e); }
   }
 
-  // Tauri webview file drops would need plugin-fs; for now show overlay on
-  // dragover and route the drop to the Upload dialog.
+  // Desktop: native drops arrive via useDesktopDrop with real paths. Elsewhere the DOM
+  // drop has no paths, so it routes to the Upload dialog.
+  let browserEl: HTMLDivElement | undefined;
+  useDesktopDrop({
+    area: () => browserEl,
+    enabled: () => currentView() === "browse" && showUpload() === false && !folderUpload(),
+    onOver: setDragOver,
+    onFolder: (root) => setFolderUpload({ root, prefix: props.prefix }),
+    onFiles: (paths) => { setPendingDrop(paths); setShowUpload(props.prefix); },
+  });
   function onDragOver(e: DragEvent) {
     e.preventDefault();
-    setDragOver(true);
+    if (!isDesktopShell) setDragOver(true);
   }
-  function onDragLeave() { setDragOver(false); }
+  function onDragLeave() { if (!isDesktopShell) setDragOver(false); }
   function onDrop(e: DragEvent) {
     e.preventDefault();
+    if (isDesktopShell) return;
     setDragOver(false);
     toast.info(t("browse.drop.unsupportedTitle"), t("browse.drop.unsupportedDetail"));
     setShowUpload(props.prefix);
@@ -496,6 +518,7 @@ export function ObjectBrowser(props: {
 
   return (
     <div class="object-browser"
+         ref={browserEl}
          onDragOver={onDragOver}
          onDragLeave={onDragLeave}
          onDrop={onDrop}>
@@ -520,6 +543,7 @@ export function ObjectBrowser(props: {
         onNewFolder={() => setShowNewFolder(props.prefix)}
         onNewFile={() => setShowNewFile(props.prefix)}
         onUpload={() => setShowUpload(props.prefix)}
+        onUploadFolder={uploadFolder && (() => uploadFolder(props.prefix))}
       />
 
       <Show when={!browseData.initialLoaded && !browseData.error}>
@@ -636,6 +660,7 @@ export function ObjectBrowser(props: {
           onCtxFolder={openCtxFolder}
           onNewFolder={() => setShowNewFolder(props.prefix)}
           onUpload={() => setShowUpload(props.prefix)}
+          onUploadFolder={uploadFolder && (() => uploadFolder(props.prefix))}
         />
       </div>
 
@@ -663,7 +688,7 @@ export function ObjectBrowser(props: {
       </div>
 
       <Show when={dragOver()}>
-        <div class="drop-overlay">{t("browse.drop.overlay")}</div>
+        <div class="drop-overlay">{isDesktopShell ? t("folderUpload.drop.overlay") : t("browse.drop.overlay")}</div>
       </Show>
 
       <Show when={ctxMenu()}>
@@ -674,6 +699,7 @@ export function ObjectBrowser(props: {
             onNewFolder={(prefix) => setShowNewFolder(prefix)}
             onNewFile={(prefix) => setShowNewFile(prefix)}
             onUploadHere={(sub) => setShowUpload(sub)}
+            onUploadFolderHere={uploadFolder}
             onDeleteFolder={handleDeleteFolder}
             onPreview={(obj) => setPreviewTarget(obj)}
             onDownload={(obj) => setDownloadTarget(obj)}
@@ -696,6 +722,13 @@ export function ObjectBrowser(props: {
                      encrypted={(encStatus.latest ?? encStatus())?.enabled ?? false}
                      onClose={() => { setShowUpload(false); setPendingDrop([]); }}
                      onQueued={() => { const t = setTimeout(() => setRefresh((n) => n + 1), 1500); onCleanup(() => clearTimeout(t)); }} />
+      </Show>
+
+      <Show when={folderUpload()} keyed>
+        {(fu) => <FolderUploadModal accountId={props.accountId} bucket={props.bucket}
+                                    localRoot={fu.root} prefix={fu.prefix}
+                                    encrypted={(encStatus.latest ?? encStatus())?.enabled ?? false}
+                                    onClose={() => { setFolderUpload(null); setRefresh((n) => n + 1); }} />}
       </Show>
 
       <Show when={showNewFolder() !== null}>

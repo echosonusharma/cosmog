@@ -39,11 +39,18 @@ pub(super) async fn run_upload(
 ) -> AppResult<Option<String>> {
     // Encrypt here: under the permit, and the row keeps the plaintext so a retry can re-encrypt.
     let enc_tmp = match &opts.encrypt {
-        Some(spec) => Some(super::encrypt::encrypt_to_temp(spec, origin, local_path, &ctx.cancel).await?),
+        Some(spec) => Some(
+            super::encrypt::encrypt_to_temp(spec, origin, local_path, opts.source_guard.as_ref(), &ctx.cancel).await?,
+        ),
         None => None,
     };
     let upload_path = enc_tmp.clone().unwrap_or_else(|| local_path.to_path_buf());
-    let result = upload_attempts(store, &mut ctx, resume_handle, journal, bucket, key, &upload_path, opts).await;
+    // The guard was applied to the plaintext; the ciphertext temp file is ours.
+    let mut opts = opts.clone();
+    if enc_tmp.is_some() {
+        opts.source_guard = None;
+    }
+    let result = upload_attempts(store, &mut ctx, resume_handle, journal, bucket, key, &upload_path, &opts).await;
     if let Some(p) = &enc_tmp {
         let _ = tokio::fs::remove_file(p).await;
     }

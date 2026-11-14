@@ -7,6 +7,7 @@ pub mod buckets;
 pub mod bulk;
 pub mod capabilities;
 pub mod encryption;
+pub mod folder_upload;
 pub mod logs;
 #[cfg(not(target_os = "android"))]
 pub mod mcp;

@@ -23,6 +23,8 @@ use crate::transfer::TransferManager;
 pub struct AppState {
     pub db: Db,
     pub transfers: TransferManager,
+    /// Folder upload jobs: runners, tokens and cached counts.
+    pub folder_jobs: crate::folder_upload::FolderJobs,
     pub app: tauri::AppHandle,
     /// Dir of the rolling log file; used by `get_log_tail`.
     pub log_dir: PathBuf,
@@ -58,6 +60,7 @@ impl AppState {
         Self {
             db,
             transfers,
+            folder_jobs: crate::folder_upload::FolderJobs::new(),
             app,
             log_dir,
             db_path,

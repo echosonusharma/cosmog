@@ -109,7 +109,7 @@ export function MoonIcon(props: { size?: number }) {
   );
 }
 
-type Kind = "folder" | "image" | "video" | "audio" | "doc" | "archive" | "code" | "generic";
+export type Kind = "folder" | "image" | "video" | "audio" | "doc" | "archive" | "code" | "generic";
 
 const EXT_MAP: Record<string, Kind> = {
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image",

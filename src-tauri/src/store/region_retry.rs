@@ -165,6 +165,10 @@ impl ObjectStore for RegionRetryStore {
         with_retry!(self, bucket, s, s.create_folder(bucket, prefix).await)
     }
 
+    async fn create_folder_if_absent(&self, bucket: &str, prefix: &str) -> AppResult<bool> {
+        with_retry!(self, bucket, s, s.create_folder_if_absent(bucket, prefix).await)
+    }
+
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()> {
         with_retry!(self, bucket, s, s.delete_object(bucket, key).await)
     }

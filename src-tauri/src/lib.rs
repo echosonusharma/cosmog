@@ -11,6 +11,7 @@ pub mod crypto;
 pub mod db;
 pub mod device;
 pub mod error;
+pub mod folder_upload;
 #[cfg(not(target_os = "android"))]
 pub mod mcp;
 pub mod night_watcher;
@@ -313,6 +314,8 @@ pub fn run() {
                     static SCHEDULER_CANCEL: std::sync::OnceLock<
                         tokio_util::sync::CancellationToken,
                     > = std::sync::OnceLock::new();
+                    // Folder jobs: drop unapproved, prune, sweep orphan job rows, resume (after the reap above).
+                    folder_upload::startup(&state).await;
                     let _ = SCHEDULER_CANCEL.set(scheduler::spawn(state.clone()));
                     // Night Watcher: bg local-dir -> S3 sync; token parked for process lifetime. On Android the
                     // loop runs in the :nightwatch service process — a duplicate here would double-scan/race nw_file_state.
@@ -419,7 +422,6 @@ pub fn run() {
             commands::settings::reset_settings,
 
             commands::bulk::delete_folder_cmd,
-            commands::bulk::upload_directory_cmd,
             commands::bulk::download_directory_cmd,
             commands::bulk::cancel_bulk_op,
 
@@ -454,6 +456,22 @@ pub fn run() {
             commands::encryption::list_encrypted_buckets,
 
             commands::browse::browse_prefix,
+
+            commands::folder_upload::local_path_kinds,
+            commands::folder_upload::folder_upload_analyze,
+            commands::folder_upload::folder_upload_check_remote,
+            commands::folder_upload::folder_upload_get_analysis,
+            commands::folder_upload::folder_upload_list_items,
+            commands::folder_upload::folder_upload_approve,
+            commands::folder_upload::folder_upload_list_jobs,
+            commands::folder_upload::folder_upload_get_job,
+            commands::folder_upload::folder_upload_pause,
+            commands::folder_upload::folder_upload_resume,
+            commands::folder_upload::folder_upload_cancel,
+            commands::folder_upload::folder_upload_retry_failed,
+            commands::folder_upload::folder_upload_remove,
+            commands::folder_upload::folder_upload_clear_finished,
+            commands::folder_upload::app_close_quits,
 
             commands::night_watcher::nw_list_watches,
             commands::night_watcher::nw_add_watch,

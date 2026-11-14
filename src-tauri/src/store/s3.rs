@@ -44,9 +44,27 @@ pub struct S3Config {
 #[derive(Clone)]
 pub struct S3Store {
     client: Client,
+    /// Provider rejected If-None-Match: emulate it with HEAD from now on.
+    pub(super) inm_unsupported: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl S3Store {
+    async fn put_marker(&self, bucket: &str, prefix: &str, if_none_match: bool) -> AppResult<()> {
+        let key = format!("{}/", prefix.trim_end_matches('/'));
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(&key)
+            .content_type("application/x-directory")
+            .content_length(0)
+            .set_if_none_match(if_none_match.then(|| "*".to_string()))
+            .body(ByteStream::from_static(b""))
+            .send()
+            .await
+            .map_err(|e| classify_aws("create_folder", e))?;
+        Ok(())
+    }
+
     pub async fn new(cfg: S3Config) -> AppResult<Self> {
         let creds = Credentials::new(
             cfg.access_key_id,
@@ -78,7 +96,7 @@ impl S3Store {
         }
 
         let client = Client::from_conf(builder.build());
-        Ok(S3Store { client })
+        Ok(S3Store { client, inm_unsupported: Default::default() })
     }
 }
 
@@ -464,18 +482,24 @@ impl ObjectStore for S3Store {
     }
 
     async fn create_folder(&self, bucket: &str, prefix: &str) -> AppResult<()> {
+        self.put_marker(bucket, prefix, false).await
+    }
+
+    async fn create_folder_if_absent(&self, bucket: &str, prefix: &str) -> AppResult<bool> {
+        if !self.inm_unsupported.load(std::sync::atomic::Ordering::Relaxed) {
+            match self.put_marker(bucket, prefix, true).await {
+                Ok(()) => return Ok(true),
+                Err(AppError::Conflict(_)) => return Ok(false),
+                Err(AppError::Unsupported(_)) => self.inm_unsupported.store(true, std::sync::atomic::Ordering::Relaxed),
+                Err(e) => return Err(e),
+            }
+        }
         let key = format!("{}/", prefix.trim_end_matches('/'));
-        self.client
-            .put_object()
-            .bucket(bucket)
-            .key(&key)
-            .content_type("application/x-directory")
-            .content_length(0)
-            .body(ByteStream::from_static(b""))
-            .send()
-            .await
-            .map_err(|e| classify_aws("create_folder", e))?;
-        Ok(())
+        match crate::store::ensure_absent(self, bucket, &key).await {
+            Ok(()) => self.put_marker(bucket, prefix, false).await.map(|_| true),
+            Err(AppError::Conflict(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()> {

@@ -15,8 +15,10 @@ import { EncryptionModal } from "./browse/EncryptionModal";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../api/encryption";
 import Spinner from "../utils/Spinner";
 import { t } from "../i18n";
-
-type Filter = "all" | "active" | "done" | "failed" | "canceled";
+import { visibleFolderJobs, folderUploadSupported, refreshFolderJobs, isJobFinished } from "../state/folderJobs";
+import { folderUploadClearFinished } from "../api/folderUpload";
+import { FolderJobRow } from "./transfers/FolderJobRow";
+import { jobMatches, type TransferFilter as Filter } from "./transfers/folderJobHelpers";
 
 export default function Transfers() {
   // Store + reconcile by id keeps row objects stable across polls, so <For> updates rows in place.
@@ -118,7 +120,14 @@ export default function Transfers() {
     }
     try { await clearCompletedTransfers(); await load(); }
     catch (e) { toast.err(e); }
+    if (folderUploadSupported()) {
+      await folderUploadClearFinished().catch(() => {});
+      void refreshFolderJobs();
+    }
   }
+
+  // Folder jobs render as one row each, above the per-file list.
+  const jobsShown = createMemo(() => visibleFolderJobs().filter((j) => jobMatches(j, filter())));
 
   const filtered = createMemo(() => {
     let list: Transfer[] = transfers;
@@ -141,6 +150,10 @@ export default function Transfers() {
       else if (t.status === "failed") c.failed++;
       else if (t.status === "canceled") c.canceled++;
     }
+    for (const j of visibleFolderJobs()) {
+      c.all++;
+      for (const f of ["active", "done", "failed", "canceled"] as const) if (jobMatches(j, f)) c[f]++;
+    }
     return c;
   });
 
@@ -156,7 +169,8 @@ export default function Transfers() {
   };
 
   const hasDone = () =>
-    transfers.some((t) => ["done", "failed", "canceled"].includes(t.status));
+    transfers.some((t) => ["done", "failed", "canceled"].includes(t.status)) ||
+    visibleFolderJobs().some(isJobFinished);
 
   return (
     <div class="view-container">
@@ -193,7 +207,7 @@ export default function Transfers() {
       </Show>
 
       <Show when={!loading()}>
-        <Show when={filtered().length > 0}
+        <Show when={filtered().length > 0 || jobsShown().length > 0}
               fallback={
                 <div class="empty-state">
                   <span class="empty-icon"><IconTransfer size={36} /></span>
@@ -207,6 +221,10 @@ export default function Transfers() {
                 </div>
               }>
           <div class="transfer-list">
+            <Show when={jobsShown().length > 0}>
+              <div class="fu-section-title">{t("folderUpload.section.title")}</div>
+              <For each={jobsShown()}>{(j) => <FolderJobRow job={j} />}</For>
+            </Show>
             <For each={filtered()}>
               {(t) => (
                 <TransferRow

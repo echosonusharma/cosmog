@@ -115,6 +115,8 @@ pub struct Transfer {
     pub created_at: i64,
     pub updated_at: i64,
     pub origin: TransferOrigin,
+    /// Owning folder upload job; such rows are hidden from the normal list.
+    pub job_id: Option<String>,
 }
 
 /// Error stored on rows reaped at startup; wire JSON so the FE can translate it.
@@ -159,6 +161,7 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<Transfer> {
             let raw: String = row.get(15)?;
             TransferOrigin::parse(&raw)
         },
+        job_id: row.get(16)?,
     })
 }
 
@@ -172,7 +175,12 @@ pub struct NewTransfer {
     pub local_path: String,
     pub options_json: Option<String>,
     pub origin: TransferOrigin,
+    pub job_id: Option<String>,
 }
+
+// Column order expected by map_row; parts_json is index 10.
+const COLS_HEAD: &str = "id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id";
+const COLS_TAIL: &str = "options_json, error, created_at, updated_at, origin, job_id";
 
 impl Db {
     pub async fn insert_transfer(&self, new: NewTransfer) -> AppResult<Transfer> {
@@ -194,13 +202,14 @@ impl Db {
             created_at: now,
             updated_at: now,
             origin: new.origin,
+            job_id: new.job_id,
         };
         let r = row.clone();
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO transfers (id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                    "INSERT INTO transfers (id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin, job_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                     params![
                         r.id,
                         r.account_id,
@@ -218,6 +227,7 @@ impl Db {
                         r.created_at,
                         r.updated_at,
                         r.origin.as_str(),
+                        r.job_id,
                     ],
                 )?;
                 Ok::<_, tokio_rusqlite::Error>(())
@@ -231,9 +241,9 @@ impl Db {
         let row = self
             .conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, parts_json, options_json, error, created_at, updated_at, origin FROM transfers WHERE id = ?1",
-                )?;
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {COLS_HEAD}, parts_json, {COLS_TAIL} FROM transfers WHERE id = ?1"
+                ))?;
                 let row = stmt.query_row(params![id], map_row).optional()?;
                 Ok::<_, tokio_rusqlite::Error>(row)
             })
@@ -241,23 +251,18 @@ impl Db {
         row.ok_or_else(|| AppError::NotFound("transfer".into()))
     }
 
-    /// UI listing; `parts_json` is left out (NULL) since only resume needs it.
+    /// UI listing; `parts_json` is left out (NULL) since only resume needs it. Job rows are hidden.
     pub async fn list_transfers(&self, status: Option<TransferStatus>) -> AppResult<Vec<Transfer>> {
         let status_str = status.map(|s| s.as_str().to_string());
         let rows = self
             .conn
             .call(move |conn| {
-                let (sql, has_filter) = match status_str.as_deref() {
-                    Some(_) => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers WHERE status = ?1 ORDER BY created_at DESC",
-                        true,
-                    ),
-                    None => (
-                        "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers ORDER BY created_at DESC",
-                        false,
-                    ),
-                };
-                let mut stmt = conn.prepare(sql)?;
+                let has_filter = status_str.is_some();
+                let filter = if has_filter { "AND status = ?1" } else { "" };
+                let sql = format!(
+                    "SELECT {COLS_HEAD}, NULL, {COLS_TAIL} FROM transfers WHERE job_id IS NULL {filter} ORDER BY created_at DESC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
                 let mut out = Vec::new();
                 if has_filter {
                     let iter = stmt.query_map(params![status_str.unwrap()], map_row)?;
@@ -386,15 +391,15 @@ impl Db {
         Ok(())
     }
 
-    /// Finished rows still holding a multipart upload (crash-reaped); aborted before clearing.
+    /// Finished non-job rows still holding a multipart upload (crash-reaped); aborted before clearing.
     pub async fn list_finished_with_upload(&self) -> AppResult<Vec<Transfer>> {
         let rows = self
             .conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, account_id, bucket, key, direction, local_path, bytes_total, bytes_done, status, upload_id, NULL, options_json, error, created_at, updated_at, origin FROM transfers
-                     WHERE status IN ('done', 'canceled', 'failed') AND upload_id IS NOT NULL",
-                )?;
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {COLS_HEAD}, NULL, {COLS_TAIL} FROM transfers
+                     WHERE status IN ('done', 'canceled', 'failed') AND upload_id IS NOT NULL AND job_id IS NULL"
+                ))?;
                 let out = stmt
                     .query_map([], map_row)?
                     .collect::<Result<Vec<_>, _>>()?;
@@ -404,16 +409,17 @@ impl Db {
         Ok(rows)
     }
 
-    /// Keep only the newest `keep` finished rows. Rows holding an upload_id survive so
-    /// their multipart upload can still be aborted on clear.
+    /// Keep only the newest `keep` finished non-job rows. Rows holding an upload_id survive so
+    /// their multipart upload can still be aborted on clear. Job rows are never pruned here.
     pub async fn prune_finished_transfers(&self, keep: i64) -> AppResult<usize> {
         let n = self
             .conn
             .call(move |conn| {
                 let n = conn.execute(
                     "DELETE FROM transfers WHERE status IN ('done', 'canceled', 'failed') AND upload_id IS NULL
+                     AND job_id IS NULL
                      AND id NOT IN (
-                        SELECT id FROM transfers WHERE status IN ('done', 'canceled', 'failed')
+                        SELECT id FROM transfers WHERE status IN ('done', 'canceled', 'failed') AND job_id IS NULL
                         ORDER BY updated_at DESC LIMIT ?1
                      )",
                     params![keep],
@@ -437,7 +443,7 @@ impl Db {
     }
 
     /// Startup recovery: rows still active/pending were owned by a worker that
-    /// died with the previous process; mark them failed. Returns rows touched.
+    /// died with the previous process; mark them failed (job rows too). Returns rows touched.
     pub async fn reap_orphan_transfers(&self) -> AppResult<usize> {
         let now = chrono::Utc::now().timestamp();
         let n = self
@@ -492,14 +498,72 @@ impl Db {
         Ok(n > 0)
     }
 
+    /// Clears finished non-job rows; folder job rows are owned by their job.
     pub async fn clear_completed_transfers(&self) -> AppResult<usize> {
         let n = self.conn.call(|conn| {
             let n = conn.execute(
-                "DELETE FROM transfers WHERE status IN ('done', 'canceled', 'failed')",
+                "DELETE FROM transfers WHERE status IN ('done', 'canceled', 'failed') AND job_id IS NULL",
                 [],
             )?;
             Ok::<_, tokio_rusqlite::Error>(n)
         }).await?;
+        Ok(n)
+    }
+
+    /// Every row owned by a folder job, with resume state, oldest first.
+    pub async fn list_job_transfers(&self, job_id: &str) -> AppResult<Vec<Transfer>> {
+        let job_id = job_id.to_string();
+        let rows = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {COLS_HEAD}, parts_json, {COLS_TAIL} FROM transfers WHERE job_id = ?1 ORDER BY created_at, id"
+                ))?;
+                let out = stmt
+                    .query_map(params![job_id], map_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await?;
+        Ok(rows)
+    }
+
+    /// Rows whose job_id names no existing folder job (startup sweep).
+    pub async fn list_orphan_job_transfers(&self) -> AppResult<Vec<Transfer>> {
+        let rows = self
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {COLS_HEAD}, parts_json, {COLS_TAIL} FROM transfers
+                     WHERE job_id IS NOT NULL AND job_id NOT IN (SELECT id FROM folder_upload_jobs)"
+                ))?;
+                let out = stmt.query_map([], map_row)?.collect::<Result<Vec<_>, _>>()?;
+                Ok::<_, tokio_rusqlite::Error>(out)
+            })
+            .await?;
+        Ok(rows)
+    }
+
+    /// Deletes the given rows in one transaction; missing ids are ignored. Returns rows deleted.
+    pub async fn delete_transfer_rows(&self, ids: Vec<String>) -> AppResult<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let n = self
+            .conn
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut n = 0;
+                {
+                    let mut stmt = tx.prepare("DELETE FROM transfers WHERE id = ?1")?;
+                    for id in &ids {
+                        n += stmt.execute(params![id])?;
+                    }
+                }
+                tx.commit()?;
+                Ok::<_, tokio_rusqlite::Error>(n)
+            })
+            .await?;
         Ok(n)
     }
 }

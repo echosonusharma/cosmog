@@ -38,7 +38,7 @@ Tauri Commands (src-tauri/src/commands/)
     v
 AppState (Arc, cloned into every command)
   +-- TransferManager  ->  ObjectStore trait  ->  S3Store  ->  S3 API
-  +-- Db (SQLite)      ->  accounts, transfers, cache, settings, capabilities, encryption, logs, night watcher
+  +-- Db (SQLite)      ->  accounts, transfers, cache, settings, capabilities, encryption, logs, night watcher, folder uploads
   +-- Secrets          ->  OS Keyring / Android Keystore (never in SQLite)
   +-- crypto           ->  age streaming encrypt/decrypt (upload/download/preview)
 ```
@@ -56,17 +56,18 @@ AppState (Arc, cloned into every command)
 ```shell
 src/
   api/        Tauri invoke() wrappers, one file per domain
-  routes/     Pages: browse/ (browser, preview, bucketConfig, versionHistory, charts), mainapp/, onboarding/, settings/, transfers/, logs/
-  state/      Solid signal stores (app, settings, theme, prefs, toast, confirm)
+  routes/     Pages: browse/ (browser, preview, bucketConfig, versionHistory, charts, folderUpload), mainapp/, onboarding/, settings/, transfers/ (incl. FolderJobRow, FolderJobDetails), logs/
+  state/      Solid signal stores (app, settings, theme, prefs, toast, confirm, folderJobs)
   utils/      Shared helpers (CodeEditor, icons, fmt, textTypes, errors, ...)
   i18n/       t()/tp(), device language detection, flags, locales/<lang>/<area>.ts
   styles/     CSS, one file per feature area
 src-tauri/
   src/commands/   Tauri command handlers, one file per domain (full list: invoke_handler in lib.rs)
-  src/db/         SQLite schema + domain methods (cache/: objects, index, browse, search, facets, stats)
+  src/db/         SQLite schema + domain methods (cache/: objects, index, browse, search, facets, stats; folder_upload/: jobs, items)
   src/store/      ObjectStore trait + S3Store (s3/: download, upload, copy, classify), logging, region retry, Android TLS
   src/transfer/   TransferManager (manager), worker, sink (progress + parts journal), semaphore, encrypt
   src/mcp/        Local MCP server (desktop only): mod, auth, tools, format
+  src/folder_upload/  Folder upload: walk, analyze, remote (check), engine + item (runner), control (scheduler), resume, keys, policy
   src/crypto.rs, secrets.rs, state.rs, scheduler.rs (auto-reindex), app_lifecycle.rs (tray/background-run)
   src/night_watcher/ (scan, reconcile, upload, fs, desktop), night_watcher_headless.rs, saf/, sync.rs, bulk.rs
   tests/          Integration tests (Night Watcher e2e needs --features nw-test-hooks)
@@ -79,9 +80,41 @@ src-tauri/
 Events: `Started`, `Progress`, `PartCompleted`, `Done`, `Failed`, `Canceled`.
 
 - Multipart upload with part-level resume on retry; `CancellationToken` per transfer.
+- Part size (`adaptive_part_size`, `store/s3/upload.rs`): the configured size (5 MiB floor, 5 GiB cap) when the file fits in 10,000 parts, else the smallest whole-MiB size that does.
+- Resume: retrying a row that holds an `upload_id` rebuilds the completed parts from a full paginated `ListParts`, dropping parts whose size does not fit the layout (they are re-sent). The parts journal is sparse (flushed at power-of-two part counts), so it is only the fallback when `ListParts` is `unsupported` or `access_denied`. `NoSuchUpload`, a source whose len+mtime changed, or a saved layout past S3 limits (part over 5 GiB or over 10,000 parts) starts fresh. Encrypted retries always abort and restart (new ciphertext).
+- **upload_id:** a new id is written to the row before the first part is sent. When a row ends without completing, it drops the id only after the abort succeeded or returned `NoSuchUpload`; otherwise the row keeps it for a later cleanup.
+- **Conditional writes:** `PutOptions.if_none_match` is sent on PutObject and CompleteMultipartUpload. A provider that rejects the header gets HEAD then write instead, remembered per account store (`inm_unsupported`) for later calls; this leaves a short race, and a provider that silently ignores the header cannot be detected. A bare 412 is `conflict`. Only folder jobs set it.
+- **Source guard** (`transfer/source_guard.rs`, opt-in, folder jobs only): the opened file must be the regular file seen at enqueue (device+inode on unix, size+mtime on Windows, where std has no stable file index) and resolve inside the canonical root, re-checked without following links. Guarded bodies stream from the opened handle, so the SDK cannot retry them itself. std has no `O_NOFOLLOW`, so two link swaps within microseconds (file, or a parent folder) can still slip through.
+- `suspend(id)` stops a live worker without aborting its multipart upload: the row ends `paused` with the journal flushed and the sink gets `Canceled`. `retry` accepts `paused` rows.
+- Job-owned rows: `enqueue_upload_for_job` sets `transfers.job_id`, and `retry` carries it over. A network-class failure (`network_unreachable`, `dns_failure`, `connection_refused`, `request_timeout`) leaves such an upload row `paused` with its multipart upload for the job to resume; other rows end failed as before. `list_transfers`, clear completed, `prune_finished_transfers` and `list_finished_with_upload` skip these rows; the owning folder job manages them.
 - Orphan transfers (Active/Pending at crash) are reaped at startup. On Android only `origin = "user"` rows are reaped, since the `:nightwatch` process may hold live rows.
 - Encrypted uploads stream through age to `enc_tmp/<uuid>.age`, cleaned after the worker settles. Encrypted downloads probe the age magic then stream-decrypt in place; retries re-fetch the full range (age needs the whole stream to authenticate).
 - **Android:** `TransferService` runs while any transfer is active. SAF downloads: the frontend registers `(transfer_id, SAF URI)` before enqueue; after `Done`, `finalize_saf_download` copies the cache file to the URI. On cancel the 0-byte placeholder is removed via `delete_saf_document`.
+
+## Folder Upload
+
+Desktop only: the UI is gated by `isDesktopShell`; the backend (`folder_upload/`, `commands/folder_upload.rs`) compiles everywhere. MCP has no folder upload. Persistence is `folder_upload_jobs` (one row per job) plus `folder_upload_items` (one row per walked entry).
+
+**Lifecycle:** analyze (walk the local tree into items) -> remote check (live listing of the destination) -> approve -> run -> finish. Job states: `analyzing`, `analyzed`, `queued`, `running`, `paused`, `completed`, `completed_with_errors`, `canceled`, `failed`. `completed_with_errors` means some items failed, were `skipped_missing`, were canceled, or became un-uploadable after approval. `failed` is defined but never produced; `retry_failed` rejects it. `source_root` is stored canonical (links resolved, no `\\?\` prefix on Windows); the default destination name comes from the picked folder. Only one unfinished job may target the same source and destination (`folder_job_exists`).
+
+- **Manifest:** the item list is what gets uploaded. Files added to the folder after analysis are not uploaded.
+- **Keys:** `dest_prefix + rel_path`, joined with `/`. Names are never trimmed, rewritten or lossy-converted. Names Windows cannot create are uploaded and only counted in the analysis.
+- **Excluded** (`exclude_reason`, listed in the analysis, never block the job): `symlink` (never followed; the target is shown), `special` (FIFOs, sockets, devices, never opened), `unreadable` / `unreadable_dir`, `non_utf8`, `control_chars` (U+0000-001F, U+007F break XML listings), `key_too_long` (over 1024 UTF-8 bytes, re-evaluated when the destination changes), `file_too_large` (over 5 TiB). Only the picked root itself may be a link. A folder whose listing errors partway gets an `unreadable_dir` item; for the root its `rel_path` is `""`.
+- **Hidden files** (leading `.` or the Windows hidden attribute) are uploaded; the analysis reports them separately.
+- **Empty directories** (or folders whose children are all excluded) become a `rel/` marker object when `create_dir_markers` is set (default on). Other directories get no marker. Markers are conditional and never replace an existing `rel/`.
+- **Overwrite check:** a segmented live listing: the destination with delimiter `/`, then a full listing only of the local top-level dirs that exist remotely. A remote `x/` marker is not an overwrite. A destination change cancels the running check. A listing that says truncated without a continuation token fails the check (`s3`) and approval is refused. Approve requires the check done for the current destination, and an overwrite policy (`skip` or `overwrite`, no default) when anything exists.
+- **Late keys:** a missing policy behaves as `skip`, and the frontend always sends `skip` when nothing exists. Under `skip` every file write is conditional (see Conditional writes); a 412 marks the item `skipped_exists` unless the key holds the job's own write. The job replaces only objects it wrote itself, identified by `x-amz-meta-cosmog-fu = <job>/<seq>/<size>/<mtime>` or the stored ETag (`done_etag`), checked by HEAD just before (short race). Only `overwrite` replaces foreign objects.
+- **Window:** at most W = min(2 x `transfer_concurrency`, 32) job transfer rows exist at once, re-read on each refill. A row is deleted as soon as its item settles.
+- **Scheduling:** one job runs at a time; the next is the running job, else the oldest `queued`.
+- **Drift:** before upload each file is re-stat'ed: gone means `skipped_missing`; now a link, special file, outside the root or over 5 TiB means `excluded` with `drift = changed` (ends the job `completed_with_errors`); changed size/mtime uploads the current content (`drift = changed`). A file that changes during its upload is re-uploaded once, then fails with `source_changed`, as does one that stops being a regular file inside the folder right after its upload.
+- **Retries:** network errors (`network_unreachable`, `dns_failure`, `connection_refused`, `request_timeout`) park the item with its transfer row and multipart upload, and the job waits (`waiting = network`), probing `head_bucket` with a 10 s to 5 min backoff, then resumes the same upload. A failure counts only when the probe passed and the file made no progress; the 5th counted failure fails the item, so a link that drops while parts still get through never fails it. Auth, quota, bucket and TLS errors (`access_denied`, `credentials_*`, `token_expired`, `clock_skew`, `quota_exceeded`, `bucket_not_found`, `invalid_region`, `tls_error`) pause the job with the code as `pause_reason`. `rate_limited`, `service_unavailable`, `s3` back off per item 30 s doubling (cap 30 min), 5 attempts; `io` gets 3 attempts 30 s apart; anything else fails the item. `retry_failed` resets failed items and reopens a finished job.
+- **Preflight:** a missing source root, or one that now resolves elsewhere, pauses with `folder_source_unavailable` (detail holds only the folder name). Turning bucket encryption on or off pauses with `folder_encryption_changed`, and resume continues under the current setting; a key rotation just switches the recipient.
+- **Pause** `suspend`s in-flight transfers, so plain multipart uploads keep their parts. **Cancel** of an unapproved job deletes it; of an approved one ends `canceled`: pending and in-flight items end canceled, multipart uploads are aborted, rows deleted. Objects already uploaded stay in the bucket.
+- **Resume:** `running` and `queued` jobs continue at startup; `paused` stays paused. Each in-flight item is matched to its row: a `done` row finishes the item, otherwise the row is retried. Done items are never re-uploaded; an `uploading` item whose row is gone is marked done only if a HEAD finds this job's upload of the current version, else it goes back to pending. A plain multipart upload continues under the same `upload_id` without re-sending listed parts; an encrypted file restarts from scratch. Rows no item points at are aborted and deleted.
+- **Counts:** per-state item counts live in `folder_upload_counts`, kept by triggers on `folder_upload_items`, so progress never scans the items.
+- **Limits:** 500,000 walked entries per job (hard, `folder_too_many_files`). Soft warnings: over 10,000 files, over 50 GiB, hidden files present, exclusions present, encrypted (temp space).
+- **History:** finished jobs stay until removed; removing aborts and deletes any rows they still hold. Startup keeps the newest 50 finished jobs and drops those older than 30 days. Deleting an account or bucket cancels its jobs first.
+- **Frontend:** the backend emits `folder-upload-changed` (`{ job_id, state }`). `state/folderJobs.ts` is the single shared poller (1 s while a job moves, 5 s idle, plus a refresh on each event); the Transfers page renders one `FolderJobRow` per job and its "Clear completed" also clears finished jobs. While a job moves, closing the window asks first if it would really quit (`app_close_quits`).
 
 ## Client-side Encryption
 
@@ -134,7 +167,7 @@ Desktop only (`cfg(not(target_os = "android"))`), off by default. Lets a local A
 
 ## Database
 
-SQLite at `{app_data_dir}/cosmog.sqlite`, WAL mode, foreign keys on. Tables: `accounts`, `transfers`, `bucket_index`, `cached_objects` (+ FTS5 trigram `cached_objects_fts`), `prefix_sync`, `settings`, `account_capabilities`, `bucket_capabilities`, `request_logs`, `bucket_encryption`, `nw_watch`, `nw_file_state`, `nw_file_retry`. Domain methods live in `src-tauri/src/db/`.
+SQLite at `{app_data_dir}/cosmog.sqlite`, WAL mode, foreign keys on. Tables: `accounts`, `transfers`, `bucket_index`, `cached_objects` (+ FTS5 trigram `cached_objects_fts`), `prefix_sync`, `settings`, `account_capabilities`, `bucket_capabilities`, `request_logs`, `bucket_encryption`, `nw_watch`, `nw_file_state`, `nw_file_retry`, `folder_upload_jobs`, `folder_upload_items`. `transfers.job_id` (migration 21) marks rows owned by a folder job. Domain methods live in `src-tauri/src/db/`.
 
 ## i18n
 
@@ -181,7 +214,7 @@ Android prerequisites: Android Studio, SDK 36, NDK 27, Java 17, and the Rust tar
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
 ```
 
-Rust tests: start MinIO with `docker compose up -d minio` (`docker-compose.yml`, `localhost:9000`, override with `MINIO_ENDPOINT`), then `cargo test` in `src-tauri/`. Without MinIO the S3 suites skip silently and still pass. The Night Watcher e2e also needs `--features nw-test-hooks --test night_watcher_e2e`.
+Rust tests: start MinIO with `docker compose up -d minio` (`docker-compose.yml`, `localhost:9000`, override with `MINIO_ENDPOINT`), then `cargo test` in `src-tauri/`. Without MinIO the S3 suites skip silently and still pass. The Night Watcher e2e also needs `--features nw-test-hooks --test night_watcher_e2e`. Folder upload: `folder_upload_db` (SQLite only), `folder_upload_engine` (in-memory store), `folder_upload` (MinIO); `FU_REQUIRE_MINIO=1` makes `folder_upload` fail instead of skip when MinIO is down.
 
 ## Scripts
 
@@ -210,5 +243,5 @@ All in `scripts/`, run from anywhere (they resolve the repo root).
 5. Reap orphan transfers (all on desktop, `origin = "user"` only on Android).
 6. Load settings, apply proxy/CA env vars.
 7. Build `AppState`.
-8. Background work: prune old request logs, sweep `enc_tmp/`, start the scheduler, Night Watcher (desktop in-process, Android via the `:nightwatch` service), desktop background-run, and the MCP listener (desktop).
+8. Background work: prune old request logs, sweep `enc_tmp/`, folder jobs (`folder_upload::startup`: delete unapproved jobs, purge finished jobs' rows, prune history, sweep job rows whose job is gone, resume running/queued jobs), start the scheduler, Night Watcher (desktop in-process, Android via the `:nightwatch` service), desktop background-run, and the MCP listener (desktop).
 9. Register commands, run the Tauri event loop.

@@ -139,7 +139,7 @@ fn from_status(status: Option<u16>, d: String) -> AppError {
         Some(301) => AppError::RegionRedirect(d),
         Some(403) => AppError::AccessDenied(d),
         Some(404) => AppError::NotFound(d),
-        Some(409) => AppError::Conflict(d),
+        Some(409 | 412) => AppError::Conflict(d),
         Some(413) => AppError::EntityTooLarge(d),
         Some(429) => AppError::RateLimited(d),
         Some(500 | 502 | 503 | 504) => AppError::ServiceUnavailable(d),

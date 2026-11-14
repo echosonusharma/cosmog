@@ -25,6 +25,8 @@ pub struct TransferManager {
     cancels: Arc<DashMap<String, CancellationToken>>,
     sem: Arc<ResizableSemaphore>,
     enqueued: Arc<std::sync::atomic::AtomicU64>,
+    /// Ids canceled by `suspend`: the worker keeps the multipart upload and ends `paused`.
+    suspended: Arc<dashmap::DashSet<String>>,
 }
 
 enum WorkerJob {
@@ -60,6 +62,7 @@ impl TransferManager {
             cancels: Arc::new(DashMap::new()),
             sem: Arc::new(ResizableSemaphore::new(concurrency)),
             enqueued: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            suspended: Arc::new(dashmap::DashSet::new()),
         }
     }
 
@@ -91,8 +94,27 @@ impl TransferManager {
             external_sink,
             None,
             origin,
+            None,
         )
         .await
+    }
+
+    /// Upload owned by a folder job: the row carries `job_id` and is hidden from the normal list.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn enqueue_upload_for_job(
+        &self,
+        store: Arc<dyn ObjectStore>,
+        account_id: String,
+        bucket: String,
+        key: String,
+        local_path: PathBuf,
+        opts: PutOptions,
+        external_sink: ProgressSink,
+        job_id: String,
+    ) -> AppResult<String> {
+        let job = WorkerJob::Upload { bucket, key, local_path, opts };
+        self.enqueue(store, account_id, job, external_sink, None, TransferOrigin::User, Some(job_id))
+            .await
     }
 
     pub async fn enqueue_download(
@@ -118,6 +140,7 @@ impl TransferManager {
             external_sink,
             None,
             TransferOrigin::User,
+            None,
         )
         .await
     }
@@ -128,6 +151,16 @@ impl TransferManager {
             token.cancel();
         }
         Ok(())
+    }
+
+    /// Pause: stops the worker without aborting its multipart upload; the row ends `paused`
+    /// with its parts journal flushed, and the sink gets `Canceled`. No-op if not live.
+    pub fn suspend(&self, transfer_id: &str) {
+        // Inserted while the cancels entry is held: the worker's final cleanup cannot miss it.
+        if let Some(token) = self.cancels.get(transfer_id) {
+            self.suspended.insert(transfer_id.to_string());
+            token.cancel();
+        }
     }
 
     pub fn is_live(&self, transfer_id: &str) -> bool {
@@ -225,9 +258,13 @@ impl TransferManager {
                 // Re-encryption yields different ciphertext, so saved parts are useless.
                 if opts.encrypt.is_some() {
                     if let Some(r) = resume.take() {
-                        let _ = store
-                            .abort_multipart_upload(&row.bucket, &row.key, &r.upload_id)
-                            .await;
+                        // The row is the only record of the upload: keep it until the abort lands.
+                        match store.abort_multipart_upload(&row.bucket, &row.key, &r.upload_id).await {
+                            Err(e) if !e.is_not_found() => return Err(e),
+                            _ => {
+                                let _ = self.db.clear_transfer_multipart(&row.id).await;
+                            }
+                        }
                     }
                 }
                 WorkerJob::Upload {
@@ -263,7 +300,7 @@ impl TransferManager {
 
         // Preserve the original origin so a retried night-watch upload stays silent.
         let id = self
-            .enqueue(store, row.account_id, job, external_sink, resume, row.origin)
+            .enqueue(store, row.account_id, job, external_sink, resume, row.origin, row.job_id.clone())
             .await?;
         // The new row owns the multipart upload now; clearing the old row must not abort it.
         if row.upload_id.is_some() {
@@ -301,6 +338,7 @@ impl TransferManager {
         external_sink: ProgressSink,
         resume: Option<ResumeState>,
         origin: TransferOrigin,
+        job_id: Option<String>,
     ) -> AppResult<String> {
         let id = Uuid::new_v4().to_string();
         let direction = job.direction();
@@ -328,6 +366,7 @@ impl TransferManager {
             WorkerJob::Upload { opts, .. } => serde_json::to_string(opts).ok(),
             WorkerJob::Download { opts, .. } => serde_json::to_string(opts).ok(),
         };
+        let job_id_for_task = job_id.is_some();
         self.db
             .insert_transfer(NewTransfer {
                 id: id.clone(),
@@ -338,8 +377,13 @@ impl TransferManager {
                 local_path: path_for_row,
                 options_json,
                 origin,
+                job_id,
             })
             .await?;
+        // A carried-over upload is recorded on the new row before the old row lets go of it.
+        if let Some(r) = resume.as_ref().filter(|r| !r.upload_id.is_empty()) {
+            self.db.update_transfer_multipart(&id, Some(r.upload_id.clone()), r).await?;
+        }
         // Throttled: bulk enqueues would otherwise run the sort-and-delete per file.
         if self.enqueued.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == 0 {
             if let Err(e) = self.db.prune_finished_transfers(KEEP_FINISHED_ROWS).await {
@@ -361,6 +405,7 @@ impl TransferManager {
             multipart_threshold: settings.multipart_threshold_bytes,
             resume: None,
             source_stat: None,
+            on_upload_id: Some(upload_id_hook(resume_handle.clone(), journal.clone(), id.clone())),
         };
         if let Some(r) = resume {
             ctx = ctx.with_resume(r);
@@ -368,8 +413,10 @@ impl TransferManager {
 
         let db = self.db.clone();
         let cancels = self.cancels.clone();
+        let suspended = self.suspended.clone();
         let sem = self.sem.clone();
         let id_for_task = id.clone();
+        let owned_by_job = job_id_for_task;
         let store_for_task = store.clone();
         let bucket_for_cache = bucket_for_row;
         let key_for_cache = key_for_row;
@@ -486,20 +533,37 @@ impl TransferManager {
                 Err(AppError::Canceled(_)) => TransferStatus::Canceled,
                 Err(_) => TransferStatus::Failed,
             };
-            if matches!(direction, Direction::Upload) {
-                // Best-effort abort on give-up/cancel; the row drops the upload_id so a retry starts fresh.
-                if !matches!(terminal, TransferStatus::Done) {
-                    let upload_id = resume_handle.lock().unwrap().upload_id.clone();
-                    if !upload_id.is_empty() {
-                        let _ = store_for_task
-                            .abort_multipart_upload(&bucket_for_cache, &key_for_cache, &upload_id)
-                            .await;
-                    }
+            // Suspended (pause): keep the upload and its parts for a later retry.
+            let suspended_now = suspended.remove(&id_for_task).is_some() && terminal == TransferStatus::Canceled;
+            // A folder job's upload survives a network loss: its runner resumes it when back online.
+            let parked = owned_by_job
+                && matches!(direction, Direction::Upload)
+                && result.as_ref().err().is_some_and(AppError::is_network);
+            let paused = suspended_now || parked;
+            if paused {
+                journal.flush(&id_for_task).await;
+            } else if matches!(direction, Direction::Upload) {
+                let upload_id = resume_handle.lock().unwrap().upload_id.clone();
+                // The row drops the upload_id only once the upload is gone (aborted, or never there).
+                let gone = matches!(terminal, TransferStatus::Done)
+                    || upload_id.is_empty()
+                    || match store_for_task.abort_multipart_upload(&bucket_for_cache, &key_for_cache, &upload_id).await {
+                        Ok(()) => true,
+                        Err(e) if e.is_not_found() => true,
+                        Err(e) => {
+                            tracing::warn!(transfer_id = %id_for_task, "abort multipart failed, kept for later: {e}");
+                            false
+                        }
+                    };
+                if gone {
+                    journal.close_and_clear(&id_for_task).await;
+                } else {
+                    journal.close_keep(&id_for_task).await;
                 }
-                journal.close_and_clear(&id_for_task).await;
             }
             // SAF staging dir piles up multi-GB if kept; failed uploads keep it for retry.
             if matches!(direction, Direction::Upload)
+                && !paused
                 && matches!(terminal, TransferStatus::Done | TransferStatus::Canceled)
             {
                 if let Some(dir) = &stage_cleanup_dir {
@@ -507,10 +571,13 @@ impl TransferManager {
                 }
             }
             let err_text = result.as_ref().err().map(|e| e.to_wire_string());
+            let status = if paused { TransferStatus::Paused } else { terminal };
             let _ = db
-                .update_transfer_status(&id_for_task, terminal, err_text.clone())
+                .update_transfer_status(&id_for_task, status, err_text.clone())
                 .await;
             cancels.remove(&id_for_task);
+            // A suspend that raced past the check above must not leak its id.
+            suspended.remove(&id_for_task);
             // The only terminal event: composite_sink filters store terminals, so this fires once.
             let event = match terminal {
                 TransferStatus::Done => TransferEvent::Done {
@@ -530,6 +597,28 @@ impl TransferManager {
 
         Ok(id)
     }
+}
+
+/// Records a fresh upload_id (and part size) in the row before the first part is sent.
+fn upload_id_hook(
+    resume: Arc<std::sync::Mutex<ResumeState>>,
+    journal: Arc<super::sink::PartsJournal>,
+    transfer_id: String,
+) -> super::UploadIdHook {
+    super::UploadIdHook::new(move |upload_id, part_size| {
+        let (resume, journal, tid) = (resume.clone(), journal.clone(), transfer_id.clone());
+        Box::pin(async move {
+            {
+                let mut g = resume.lock().unwrap();
+                if g.upload_id != upload_id {
+                    g.completed_parts.clear();
+                }
+                g.upload_id = upload_id;
+                g.part_size = Some(part_size);
+            }
+            journal.flush(&tid).await;
+        })
+    })
 }
 
 const KEEP_FINISHED_ROWS: i64 = 1000;

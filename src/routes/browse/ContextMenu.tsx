@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import {
   IconDownload, IconLink, IconTrash, IconEdit, IconEye,
-  IconPlus, IconDoc, IconUpload, IconChevronR, IconActivity,
+  IconPlus, IconDoc, IconUpload, IconChevronR, IconActivity, IconFolder,
 } from "../../utils/icons";
 import { navigateToPrefix } from "../../state/app";
 import type { CachedObjectMeta } from "../../types";
@@ -18,6 +18,8 @@ export function ContextMenu(props: {
   onNewFolder: (prefix: string) => void;
   onNewFile: (prefix: string) => void;
   onUploadHere: (prefix: string) => void;
+  /** Desktop only. */
+  onUploadFolderHere?: (prefix: string) => void;
   onDeleteFolder: (sub: string) => void;
   onPreview: (obj: CachedObjectMeta) => void;
   onDownload: (obj: CachedObjectMeta) => void;
@@ -54,6 +56,13 @@ export function ContextMenu(props: {
           <button class="context-item" onClick={() => { props.onUploadHere(f().sub); props.onClose(); }}>
             <span class="context-item-icon"><IconUpload size={14} /></span> {t("browse.ctx.uploadHere")}
           </button>
+          <Show when={props.onUploadFolderHere}>
+            {(fn) => (
+              <button class="context-item" onClick={() => { fn()(f().sub); props.onClose(); }}>
+                <span class="context-item-icon"><IconFolder size={14} /></span> {t("folderUpload.entry.uploadFolderHere")}
+              </button>
+            )}
+          </Show>
           <div class="context-sep" />
           <button class="context-item danger" onClick={() => { props.onDeleteFolder(f().sub); props.onClose(); }}>
             <span class="context-item-icon"><IconTrash size={14} /></span> {t("browse.ctx.deleteFolder")}

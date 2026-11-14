@@ -280,3 +280,106 @@ export interface CorsRule {
 export interface CorsConfig {
   rules: CorsRule[];
 }
+
+// Folder upload (desktop). Mirrors the backend contract; timestamps are unix seconds.
+export type FolderJobState =
+  | "analyzing" | "analyzed" | "queued" | "running" | "paused"
+  | "completed" | "completed_with_errors" | "canceled" | "failed";
+export type FolderItemState =
+  | "pending" | "uploading" | "done" | "skipped_exists" | "skipped_missing" | "failed" | "canceled" | "excluded";
+export type ExcludeReason =
+  | "symlink" | "special" | "unreadable" | "unreadable_dir" | "non_utf8" | "control_chars" | "key_too_long" | "file_too_large";
+export type OverwritePolicy = "skip" | "overwrite";
+export type FolderItemFilter = "all" | "existing" | "excluded" | "failed" | "skipped" | "drift" | "hidden";
+export type LocalPathKind = "file" | "dir" | "other" | "missing";
+export type FolderWarning = "many_files" | "large_total" | "hidden_present" | "excluded_present" | "encrypted_temp_space";
+
+/** ext "" = no extension, "*" = rollup of the rest. */
+export interface ExtStat { ext: string; files: number; bytes: number }
+export interface DirStat { rel_path: string; files: number; bytes: number }
+
+export interface FolderAnalysis {
+  job_id: string;
+  source_root: string;
+  dest_prefix: string;
+  encrypted: boolean;
+  files: number;
+  dirs: number;
+  empty_dirs: number;
+  total_bytes: number;
+  zero_byte_files: number;
+  by_ext: ExtStat[];
+  hidden: { files: number; bytes: number; top_dirs: DirStat[] };
+  top_dirs: DirStat[];
+  largest_files: { rel_path: string; size: number }[];
+  excluded: Record<ExcludeReason, number>;
+  windows_unsafe_names: number;
+  deepest: { rel_path: string; depth: number } | null;
+  longest_rel_bytes: number;
+  largest_file_bytes: number;
+  warnings: FolderWarning[];
+}
+
+export type FolderAnalyzeEvent =
+  | { kind: "started"; job_id: string }
+  | { kind: "progress"; job_id: string; files: number; dirs: number; bytes: number; current_dir: string };
+
+export type FolderRemoteEvent = { kind: "progress"; job_id: string; listed: number };
+
+export interface FolderRemoteCheck {
+  existing: number;
+  /** Sum of remote (destination) sizes; ciphertext sizes on encrypted buckets. */
+  existing_bytes: number;
+  listed: number;
+  versioning: "enabled" | "disabled" | "unknown";
+  key_too_long: number;
+}
+
+export interface FolderItem {
+  seq: number;
+  rel_path: string;
+  key: string;
+  kind: "file" | "dir" | "symlink" | "special";
+  size: number;
+  mtime_ms: number;
+  state: FolderItemState;
+  exclude_reason: ExcludeReason | null;
+  link_target: string | null;
+  remote_exists: boolean;
+  remote_size: number | null;
+  /** Milliseconds. */
+  remote_mtime: number | null;
+  drift: "changed" | "changed_during_upload" | null;
+  error: string | null;
+  attempts: number;
+}
+
+export interface FolderItemPage { items: FolderItem[]; total: number }
+
+export interface FolderJob {
+  id: string;
+  account_id: string;
+  bucket: string;
+  source_root: string;
+  dest_prefix: string;
+  state: FolderJobState;
+  waiting: "network" | "rate_limited" | null;
+  /** "user" or a plain error code; the wire error JSON is in `error`. */
+  pause_reason: string | null;
+  overwrite_policy: OverwritePolicy | null;
+  total_files: number;
+  total_bytes: number;
+  bytes_done: number;
+  /** Item counts by state; `done` counts uploaded files only (no folder markers). */
+  counts: Record<FolderItemState, number>;
+  drift: number;
+  appeared_after_check: number;
+  inflight: { rel_path: string; bytes_done: number; bytes_total: number | null }[];
+  error: string | null;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  updated_at: number;
+}
+
+export interface FolderJobChangedEvent { job_id: string; state: FolderJobState }

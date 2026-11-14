@@ -366,6 +366,15 @@ impl ObjectStore for LoggingStore {
         r
     }
 
+    async fn create_folder_if_absent(&self, bucket: &str, prefix: &str) -> AppResult<bool> {
+        let start = Instant::now();
+        let r = self.inner.create_folder_if_absent(bucket, prefix).await;
+        self.record("create_folder", "PUT", self.build_url(Some(bucket), Some(prefix), None),
+            Some(json!({ "content_length": 0, "if_none_match": "*" })), None, Some(bucket), Some(prefix),
+            start, r.is_ok(), r.as_ref().err());
+        r
+    }
+
     async fn delete_object(&self, bucket: &str, key: &str) -> AppResult<()> {
         let start = Instant::now();
         let r = self.inner.delete_object(bucket, key).await;

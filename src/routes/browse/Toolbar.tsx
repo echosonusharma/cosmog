@@ -10,6 +10,7 @@ import { PathBar } from "./PathBar";
 // uPlot chart lib loads only when the stats modal is opened.
 const StatsModal = lazy(() => import("./StatsModal").then((m) => ({ default: m.StatsModal })));
 import { ToolbarOverflow } from "./ToolbarOverflow";
+import { UploadSplitButton } from "./folderUpload/UploadSplitButton";
 import type { BucketIndexStatus } from "../../types";
 import { t } from "../../i18n";
 
@@ -34,6 +35,8 @@ export function Toolbar(props: {
   onNewFolder: () => void;
   onNewFile: () => void;
   onUpload: () => void;
+  /** Desktop only; enables the Upload split button. */
+  onUploadFolder?: () => void;
 }) {
   const [showStats, setShowStats] = createSignal(false);
   const indexed = () => (props.indexStatus.latest ?? props.indexStatus())?.enabled;
@@ -124,9 +127,13 @@ export function Toolbar(props: {
         <button class="btn-secondary toolbar-btn newfile-btn" onClick={props.onNewFile}>
           <IconDoc size={14} /> {t("browse.toolbar.newFile")}
         </button>
-        <button class="btn-primary toolbar-btn upload-btn" onClick={props.onUpload}>
-          <IconUpload size={14} /> {t("common.upload")}
-        </button>
+        <Show when={props.onUploadFolder} fallback={
+          <button class="btn-primary toolbar-btn upload-btn" onClick={props.onUpload}>
+            <IconUpload size={14} /> {t("common.upload")}
+          </button>
+        }>
+          {(fn) => <UploadSplitButton onUpload={props.onUpload} onUploadFolder={fn()} />}
+        </Show>
         <ToolbarOverflow
           indexed={!!indexed()}
           encryptionEnabled={props.encryptionEnabled}
@@ -134,6 +141,7 @@ export function Toolbar(props: {
           onOpenEncryption={props.onOpenEncryption}
           onNewFolder={props.onNewFolder}
           onNewFile={props.onNewFile}
+          onUploadFolder={props.onUploadFolder}
         />
       </div>
 

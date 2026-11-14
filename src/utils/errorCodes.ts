@@ -35,6 +35,11 @@ export const ERROR_CODES = [
   "encryption_identity_missing",
   "decryption_failed",
   "archived",
+  "folder_too_many_files",
+  "folder_source_unavailable",
+  "folder_job_exists",
+  "folder_encryption_changed",
+  "source_changed",
   "io",
   "internal",
 ] as const;

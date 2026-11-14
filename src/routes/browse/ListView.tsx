@@ -6,7 +6,7 @@ import { isShownKey } from "../../state/settings";
 import { formatBytes, formatDate, basename } from "../../utils/fmt";
 import {
   FileIcon, fileTypeLabel,
-  IconBack, IconDownload, IconLink, IconTrash, IconBucket, IconMore, IconPlus, IconUpload,
+  IconBack, IconDownload, IconLink, IconTrash, IconBucket, IconMore, IconPlus, IconUpload, IconFolder,
 } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
@@ -37,6 +37,8 @@ export function ListView(props: {
   onCtxFolder: (e: MouseEvent, sub: string) => void;
   onNewFolder: () => void;
   onUpload: () => void;
+  /** Desktop only. */
+  onUploadFolder?: () => void;
   pendingFolders?: string[];
 }) {
   const listItems = createMemo<ListItem[]>(() => {
@@ -140,6 +142,13 @@ export function ListView(props: {
                 <button class="btn-primary" onClick={props.onUpload}>
                   <IconUpload size={14} /> {t("common.upload")}
                 </button>
+                <Show when={props.onUploadFolder}>
+                  {(fn) => (
+                    <button class="btn-secondary" onClick={fn()}>
+                      <IconFolder size={14} /> {t("folderUpload.entry.uploadFolder")}
+                    </button>
+                  )}
+                </Show>
               </div>
             </div>
           </Show>

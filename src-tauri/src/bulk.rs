@@ -1,4 +1,4 @@
-//! Folder-scoped bulk ops (recursive delete/upload/download) composing store/transfer
+//! Folder-scoped bulk ops (recursive delete/download) composing store/transfer
 //! primitives into single actions, with ProgressSink reporting and cancellation support.
 
 use std::path::{Path, PathBuf};
@@ -205,106 +205,6 @@ where
     res
 }
 
-/// Walk a local dir, enqueueing each file as an individual upload (subdirs joined onto
-/// `prefix`). Encrypted buckets are stamped once; each worker encrypts its own file.
-#[allow(clippy::too_many_arguments)]
-pub async fn upload_directory(
-    transfers: &crate::transfer::TransferManager,
-    db: &crate::db::Db,
-    db_path: &Path,
-    store: Arc<dyn ObjectStore>,
-    account_id: &str,
-    bucket: &str,
-    prefix: &str,
-    local_root: &Path,
-    external_sink_factory: impl Fn(&str) -> ProgressSink,
-    op_id: String,
-    op_sink: ProgressSink,
-    cancel: CancellationToken,
-) -> AppResult<BulkTransferResult> {
-    if !local_root.is_dir() {
-        return Err(AppError::InvalidInput(format!(
-            "not a directory: {}",
-            local_root.display()
-        )));
-    }
-    run_op(op_id, op_sink, async {
-        let mut out = BulkTransferResult::default();
-        let enc = crate::transfer::encrypt::encrypt_spec_for_bucket(db, db_path, account_id, bucket).await?;
-        let mut stack: Vec<PathBuf> = vec![local_root.to_path_buf()];
-
-        while let Some(dir) = stack.pop() {
-            if cancel.is_cancelled() {
-                out.canceled = true;
-                return Ok(out);
-            }
-            let mut entries = match tokio::fs::read_dir(&dir).await {
-                Ok(rd) => rd,
-                Err(e) if dir.as_path() != local_root => {
-                    out.errors.push(format!("{}: {e}", dir.display()));
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            };
-            loop {
-                let entry = match entries.next_entry().await {
-                    Ok(Some(entry)) => entry,
-                    Ok(None) => break,
-                    Err(e) => {
-                        out.errors.push(format!("{}: {e}", dir.display()));
-                        break;
-                    }
-                };
-                let path = entry.path();
-                let meta = match entry.metadata().await {
-                    Ok(m) => m,
-                    Err(e) => {
-                        out.errors.push(format!("{}: {e}", path.display()));
-                        continue;
-                    }
-                };
-                if meta.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if !meta.is_file() {
-                    out.skipped.push(path.to_string_lossy().to_string());
-                    continue;
-                }
-                let rel = path
-                    .strip_prefix(local_root)
-                    .map_err(|e| AppError::Internal(e.to_string()))?;
-                let key = join_key(prefix, rel);
-                if cancel.is_cancelled() {
-                    out.canceled = true;
-                    return Ok(out);
-                }
-
-                let mut opts = crate::store::PutOptions::default();
-                if let Some(spec) = &enc {
-                    crate::transfer::encrypt::stamp(&mut opts, spec);
-                }
-                let sink = external_sink_factory(&path.to_string_lossy());
-                let id = transfers
-                    .enqueue_upload(
-                        store.clone(),
-                        account_id.to_string(),
-                        bucket.to_string(),
-                        key,
-                        path,
-                        opts,
-                        sink,
-                        crate::db::transfers::TransferOrigin::User,
-                    )
-                    .await?;
-                out.enqueued.push(id);
-            }
-        }
-        Ok(out)
-    })
-    .await
-}
-
 /// Recursively LIST a remote prefix, enqueuing each object as a download into
 /// `local_root` (subpaths preserved). Mid-flight cancellable like the other bulk ops.
 #[allow(clippy::too_many_arguments)]
@@ -445,20 +345,4 @@ fn is_safe_relative_suffix(s: &str) -> bool {
         }
     }
     true
-}
-
-/// Compose `prefix + rel_path` into an S3 key. Always uses forward slashes
-/// even on Windows.
-fn join_key(prefix: &str, rel: &Path) -> String {
-    let rel_str: String = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/");
-    let cleaned_prefix = prefix.trim_end_matches('/');
-    if cleaned_prefix.is_empty() {
-        rel_str
-    } else {
-        format!("{cleaned_prefix}/{rel_str}")
-    }
 }

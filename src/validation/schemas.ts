@@ -83,6 +83,22 @@ export const uploadKeyPrefixSchema = z.string().max(1024, v("settings.validation
 
 export const reauthSecretSchema = secretAccessKeySchema;
 
+// S3 key limit, in UTF-8 bytes (not UTF-16 string length).
+export const KEY_MAX_BYTES = 1024;
+export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
+
+// Folder upload destination: leading "/" stripped, trailing "/" added, never trimmed.
+export const folderDestPrefixSchema = z
+  .string()
+  .transform((s) => {
+    const p = s.replace(/^\/+/, "");
+    return p === "" || p.endsWith("/") ? p : p + "/";
+  })
+  .refine((p) => !/[\u0000-\u001f\u007f]/.test(p), v("folderUpload.dest.controlChars"))
+  .refine((p) => p === "" || !p.slice(0, -1).split("/").includes(""), v("folderUpload.dest.emptySegment"))
+  .refine((p) => !p.split("/").some((seg) => seg === "." || seg === ".."), v("folderUpload.dest.dotSegment"))
+  .refine((p) => utf8Bytes(p) <= KEY_MAX_BYTES, v("folderUpload.dest.tooLong", { max: KEY_MAX_BYTES }));
+
 export const settingsPatchSchema = z.object({
   default_download_dir: z.string().nullable().optional(),
   transfer_concurrency: z.number().int().min(1).max(16).optional(),

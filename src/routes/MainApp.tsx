@@ -40,6 +40,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { Sidebar } from "./mainapp/Sidebar";
 import { MobileHeader } from "./mainapp/MobileHeader";
 import { ActiveTransfersBar } from "./mainapp/ActiveTransfersBar";
+import { FolderResumeBanner } from "./mainapp/FolderResumeBanner";
+import { watchFolderJobNotifications } from "./mainapp/folderJobNotify";
+import { useFolderCloseGuard } from "./mainapp/folderCloseGuard";
+import { startFolderJobsPoller, movingFolderJobs } from "../state/folderJobs";
 import { isMobile } from "../utils/breakpoint";
 import { Show } from "solid-js";
 import { t, type TKey } from "../i18n";
@@ -261,6 +265,13 @@ export default function MainApp() {
   void pollLoop();
   onCleanup(() => { disposed = true; clearTimeout(pollTimer); });
 
+  // Folder jobs (desktop only): notifications hook in before the shared poller's first load.
+  watchFolderJobNotifications();
+  startFolderJobsPoller();
+  useFolderCloseGuard();
+  // A folder job counts as one active item.
+  const sidebarCount = () => activeCount() + movingFolderJobs().length;
+
   // Prompt for notification permission on first launch rather than mid-transfer.
   if (IS_MOBILE_OS) ensureNotificationPermission();
 
@@ -313,7 +324,7 @@ export default function MainApp() {
             onCollapse={() => setCollapsed(true)}
             onExpand={() => setCollapsed(false)}
             activeAccount={activeAccount()}
-            activeCount={activeCount()}
+            activeCount={sidebarCount()}
           />
         }
       >
@@ -323,7 +334,7 @@ export default function MainApp() {
             onCollapse={closeDrawer}
             onExpand={() => openDrawer()}
             activeAccount={activeAccount()}
-            activeCount={activeCount()}
+            activeCount={sidebarCount()}
             mobileOpen={drawerOpen()}
             onCloseMobile={closeDrawer}
           />
@@ -360,6 +371,7 @@ export default function MainApp() {
             <Mcp />
           </div>
         </Show>
+        <FolderResumeBanner />
         <ActiveTransfersBar />
       </main>
     </div>
