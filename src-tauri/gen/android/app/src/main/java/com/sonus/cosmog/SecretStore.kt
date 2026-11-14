@@ -54,7 +54,8 @@ object SecretStore {
 
     @JvmStatic
     fun set(ctx: Context, key: String, value: String) {
-        prefs(ctx).edit().putString(key, value).apply()
+        // commit() so a failed disk write surfaces to Rust instead of being dropped.
+        check(prefs(ctx).edit().putString(key, value).commit()) { "SecretStore.set: commit failed" }
     }
 
     @JvmStatic
@@ -64,6 +65,6 @@ object SecretStore {
 
     @JvmStatic
     fun remove(ctx: Context, key: String) {
-        prefs(ctx).edit().remove(key).apply()
+        check(prefs(ctx).edit().remove(key).commit()) { "SecretStore.remove: commit failed" }
     }
 }

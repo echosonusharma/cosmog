@@ -40,6 +40,7 @@ pub struct KeyExport {
 /// Enables encryption: generates an X25519 identity, stores the secret in the
 /// keychain, records the recipient in DB. Rotation invalidates all prior objects.
 #[tauri::command]
+#[tracing::instrument(skip_all, err)]
 pub async fn enable_bucket_encryption(
     state: State<'_, AppState>,
     account_id: String,
@@ -93,6 +94,7 @@ pub async fn enable_bucket_encryption(
         .db
         .set_encryption_config(&account_id, &bucket, &public_recipient)
         .await?;
+    crate::night_watcher::rescan_bucket(&state.db, &account_id, &bucket).await;
 
     Ok(EnableResult {
         public_recipient,
@@ -103,6 +105,7 @@ pub async fn enable_bucket_encryption(
 /// Disables encryption: removes the keychain identity and DB config. Existing
 /// objects stay encrypted and become undecryptable without a re-imported identity.
 #[tauri::command]
+#[tracing::instrument(skip_all, err)]
 pub async fn disable_bucket_encryption(
     state: State<'_, AppState>,
     account_id: String,
@@ -118,7 +121,9 @@ pub async fn disable_bucket_encryption(
     .await
     .map_err(|e| AppError::Internal(e.to_string()))??;
 
-    state.db.delete_encryption_config(&account_id, &bucket).await
+    state.db.delete_encryption_config(&account_id, &bucket).await?;
+    crate::night_watcher::rescan_bucket(&state.db, &account_id, &bucket).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -167,9 +172,9 @@ pub async fn export_encryption_key(
     })
 }
 
-/// Writes the identity secret to `dest_path` as plain text compatible with
-/// `age -i`: the bech32 string plus newline, no JSON envelope.
+/// Writes the identity as an `age -i` keyfile to `dest_path` (a path, or a SAF `content://` URI on Android).
 #[tauri::command]
+#[tracing::instrument(skip_all, err)]
 pub async fn save_encryption_key_export(
     state: State<'_, AppState>,
     account_id: String,
@@ -177,75 +182,61 @@ pub async fn save_encryption_key_export(
     dest_path: String,
 ) -> AppResult<()> {
     let export = export_encryption_key(state, account_id, bucket).await?;
-    let mut body = String::new();
-    body.push_str("# cosmog per-bucket encryption identity (age X25519).\n");
-    body.push_str("# Anyone with this file can decrypt every object encrypted for the\n");
-    body.push_str("# matching recipient. Store it somewhere safe.\n");
-    body.push_str(&format!("# recipient: {}\n", export.public_recipient));
-    body.push_str(&format!("# decrypt example: {}\n", export.external_decrypt_cmd));
-    body.push_str(&export.secret_identity);
-    body.push('\n');
-    write_secret_file(&dest_path, &body).await?;
-    Ok(())
+    let secret = Zeroizing::new(export.secret_identity);
+    let body = Zeroizing::new(crypto::format_keyfile(&secret, &export.public_recipient));
+    if crate::saf::is_content_uri(&dest_path) {
+        let bytes = Zeroizing::new(body.as_bytes().to_vec());
+        if let Err(e) = crate::saf::write_saf_bytes(dest_path.clone(), bytes).await {
+            // Drop the placeholder the save dialog created so no empty key file is left behind.
+            let _ = crate::saf::delete_saf_document(dest_path).await;
+            return Err(AppError::Io(format!("write key file: {e}")));
+        }
+        return Ok(());
+    }
+    write_secret_file(&dest_path, &body).await
 }
 
-/// Imports a raw bech32 secret or full export file (comment lines skipped)
-/// into the keychain, verifying it matches the bucket's recorded recipient.
+/// Imports a raw bech32 secret or keyfile text (comments skipped); when the bucket
+/// has a recorded recipient only the matching identity is accepted.
 #[tauri::command]
+#[tracing::instrument(skip_all, err)]
 pub async fn import_encryption_identity(
     state: State<'_, AppState>,
     account_id: String,
     bucket: String,
     identity_text: String,
 ) -> AppResult<()> {
+    let identity_text = Zeroizing::new(identity_text);
     let lock = state.encryption_lock(&account_id, &bucket);
     let _guard = lock.lock().await;
 
-    let secret_line = identity_text
-        .lines()
-        .map(|l| l.trim())
-        .find(|l| !l.is_empty() && !l.starts_with('#') && l.starts_with("AGE-SECRET-KEY-"))
-        .ok_or_else(|| AppError::InvalidInput(
-            "no AGE-SECRET-KEY-... line found in the provided identity text".into(),
-        ))?;
-    let secret = Zeroizing::new(secret_line.to_string());
+    let cfg = state.db.get_encryption_config(&account_id, &bucket).await?;
+    let (secret, derived_recipient) =
+        crypto::select_identity(&identity_text, cfg.as_ref().map(|c| c.recipient.as_str()))?;
 
-    let identity = crypto::parse_identity(&secret)?;
-    let derived_recipient = identity.to_public().to_string();
-
-    // Refuse a mismatched identity: importing the wrong one would silently
-    // break every future upload to the recorded recipient.
-    match state.db.get_encryption_config(&account_id, &bucket).await? {
-        Some(cfg) if cfg.recipient != derived_recipient => {
-            return Err(AppError::InvalidInput(format!(
-                "identity does not match the recipient recorded for this bucket. \
-                 Expected recipient '{}', imported identity derives '{}'.",
-                cfg.recipient, derived_recipient,
-            )));
-        }
-        Some(_) => { /* match; nothing to update in DB */ }
-        None => {
-            state
-                .db
-                .set_encryption_config(&account_id, &bucket, &derived_recipient)
-                .await?;
-        }
-    }
-
+    // Keychain first: a failed write must not leave a DB recipient with no key behind it.
     tokio::task::spawn_blocking({
         let aid = account_id.clone();
         let bkt = bucket.clone();
-        let s: Zeroizing<String> = Zeroizing::new((*secret).clone());
-        move || secrets::set_enc_identity(&aid, &bkt, &s)
+        move || secrets::set_enc_identity(&aid, &bkt, &secret)
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))??;
+
+    if cfg.is_none() {
+        state
+            .db
+            .set_encryption_config(&account_id, &bucket, &derived_recipient)
+            .await?;
+        crate::night_watcher::rescan_bucket(&state.db, &account_id, &bucket).await;
+    }
     Ok(())
 }
 
-/// Reads an age identity file from disk and imports it; bounded to 64 KiB so
-/// a mis-picked huge binary can't OOM us.
+/// Reads an age identity file (path, or SAF `content://` URI on Android) and imports it;
+/// bounded to 64 KiB so a mis-picked huge binary can't OOM us.
 #[tauri::command]
+#[tracing::instrument(skip_all, err)]
 pub async fn import_encryption_identity_from_file(
     state: State<'_, AppState>,
     account_id: String,
@@ -253,20 +244,32 @@ pub async fn import_encryption_identity_from_file(
     src_path: String,
 ) -> AppResult<()> {
     const MAX_IDENTITY_FILE_BYTES: u64 = 64 * 1024;
-    let meta = tokio::fs::metadata(&src_path)
-        .await
-        .map_err(|e| AppError::InvalidInput(format!("open {src_path}: {e}")))?;
-    if meta.len() > MAX_IDENTITY_FILE_BYTES {
-        return Err(AppError::InvalidInput(format!(
-            "identity file too large ({} bytes, max {}). Wrong file?",
-            meta.len(),
-            MAX_IDENTITY_FILE_BYTES
-        )));
-    }
-    let text = tokio::fs::read_to_string(&src_path)
-        .await
-        .map_err(|e| AppError::InvalidInput(format!("read {src_path}: {e}")))?;
-    import_encryption_identity(state, account_id, bucket, text).await
+    let too_large = || {
+        AppError::InvalidInput(format!(
+            "identity file too large (max {MAX_IDENTITY_FILE_BYTES} bytes). Wrong file?"
+        ))
+    };
+    let bytes = if crate::saf::is_content_uri(&src_path) {
+        crate::saf::read_saf_bytes(src_path, MAX_IDENTITY_FILE_BYTES as usize)
+            .await
+            .map_err(|e| {
+                if e.starts_with("file larger") { too_large() } else { AppError::Io(format!("read key file: {e}")) }
+            })?
+    } else {
+        let meta = tokio::fs::metadata(&src_path)
+            .await
+            .map_err(|e| AppError::InvalidInput(format!("open {src_path}: {e}")))?;
+        if meta.len() > MAX_IDENTITY_FILE_BYTES {
+            return Err(too_large());
+        }
+        Zeroizing::new(
+            tokio::fs::read(&src_path)
+                .await
+                .map_err(|e| AppError::InvalidInput(format!("read {src_path}: {e}")))?,
+        )
+    };
+    let text = crypto::decode_keyfile(&bytes)?;
+    import_encryption_identity(state, account_id, bucket, (*text).clone()).await
 }
 
 /// Buckets of `account_id` with client-side encryption enabled (FE lock badges).

@@ -11,7 +11,8 @@ import {
 import { toast, errMsg } from "../../state/toast";
 import { confirmDialog } from "../../state/confirm";
 import { IconKey, IconChevronR, IconChevronD } from "../../utils/icons";
-import { pathFromDialog } from "./helpers";
+import { pathFromDialog, displayNameFromUri } from "./helpers";
+import { isAndroid } from "../../utils/platform";
 import { t } from "../../i18n";
 
 function CodeSnippet(props: { code: string }) {
@@ -120,8 +121,9 @@ export function EncryptionModal(props: {
     setExporting("writing");
     try {
       await saveEncryptionKeyExport(props.accountId, props.bucket, dest);
-      setSavedPath(dest);
-      toast.ok(t("bucketconfig.encryption.keySavedTitle"), t("bucketconfig.encryption.keySavedDetail", { bucket: props.bucket, path: dest }));
+      const shown = dest.startsWith("content://") ? displayNameFromUri(dest, `cosmog-key-${props.bucket}.txt`) : dest;
+      setSavedPath(shown);
+      toast.ok(t("bucketconfig.encryption.keySavedTitle"), t("bucketconfig.encryption.keySavedDetail", { bucket: props.bucket, path: shown }));
     } catch (e) { setErr(errMsg(e)); } finally { setExporting(false); }
   }
 
@@ -130,9 +132,10 @@ export function EncryptionModal(props: {
     setImporting("picking");
     let src: string | null;
     try {
+      // Android maps extensions to MIME types; key files with other types would be greyed out.
       const sel = await openDialog({
         multiple: false,
-        filters: [{ name: "age identity", extensions: ["txt", "key", "age"] }],
+        filters: isAndroid ? [] : [{ name: "age identity", extensions: ["txt", "key", "age"] }],
       });
       if (!sel) { setImporting(false); return; }
       src = pathFromDialog(sel as string);

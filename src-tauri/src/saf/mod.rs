@@ -7,7 +7,7 @@ mod tree;
 mod write;
 
 pub use picker::{nw_pick_tree, SafTree};
-pub use read::{hash_saf_document, stage_saf_upload, SafStagedUpload};
+pub use read::{hash_saf_document, read_saf_bytes, stage_saf_upload, SafStagedUpload};
 #[cfg(target_os = "android")]
 pub use service::nw_wakelock_idle;
 pub use service::{
@@ -15,7 +15,39 @@ pub use service::{
     set_nightwatch_boot_flag, set_nightwatch_service, set_transfer_service,
 };
 pub use tree::{collect_tree_files, release_tree_permission, SafEntry};
-pub use write::{delete_saf_document, finalize_saf_download};
+pub use write::{delete_saf_document, finalize_saf_download, write_saf_bytes};
+
+/// True for SAF `content://` URIs that std::fs cannot open.
+pub fn is_content_uri(s: &str) -> bool {
+    s.starts_with("content://")
+}
+
+/// `ContentResolver` plus parsed `android.net.Uri` for `uri`.
+#[cfg(target_os = "android")]
+fn resolver_and_uri<'a>(
+    env: &mut jni::JNIEnv<'a>,
+    context: &jni::objects::JObject,
+    uri: &str,
+) -> Result<(jni::objects::JObject<'a>, jni::objects::JObject<'a>), String> {
+    use jni::objects::{JObject, JValue};
+    let uri_jstr = env.new_string(uri).map_err(|e| jni_err(env, "new_string(uri)", e))?;
+    let uri_obj = env
+        .call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&JObject::from(uri_jstr))],
+        )
+        .map_err(|e| jni_err(env, "Uri.parse", e))?
+        .l()
+        .map_err(|e| format!("Uri.parse.l: {e}"))?;
+    let resolver = env
+        .call_method(context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+        .map_err(|e| jni_err(env, "getContentResolver", e))?
+        .l()
+        .map_err(|e| format!("getContentResolver.l: {e}"))?;
+    Ok((resolver, uri_obj))
+}
 
 #[cfg(target_os = "android")]
 fn jni_err(env: &mut jni::JNIEnv, what: &str, e: jni::errors::Error) -> String {

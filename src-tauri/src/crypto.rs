@@ -184,3 +184,84 @@ pub async fn decrypt_file(
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?
 }
+
+const SECRET_PREFIX: &str = "AGE-SECRET-KEY-";
+
+/// Keyfile body for `age -d -i`: `#` comment lines, then the secret and a newline.
+pub fn format_keyfile(secret: &str, recipient: &str) -> String {
+    format!(
+        "# cosmog per-bucket encryption identity (age X25519).\n\
+         # Anyone with this file can decrypt every object encrypted for the\n\
+         # matching recipient. Store it somewhere safe.\n\
+         # public key: {recipient}\n\
+         # decrypt example: age -d -i <this-file> <ciphertext> > <plaintext>\n\
+         {secret}\n"
+    )
+}
+
+/// Keyfile bytes to text: UTF-8 (BOM stripped) or UTF-16 with BOM (PowerShell redirects).
+pub fn decode_keyfile(bytes: &[u8]) -> AppResult<zeroize::Zeroizing<String>> {
+    let utf16 = |le: bool| -> AppResult<String> {
+        let units: zeroize::Zeroizing<Vec<u16>> = zeroize::Zeroizing::new(
+            bytes[2..]
+                .chunks_exact(2)
+                .map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) })
+                .collect(),
+        );
+        String::from_utf16(&units).map_err(|_| AppError::InvalidInput("identity file is not valid UTF-16".into()))
+    };
+    let text = match bytes {
+        [0xFF, 0xFE, ..] => utf16(true)?,
+        [0xFE, 0xFF, ..] => utf16(false)?,
+        _ => std::str::from_utf8(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes))
+            .map_err(|_| AppError::InvalidInput("identity file is not a text file".into()))?
+            .to_string(),
+    };
+    Ok(zeroize::Zeroizing::new(text))
+}
+
+/// Every `AGE-SECRET-KEY-...` token on non-comment lines, in file order.
+pub fn identity_candidates(text: &str) -> Vec<zeroize::Zeroizing<String>> {
+    text.lines()
+        .map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}'))
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.find(SECRET_PREFIX).map(|i| &l[i..]))
+        .map(|s| {
+            let end = s
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+                .unwrap_or(s.len());
+            zeroize::Zeroizing::new(s[..end].to_string())
+        })
+        .collect()
+}
+
+/// Picks the identity matching `expected` (or the first valid one) and returns it with its recipient.
+pub fn select_identity(
+    text: &str,
+    expected: Option<&str>,
+) -> AppResult<(zeroize::Zeroizing<String>, String)> {
+    let candidates = identity_candidates(text);
+    if candidates.is_empty() {
+        return Err(AppError::InvalidInput(
+            "no AGE-SECRET-KEY-... line found in the provided identity text".into(),
+        ));
+    }
+    let mut first_derived: Option<String> = None;
+    for secret in candidates {
+        let Ok(id) = parse_identity(&secret) else { continue };
+        let derived = id.to_public().to_string();
+        match expected {
+            Some(want) if want != derived => {
+                first_derived.get_or_insert(derived);
+            }
+            _ => return Ok((secret, derived)),
+        }
+    }
+    Err(AppError::InvalidInput(match (expected, first_derived) {
+        (Some(want), Some(got)) => format!(
+            "identity does not match the recipient recorded for this bucket. \
+             Expected recipient '{want}', imported identity derives '{got}'."
+        ),
+        _ => "AGE-SECRET-KEY-... line found but it is not a valid age identity".into(),
+    }))
+}

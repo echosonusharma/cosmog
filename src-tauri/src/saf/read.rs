@@ -158,6 +158,85 @@ pub async fn stage_saf_upload(_uri: String, _dest_dir: String) -> Result<SafStag
     Err("SAF stage is Android-only".into())
 }
 
+/// Reads a small SAF document into memory; errors once it exceeds `max` bytes.
+#[cfg(target_os = "android")]
+pub async fn read_saf_bytes(uri: String, max: usize) -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
+    tokio::task::spawn_blocking(move || -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
+        use jni::objects::{JObject, JValue};
+        use jni::JavaVM;
+
+        const CHUNK: usize = 16 * 1024;
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+        let (resolver, uri_obj) = super::resolver_and_uri(&mut env, &context, &uri)?;
+
+        let in_stream = env
+            .call_method(
+                &resolver,
+                "openInputStream",
+                "(Landroid/net/Uri;)Ljava/io/InputStream;",
+                &[JValue::Object(&uri_obj)],
+            )
+            .map_err(|e| jni_err(&mut env, "openInputStream", e))?
+            .l()
+            .map_err(|e| format!("openInputStream.l: {e}"))?;
+        if in_stream.is_null() {
+            return Err("openInputStream returned null".into());
+        }
+
+        let jbuf = env
+            .new_byte_array(CHUNK as i32)
+            .map_err(|e| jni_err(&mut env, "new_byte_array", e))?;
+        let mut out = zeroize::Zeroizing::new(Vec::new());
+        let mut chunk = zeroize::Zeroizing::new(vec![0i8; CHUNK]);
+        let mut result: Result<(), String> = Ok(());
+        loop {
+            let n = match env.call_method(&in_stream, "read", "([B)I", &[JValue::Object(&jbuf)]) {
+                Ok(v) => v.i().unwrap_or(-1),
+                Err(e) => {
+                    result = Err(jni_err(&mut env, "InputStream.read", e));
+                    break;
+                }
+            };
+            if n <= 0 {
+                break;
+            }
+            let n = n as usize;
+            if out.len() + n > max {
+                result = Err(format!("file larger than {max} bytes"));
+                break;
+            }
+            if let Err(e) = env.get_byte_array_region(&jbuf, 0, &mut chunk[..n]) {
+                result = Err(jni_err(&mut env, "get_byte_array_region", e));
+                break;
+            }
+            out.extend(chunk[..n].iter().map(|&b| b as u8));
+        }
+        let zeros = vec![0i8; CHUNK];
+        let _ = env.set_byte_array_region(&jbuf, 0, &zeros);
+        if let Err(e) = env.call_method(&in_stream, "close", "()V", &[]) {
+            let _ = jni_err(&mut env, "InputStream.close", e);
+        }
+        result.map(|_| out)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn read_saf_bytes(_uri: String, _max: usize) -> Result<zeroize::Zeroizing<Vec<u8>>, String> {
+    Err("SAF read is Android-only".into())
+}
+
 /// Query can throw (revoked grant): every error path clears via `jni_err` and returns None.
 #[cfg(target_os = "android")]
 fn query_display_name(

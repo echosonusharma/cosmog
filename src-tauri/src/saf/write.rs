@@ -150,6 +150,82 @@ pub async fn finalize_saf_download(_cache_path: String, _uri: String) -> Result<
     Err("SAF finalize is Android-only".into())
 }
 
+/// Writes a small in-memory buffer (e.g. a key file) to a SAF URI; never staged on disk.
+#[cfg(target_os = "android")]
+pub async fn write_saf_bytes(uri: String, bytes: zeroize::Zeroizing<Vec<u8>>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        use jni::objects::{JObject, JString, JValue};
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        if ctx.vm().is_null() || ctx.context().is_null() {
+            return Err("android context not initialized".into());
+        }
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("JavaVM::from_raw: {e}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e}"))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+        let (resolver, uri_obj) = super::resolver_and_uri(&mut env, &context, &uri)?;
+
+        // "wt" truncates a pre-existing file; fall back to "w" for providers that reject it.
+        let mut out_stream = JObject::null();
+        for mode in ["wt", "w"] {
+            let mode_jstr: JString = env
+                .new_string(mode)
+                .map_err(|e| jni_err(&mut env, "new_string(mode)", e))?;
+            match env.call_method(
+                &resolver,
+                "openOutputStream",
+                "(Landroid/net/Uri;Ljava/lang/String;)Ljava/io/OutputStream;",
+                &[JValue::Object(&uri_obj), JValue::Object(&JObject::from(mode_jstr))],
+            ) {
+                Ok(v) => {
+                    out_stream = v.l().map_err(|e| format!("openOutputStream.l: {e}"))?;
+                    break;
+                }
+                Err(e) => {
+                    let msg = jni_err(&mut env, "openOutputStream", e);
+                    if mode == "w" {
+                        return Err(msg);
+                    }
+                }
+            }
+        }
+        if out_stream.is_null() {
+            return Err("openOutputStream returned null".into());
+        }
+
+        let jbuf = env
+            .byte_array_from_slice(&bytes)
+            .map_err(|e| jni_err(&mut env, "byte_array_from_slice", e))?;
+        let mut result: Result<(), String> = env
+            .call_method(&out_stream, "write", "([B)V", &[JValue::Object(&jbuf)])
+            .map(|_| ())
+            .map_err(|e| jni_err(&mut env, "OutputStream.write", e));
+        // Scrub the JVM-side copy of the secret.
+        let zeros = vec![0i8; bytes.len()];
+        let _ = env.set_byte_array_region(&jbuf, 0, &zeros);
+        for what in ["flush", "close"] {
+            if let Err(e) = env.call_method(&out_stream, what, "()V", &[]) {
+                let msg = jni_err(&mut env, what, e);
+                if result.is_ok() {
+                    result = Err(msg);
+                }
+            }
+        }
+        result
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+#[cfg(not(target_os = "android"))]
+pub async fn write_saf_bytes(_uri: String, _bytes: zeroize::Zeroizing<Vec<u8>>) -> Result<(), String> {
+    Err("SAF write is Android-only".into())
+}
+
 /// Removes the 0-byte placeholder the save dialog pre-creates when a download is canceled or fails.
 #[cfg(target_os = "android")]
 pub async fn delete_saf_document(uri: String) -> Result<bool, String> {

@@ -86,3 +86,113 @@ async fn encrypt_file_streaming_roundtrip() {
     let decrypted = tokio::fs::read(pt.path()).await.unwrap();
     assert_eq!(decrypted, plaintext);
 }
+
+fn decrypt_with_keyfile_text(text: &str, ciphertext: &[u8], recipient: &str) -> Vec<u8> {
+    let (secret, derived) = crypto::select_identity(text, Some(recipient)).expect("select identity");
+    assert_eq!(derived, recipient);
+    let id = crypto::parse_identity(&secret).unwrap();
+    crypto::decrypt_bytes(&id, ciphertext).unwrap()
+}
+
+#[test]
+fn keyfile_export_import_roundtrip_decrypts_original_data() {
+    let (secret, public) = crypto::new_identity();
+    let ct = crypto::encrypt_bytes(&crypto::parse_recipient(&public).unwrap(), b"payload").unwrap();
+
+    let body = crypto::format_keyfile(&secret, &public);
+    assert!(body.ends_with(&format!("\n{secret}\n")), "secret must be the last line: {body:?}");
+    for line in body.lines().filter(|l| !l.starts_with("AGE-SECRET-KEY-")) {
+        assert!(line.starts_with('#'), "non-comment line would break `age -i`: {line:?}");
+    }
+    assert!(!body.contains('\r'));
+
+    let bytes = body.as_bytes().to_vec();
+    let text = crypto::decode_keyfile(&bytes).unwrap();
+    let (imported, derived) = crypto::select_identity(&text, Some(&public)).unwrap();
+    assert_eq!(*imported, secret);
+    assert_eq!(derived, public);
+    assert_eq!(decrypt_with_keyfile_text(&text, &ct, &public), b"payload");
+}
+
+#[test]
+fn keyfile_import_tolerates_crlf_bom_whitespace_and_age_keygen_comments() {
+    let (secret, public) = crypto::new_identity();
+    let ct = crypto::encrypt_bytes(&crypto::parse_recipient(&public).unwrap(), b"x").unwrap();
+    let variants = [
+        format!("# created: 2026-01-01T00:00:00Z\r\n# public key: {public}\r\n{secret}\r\n"),
+        format!("\u{feff}{secret}\n"),
+        format!("\n\n   {secret}   \t\n\n"),
+        format!("\"secret_identity\": \"{secret}\","),
+        secret.clone(),
+    ];
+    for v in &variants {
+        let text = crypto::decode_keyfile(v.as_bytes()).unwrap();
+        let (got, _) = crypto::select_identity(&text, Some(&public)).unwrap_or_else(|e| panic!("{v:?}: {e}"));
+        assert_eq!(*got, secret, "variant {v:?}");
+        assert_eq!(decrypt_with_keyfile_text(&text, &ct, &public), b"x");
+    }
+}
+
+#[test]
+fn keyfile_decode_handles_utf16_with_bom() {
+    let (secret, public) = crypto::new_identity();
+    let body = format!("# public key: {public}\r\n{secret}\r\n");
+    let mut le = vec![0xFF, 0xFE];
+    let mut be = vec![0xFE, 0xFF];
+    for u in body.encode_utf16() {
+        le.extend(u.to_le_bytes());
+        be.extend(u.to_be_bytes());
+    }
+    for bytes in [le, be] {
+        let text = crypto::decode_keyfile(&bytes).unwrap();
+        let (got, _) = crypto::select_identity(&text, Some(&public)).unwrap();
+        assert_eq!(*got, secret);
+    }
+    assert!(crypto::decode_keyfile(&[0x00, 0xC3, 0x28]).is_err(), "binary must be rejected");
+}
+
+#[test]
+fn keyfile_import_picks_matching_identity_and_rejects_mismatch() {
+    let (other, _) = crypto::new_identity();
+    let (secret, public) = crypto::new_identity();
+    // Commented-out key is ignored even if it would match.
+    let commented = format!("# {secret}\n{other}\n");
+    assert!(crypto::select_identity(&commented, Some(&public)).is_err());
+
+    let multi = format!("{other}\n{secret}\n");
+    let (got, derived) = crypto::select_identity(&multi, Some(&public)).unwrap();
+    assert_eq!(*got, secret);
+    assert_eq!(derived, public);
+
+    // No recorded recipient: first valid identity wins.
+    let (got, _) = crypto::select_identity(&multi, None).unwrap();
+    assert_eq!(*got, other);
+
+    let err = crypto::select_identity(&format!("{other}\n"), Some(&public)).unwrap_err().to_string();
+    assert!(err.contains(&public), "mismatch error should name expected recipient: {err}");
+    assert!(crypto::select_identity("# only comments\n", None).is_err());
+    assert!(crypto::select_identity("AGE-SECRET-KEY-1NOTVALID\n", None).is_err());
+}
+
+/// Verifies the exported keyfile against the real `age` CLI when it is on PATH.
+#[test]
+fn keyfile_is_accepted_by_age_cli() {
+    let Ok(out) = std::process::Command::new("age").arg("--version").output() else {
+        eprintln!("age CLI not installed; skipping");
+        return;
+    };
+    assert!(out.status.success());
+    let (secret, public) = crypto::new_identity();
+    let ct = crypto::encrypt_bytes(&crypto::parse_recipient(&public).unwrap(), b"hello age").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let key = dir.path().join("cosmog-key.txt");
+    let ct_path = dir.path().join("ct.age");
+    std::fs::write(&key, crypto::format_keyfile(&secret, &public)).unwrap();
+    std::fs::write(&ct_path, &ct).unwrap();
+    let out = std::process::Command::new("age")
+        .arg("-d").arg("-i").arg(&key).arg(&ct_path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "age stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(out.stdout, b"hello age");
+}

@@ -151,7 +151,14 @@ mod backend {
         })?;
         let cls_obj: &JObject = cls_ref.as_obj();
         let cls: &jni::objects::JClass = cls_obj.into();
-        let result = f(&mut env, &app, cls).map_err(|e| AppError::Keyring(format!("JNI: {e}")));
+        let result = f(&mut env, &app, cls).map_err(|e| {
+            // A pending Java exception would abort the next JNI call on this thread.
+            if env.exception_check().unwrap_or(false) {
+                let _ = env.exception_describe();
+                let _ = env.exception_clear();
+            }
+            AppError::Keyring(format!("JNI: {e}"))
+        });
         // SAFETY: do NOT drop `app` — the raw pointer backs a global ref owned by ndk_context;
         // dropping here would free a reference we don't own.
         std::mem::forget(app);
