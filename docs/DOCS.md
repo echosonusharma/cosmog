@@ -167,7 +167,7 @@ Desktop only (`cfg(not(target_os = "android"))`), off by default. Lets a local A
 
 ## Database
 
-SQLite at `{app_data_dir}/cosmog.sqlite`, WAL mode, foreign keys on. Tables: `accounts`, `transfers`, `bucket_index`, `cached_objects` (+ FTS5 trigram `cached_objects_fts`), `prefix_sync`, `settings`, `account_capabilities`, `bucket_capabilities`, `request_logs`, `bucket_encryption`, `nw_watch`, `nw_file_state`, `nw_file_retry`, `folder_upload_jobs`, `folder_upload_items`. `transfers.job_id` (migration 21) marks rows owned by a folder job. Domain methods live in `src-tauri/src/db/`.
+SQLite at `{app_data_dir}/cosmog.sqlite`, WAL mode, foreign keys on. Tables: `accounts`, `transfers`, `bucket_index`, `cached_objects` (+ FTS5 trigram `cached_objects_fts`), `prefix_sync`, `settings`, `account_capabilities`, `bucket_capabilities`, `request_logs`, `bucket_encryption`, `nw_watch`, `nw_file_state`, `nw_file_retry`, `folder_upload_jobs`, `folder_upload_items`, `folder_upload_counts`. `transfers.job_id` (migration 21) marks rows owned by a folder job. Domain methods live in `src-tauri/src/db/`.
 
 ## i18n
 

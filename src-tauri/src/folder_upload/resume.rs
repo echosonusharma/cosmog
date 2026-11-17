@@ -8,7 +8,7 @@ use super::engine::Run;
 use super::own::{owner, Owner};
 use super::walk::mtime_ms;
 use super::{control, set_state, FolderCtx};
-use crate::db::folder_upload::{ItemRow, ItemState, JobState};
+use crate::db::folder_upload::{ItemRow, ItemState, JobRow, JobState};
 use crate::db::transfers::{Transfer, TransferStatus};
 use crate::error::AppResult;
 use crate::store::ObjectStore;
@@ -47,12 +47,33 @@ pub(super) async fn purge_rows<C: FolderCtx>(ctx: &C, store: &Arc<dyn ObjectStor
     abort_and_delete(ctx, store, rows).await
 }
 
-/// Cancel of a job with no live transfers: pending and in-flight items end `canceled`.
+/// ETag when the bucket holds this job's write of the item's recorded version. A canceled or
+/// torn-down request may still have landed; only the bucket knows. None when unknown or absent.
+pub(super) async fn landed(store: &Arc<dyn ObjectStore>, job: &JobRow, item: &ItemRow) -> Option<Option<String>> {
+    let key = super::keys::object_key(&job.dest_prefix, &item.rel_path, false);
+    match store.head_object(&job.bucket, &key).await {
+        Ok(meta) if owner(&meta, &job.id, item) == (Owner::Ours { current: true }) => Some(meta.etag),
+        Ok(_) => None,
+        Err(e) => {
+            if !e.is_not_found() {
+                tracing::warn!(job = %job.id, "upload outcome check failed: {e}");
+            }
+            None
+        }
+    }
+}
+
+/// Cancel of a job with no live transfers: pending items end `canceled`; in-flight ones end
+/// `done` if their write landed, else `canceled`.
 pub(super) async fn cancel_cleanup<C: FolderCtx>(ctx: &C, store: &Arc<dyn ObjectStore>, job_id: &str) -> AppResult<()> {
     let db = ctx.db();
     db.fu_cancel_pending(job_id).await?;
+    let job = db.fu_get_job(job_id).await?;
     for it in db.fu_inflight(job_id).await? {
-        db.fu_item_finished(job_id, it.seq, ItemState::Canceled, None, None).await?;
+        match landed(store, &job, &it).await {
+            Some(etag) => db.fu_item_done(job_id, it.seq, etag).await?,
+            None => db.fu_item_finished(job_id, it.seq, ItemState::Canceled, None, None).await?,
+        }
     }
     purge_rows(ctx, store, job_id).await?;
     set_state(ctx, job_id, JobState::Canceled, None, None).await
@@ -98,6 +119,13 @@ pub(super) async fn reconcile<C: FolderCtx>(run: &mut Run<C>) -> AppResult<()> {
             ctx.db().delete_transfer_rows(vec![row.id]).await?;
             continue;
         }
+        // Torn down mid-request (quit, crash): the write may have landed; never send it twice.
+        if let Some(etag) = verified(run, &item).await {
+            run.dirty = true;
+            ctx.db().fu_item_done(&job_id, item.seq, etag).await?;
+            abort_and_delete(&ctx, &run.store, vec![row]).await?;
+            continue;
+        }
         let Some(local) = run.pre_drift(&item).await? else {
             abort_and_delete(&ctx, &run.store, vec![row]).await?;
             continue;
@@ -121,26 +149,19 @@ pub(super) async fn reconcile<C: FolderCtx>(run: &mut Run<C>) -> AppResult<()> {
 /// the bucket holds this job's upload of the current local version, else back to pending.
 async fn verify_uploaded<C: FolderCtx>(run: &mut Run<C>, item: &ItemRow) -> AppResult<()> {
     let db = run.ctx.db().clone();
-    let key = run.key(&item.rel_path, false);
-    let ours = match run.store.head_object(&run.job.bucket, &key).await {
-        Ok(meta) if owner(&meta, &run.job.id, item) == (Owner::Ours { current: true }) => Some(meta),
-        Ok(_) => None,
-        Err(e) if e.is_not_found() => None,
-        // Unknown for now: the conditional re-upload still detects our own object (412, tag).
-        Err(e) => {
-            tracing::warn!(job = %run.job.id, "verify after restart failed: {e}");
-            None
-        }
-    };
-    if let Some(meta) = ours {
-        let local = inspect(&run.abs(&item.rel_path), &run.canon_root).await;
-        let unchanged = matches!(&local, Inspect::File(m) if m.len() as i64 == item.size && mtime_ms(m) == item.mtime_ms);
-        if unchanged {
-            run.dirty = true;
-            return db.fu_item_done(&run.job.id, item.seq, meta.etag).await;
-        }
+    if let Some(etag) = verified(run, item).await {
+        run.dirty = true;
+        return db.fu_item_done(&run.job.id, item.seq, etag).await;
     }
     db.fu_item_retry_later(&run.job.id, item.seq, 0, None, false).await
+}
+
+/// `landed`, and the local file is still the version that was written.
+async fn verified<C: FolderCtx>(run: &Run<C>, item: &ItemRow) -> Option<Option<String>> {
+    let etag = landed(&run.store, &run.job, item).await?;
+    let local = inspect(&run.abs(&item.rel_path), &run.canon_root).await;
+    let unchanged = matches!(&local, Inspect::File(m) if m.len() as i64 == item.size && mtime_ms(m) == item.mtime_ms);
+    unchanged.then_some(etag)
 }
 
 /// Startup, after orphan reaping: drop unapproved jobs, prune history, sweep orphan rows, resume.

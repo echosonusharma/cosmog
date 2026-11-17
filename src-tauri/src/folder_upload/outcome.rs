@@ -79,6 +79,20 @@ impl<C: FolderCtx> Run<C> {
                 self.on_failure(seq, inf.attempts, &code, error, Some(&inf), parked).await
             }
             _ => {
+                // A request already sent may have landed before the stop reached it: the bucket decides.
+                let item = self.ctx.db().fu_get_item(&self.job.id, seq).await?;
+                if let Some(etag) = super::resume::landed(&self.store, &self.job, &item).await {
+                    match self.stopping {
+                        // Pause: done (or one re-upload if it changed), never left to be sent again.
+                        Stop::Pause => self.post_drift(seq, &inf, etag).await?,
+                        _ => {
+                            self.dirty = true;
+                            self.ctx.db().fu_item_done(&self.job.id, seq, etag).await?;
+                        }
+                    }
+                    let row = self.ctx.db().get_transfer(&tid).await.ok();
+                    return self.drop_rows(row.into_iter().collect()).await;
+                }
                 // Pause keeps the paused row and its parts; anything else ends the item.
                 if self.stopping == Stop::Pause {
                     return Ok(());

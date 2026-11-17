@@ -28,6 +28,8 @@ pub struct MemStore {
     /// key -> (user metadata, etag)
     pub meta: Mutex<HashMap<String, (HashMap<String, String>, String)>>,
     pub delay: Mutex<Duration>,
+    /// Single PUT: wait after the write lands before answering; a cancel then loses the response.
+    pub post_commit_delay: Mutex<Duration>,
     /// Error code every PUT, part, HEAD and head_bucket fails with while set.
     pub fail: Mutex<Option<&'static str>>,
     /// Error code every part fails with while set (head_bucket stays fine).
@@ -285,6 +287,12 @@ impl ObjectStore for MemStore {
         let body = Self::read(&source, &opts, None).await?;
         let etag = self.commit_cond(key, body, opts.user_metadata.clone(), opts.if_none_match.is_some()).await?;
         ctx.progress.emit(TransferEvent::Progress { transfer_id: ctx.transfer_id.clone(), bytes_done: total, bytes_total: Some(total) });
+        let wait = *self.post_commit_delay.lock().unwrap();
+        tokio::select! {
+            // The object exists, but the caller gave up before the response arrived.
+            _ = ctx.cancel.cancelled() => return Err(AppError::Canceled("mem: response not received".into())),
+            _ = tokio::time::sleep(wait) => {}
+        }
         Ok(UploadResult { etag: Some(etag), upload_id: None })
     }
 

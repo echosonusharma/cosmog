@@ -530,7 +530,6 @@ const MIGRATIONS: &[Migration] = &[
                 remote_existing       INTEGER NOT NULL DEFAULT 0,
                 remote_existing_bytes INTEGER NOT NULL DEFAULT 0,
                 remote_versioning     TEXT,
-                remote_gen            INTEGER NOT NULL DEFAULT 0,
                 error                 TEXT,
                 created_at            INTEGER NOT NULL,
                 approved_at           INTEGER,
@@ -562,7 +561,6 @@ const MIGRATIONS: &[Migration] = &[
                 transfer_id     TEXT,
                 drift           TEXT,
                 error           TEXT,
-                done_etag       TEXT,
                 updated_at      INTEGER NOT NULL,
                 PRIMARY KEY (job_id, seq),
                 FOREIGN KEY(job_id) REFERENCES folder_upload_jobs(id) ON DELETE CASCADE
@@ -571,6 +569,17 @@ const MIGRATIONS: &[Migration] = &[
                 ON folder_upload_items(job_id, rel_path) WHERE state != 'excluded';
             CREATE INDEX IF NOT EXISTS idx_fui_state
                 ON folder_upload_items(job_id, state, next_attempt_at, seq);
+
+            ALTER TABLE transfers ADD COLUMN job_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_transfers_job ON transfers(job_id);
+        "#,
+    },
+    Migration {
+        version: 22,
+        // Folder upload: check generation, own-object ETag, ordered index, trigger-kept counts.
+        sql: r#"
+            ALTER TABLE folder_upload_jobs ADD COLUMN remote_gen INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE folder_upload_items ADD COLUMN done_etag TEXT;
             CREATE INDEX IF NOT EXISTS idx_fui_order
                 ON folder_upload_items(job_id, state, seq);
 
@@ -615,8 +624,12 @@ const MIGRATIONS: &[Migration] = &[
                 ON CONFLICT (job_id, state, kind, reason, drift, late) DO UPDATE SET n = n + 1, bytes = bytes + excluded.bytes;
             END;
 
-            ALTER TABLE transfers ADD COLUMN job_id TEXT;
-            CREATE INDEX IF NOT EXISTS idx_transfers_job ON transfers(job_id);
+            -- Seed counts for items that predate the triggers.
+            INSERT INTO folder_upload_counts (job_id, state, kind, reason, drift, late, n, bytes)
+            SELECT job_id, state, kind, COALESCE(exclude_reason, ''), drift IS NOT NULL,
+                   state = 'skipped_exists' AND remote_exists = 0, COUNT(*), SUM(size)
+            FROM folder_upload_items
+            GROUP BY 1, 2, 3, 4, 5, 6;
         "#,
     },
 ];

@@ -575,7 +575,7 @@ async fn reaping_marks_job_rows_failed() {
 }
 
 #[tokio::test]
-async fn version_20_database_migrates_to_21() {
+async fn version_20_database_migrates_to_latest() {
     let (db, td) = common::tmp_db().await;
     let acct = seed_account(&db).await;
     db.insert_transfer(transfer("old", &acct, None)).await.unwrap();
@@ -583,9 +583,9 @@ async fn version_20_database_migrates_to_21() {
     db.conn
         .call(|c| {
             c.execute_batch(
-                "DROP TABLE folder_upload_items; DROP TABLE folder_upload_jobs;
+                "DROP TABLE folder_upload_counts; DROP TABLE folder_upload_items; DROP TABLE folder_upload_jobs;
                  DROP INDEX idx_transfers_job; ALTER TABLE transfers DROP COLUMN job_id;
-                 DELETE FROM schema_migrations WHERE version = 21;",
+                 DELETE FROM schema_migrations WHERE version >= 21;",
             )?;
             Ok::<_, tokio_rusqlite::Error>(())
         })
@@ -600,13 +600,46 @@ async fn version_20_database_migrates_to_21() {
         .call(|c| Ok::<_, tokio_rusqlite::Error>(c.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))?))
         .await
         .unwrap();
-    assert_eq!(max, 21);
+    assert_eq!(max, 22);
     let old = db.get_transfer("old").await.unwrap();
     assert_eq!(old.job_id, None);
     assert_eq!(db.list_transfers(None).await.unwrap().len(), 1);
     seed_job(&db, &acct, "j", "").await;
     db.fu_insert_items("j", vec![file(0, "a", 1)]).await.unwrap();
     assert_eq!(db.fu_counts("j").await.unwrap().pending, 1);
+}
+
+// A database that applied the first cut of migration 21 gains the later columns and seeded counts.
+#[tokio::test]
+async fn version_21_database_migrates_to_22() {
+    let (db, td) = common::tmp_db().await;
+    let acct = seed_account(&db).await;
+    seed_job(&db, &acct, "j", "").await;
+    db.fu_insert_items("j", vec![file(0, "a", 3), file(1, "b", 4)]).await.unwrap();
+    // Roll the file back to the v21 schema, keeping its rows.
+    db.conn
+        .call(|c| {
+            c.execute_batch(
+                "DROP TRIGGER fuc_ins; DROP TRIGGER fuc_del; DROP TRIGGER fuc_upd;
+                 DROP TABLE folder_upload_counts; DROP INDEX idx_fui_order;
+                 ALTER TABLE folder_upload_jobs DROP COLUMN remote_gen;
+                 ALTER TABLE folder_upload_items DROP COLUMN done_etag;
+                 DELETE FROM schema_migrations WHERE version = 22;",
+            )?;
+            Ok::<_, tokio_rusqlite::Error>(())
+        })
+        .await
+        .unwrap();
+    let path = td.path().join("test.sqlite");
+    drop(db);
+
+    let db = Db::open(&path).await.unwrap();
+    assert_eq!(db.fu_list_jobs().await.unwrap().len(), 1);
+    assert_eq!(db.fu_get_job("j").await.unwrap().id, "j");
+    assert_eq!(db.fu_counts("j").await.unwrap().pending, 2, "counts seeded from existing items");
+    db.fu_insert_items("j", vec![file(2, "c", 5)]).await.unwrap();
+    assert_eq!(db.fu_counts("j").await.unwrap().pending, 3, "triggers live after the migration");
+    assert_eq!(db.fu_list_items("j", ItemFilter::All, 0, 10).await.unwrap().1, 3);
 }
 
 /// M3: the destination is frozen once approved, and approval needs a finished check of the current destination.
