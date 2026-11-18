@@ -24,6 +24,8 @@ export default {
   "common.refresh": "Обновить",
   "common.copy": "Копировать",
   "common.copied": "Скопировано",
+  "common.showSecret": "Показать ключ",
+  "common.hideSecret": "Скрыть ключ",
   "common.rename": "Переименовать",
   "common.edit": "Изменить",
   "common.create": "Создать",

@@ -24,6 +24,8 @@ export default {
   "common.refresh": "Actualizar",
   "common.copy": "Copiar",
   "common.copied": "Copiado",
+  "common.showSecret": "Mostrar clave",
+  "common.hideSecret": "Ocultar clave",
   "common.rename": "Renombrar",
   "common.edit": "Editar",
   "common.create": "Crear",

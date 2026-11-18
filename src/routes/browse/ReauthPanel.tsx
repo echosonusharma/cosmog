@@ -3,6 +3,7 @@ import { updateAccount, testAccount } from "../../api/accounts";
 import { bumpAccountsRefresh, bumpBucketsRefresh } from "../../state/app";
 import { toast } from "../../state/toast";
 import { t } from "../../i18n";
+import { SecretInput } from "../../utils/SecretInput";
 import { parseSchema, reauthSecretSchema } from "../../validation";
 
 // Re-enter a missing secret without a full re-setup.
@@ -40,12 +41,9 @@ export function ReauthPanel(props: { accountId: string; accountName: string; onD
       <p class="err-popup-msg">
         {t("browse.reauth.body", { name: props.accountName })}
       </p>
-      <input
-        class="field"
+      <SecretInput
         classList={{ "field-error": !!error() }}
-        type="password"
         placeholder={t("browse.reauth.placeholder")}
-        autocomplete="off"
         value={secret()}
         disabled={busy()}
         onInput={(e) => { setSecret(e.currentTarget.value); setError(""); }}

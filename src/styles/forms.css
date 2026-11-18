@@ -96,3 +96,26 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
+/* ── secret input (show/hide) ───────────────────────────────────────────── */
+
+.secret-input { position: relative; }
+.secret-input .secret-input-field { padding-right: 40px; }
+.secret-input-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.secret-input-toggle:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.secret-input-toggle:focus-visible { outline: 1px solid var(--accent); }
+.secret-input-toggle:disabled { opacity: 0.45; cursor: not-allowed; }

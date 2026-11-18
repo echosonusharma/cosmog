@@ -8,6 +8,7 @@ import { t } from "../../i18n";
 import { bumpBucketsRefresh, bumpAccountsRefresh } from "../../state/app";
 import { PROVIDERS, PICKABLE_PROVIDERS, type ProviderDef, detectProvider } from "../../providers";
 import { regionFromEndpoint } from "../../utils/regionFromEndpoint";
+import { SecretInput } from "../../utils/SecretInput";
 import {
   accountNameMaxLength,
   clampAccountName,
@@ -210,10 +211,8 @@ export function AddAccountForm(props: { onDone: () => void; onCancel: () => void
           <Show when={errors().access_key_id}><div class="field-hint">{errors().access_key_id}</div></Show>
         </div>
         <div>
-          <input
-            class="field"
+          <SecretInput
             classList={{ "field-error": !!errors().secret_access_key }}
-            type="password"
             placeholder={isEdit() ? t("settings.account.secretKeep") : t("onboarding.field.secretAccessKey")}
             value={form().secret_access_key}
             onInput={(e) => set("secret_access_key", e.currentTarget.value.trim())}

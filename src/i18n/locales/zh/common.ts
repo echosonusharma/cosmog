@@ -24,6 +24,8 @@ export default {
   "common.refresh": "刷新",
   "common.copy": "复制",
   "common.copied": "已复制",
+  "common.showSecret": "显示密钥",
+  "common.hideSecret": "隐藏密钥",
   "common.rename": "重命名",
   "common.edit": "编辑",
   "common.create": "创建",

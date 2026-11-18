@@ -11,7 +11,7 @@
 </div>
 
 > [!NOTE]
-> **Cosmog is in active development.** Features change often and you may hit bugs, so keep your own backups of critical data.
+> **Cosmog is in active development.** Features change often and you may hit bugs. For important buckets, turn on versioning and keep your encryption keys somewhere safe.
 > Found a problem? [Open an issue](https://github.com/echosonusharma/cosmog/issues) and we'll fix it.
 
 <div align="center">

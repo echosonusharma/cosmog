@@ -24,6 +24,8 @@ export default {
   "common.refresh": "새로 고침",
   "common.copy": "복사",
   "common.copied": "복사됨",
+  "common.showSecret": "시크릿 표시",
+  "common.hideSecret": "시크릿 숨기기",
   "common.rename": "이름 바꾸기",
   "common.edit": "편집",
   "common.create": "만들기",

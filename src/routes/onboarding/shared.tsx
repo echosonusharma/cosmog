@@ -2,6 +2,7 @@ import { Show, For } from "solid-js";
 import { type ProviderDef } from "../../providers";
 import { t, type TKey } from "../../i18n";
 import { IconCheck } from "../../utils/icons";
+import { SecretInput } from "../../utils/SecretInput";
 
 export type Step = "provider" | "account-setup";
 
@@ -68,16 +69,30 @@ export function LabeledField(props: {
           <span class="field-optional">{t("onboarding.field.optional")}</span>
         </Show>
       </div>
-      <input
-        class="field"
-        classList={{ "field-error": !!props.error }}
-        type={props.type ?? "text"}
-        placeholder={props.placeholder}
-        value={props.value}
-        disabled={props.disabled}
-        maxlength={props.maxLength}
-        onInput={(e) => props.onInput(e.currentTarget.value)}
-      />
+      <Show
+        when={props.type === "password"}
+        fallback={
+          <input
+            class="field"
+            classList={{ "field-error": !!props.error }}
+            type={props.type ?? "text"}
+            placeholder={props.placeholder}
+            value={props.value}
+            disabled={props.disabled}
+            maxlength={props.maxLength}
+            onInput={(e) => props.onInput(e.currentTarget.value)}
+          />
+        }
+      >
+        <SecretInput
+          classList={{ "field-error": !!props.error }}
+          placeholder={props.placeholder}
+          value={props.value}
+          disabled={props.disabled}
+          maxlength={props.maxLength}
+          onInput={(e) => props.onInput(e.currentTarget.value)}
+        />
+      </Show>
       <Show when={props.error}>
         <div class="field-hint">{props.error}</div>
       </Show>

@@ -24,6 +24,8 @@ export default {
   "common.refresh": "更新",
   "common.copy": "コピー",
   "common.copied": "コピーしました",
+  "common.showSecret": "シークレットを表示",
+  "common.hideSecret": "シークレットを隠す",
   "common.rename": "名前を変更",
   "common.edit": "編集",
   "common.create": "作成",

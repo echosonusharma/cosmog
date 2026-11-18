@@ -378,6 +378,8 @@
     justify-content: center;
   }
   .icon-btn svg { display: block; }
+  .secret-input-toggle { width: 36px; height: 36px; min-height: 36px; right: 4px; }
+  .secret-input .secret-input-field { padding-right: 44px; }
 
   .num-field { height: 42px; }
   .num-field-btn { width: 40px; }
