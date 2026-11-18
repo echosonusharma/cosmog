@@ -11,8 +11,9 @@ import { formatBytes, formatRelative, basename } from "../../utils/fmt";
 import { IconFolder, IconPause, IconPlay, IconRefresh, IconX } from "../../utils/icons";
 import { language, t, tp, type TKey } from "../../i18n";
 import type { FolderJob } from "../../types";
-import { badgeClass, canRetryFailed, filesDone, jobName, jobPct, jobReason, needsEncryptionConfirm } from "./folderJobHelpers";
+import { badgeClass, canRetryFailed, filesDone, jobName, jobPct, jobSourceTitle, jobReason, needsEncryptionConfirm } from "./folderJobHelpers";
 import { FolderJobDetails, FolderJobFinal } from "./FolderJobDetails";
+import { needsRepick, repickAndResume } from "./repickSource";
 
 async function act(fn: () => Promise<unknown>) {
   try { await fn(); } catch (e) { toast.err(e); }
@@ -26,6 +27,10 @@ export function FolderJobRow(props: { job: FolderJob }) {
   const moving = () => j().state === "running" || j().state === "queued";
 
   async function resume() {
+    if (needsRepick(j())) {
+      try { await repickAndResume(j()); } catch (e) { toast.err(e); }
+      return;
+    }
     // The backend treats this resume as the user's confirmation.
     if (needsEncryptionConfirm(j())) {
       const ok = await confirmDialog({
@@ -59,7 +64,7 @@ export function FolderJobRow(props: { job: FolderJob }) {
       <span class="transfer-dir upload"><IconFolder size={16} /></span>
       <div class="transfer-info">
         <div class="transfer-line-1">
-          <span class="transfer-filename" title={j().source_root}>{jobName(j())}</span>
+          <span class="transfer-filename" title={jobSourceTitle(j())}>{jobName(j())}</span>
           <span class={`transfer-action-badge ${badgeClass(j())}`}>{t(`folderUpload.job.state.${j().state}` as TKey)}</span>
           <div class="transfer-btns">
             <Show when={moving()}>

@@ -1,4 +1,4 @@
-//! Desktop folder upload: analyze a local tree, check the destination, then upload exactly the
+//! Folder upload (desktop paths, Android SAF trees): analyze a local tree, check the destination, then upload exactly the
 //! approved manifest through a bounded window of job-owned transfers, resumable across restarts.
 
 mod analysis;
@@ -13,8 +13,10 @@ mod policy;
 mod remote;
 mod resume;
 mod runtime;
+mod source;
 mod view;
 mod walk;
+mod walk_saf;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -34,6 +36,7 @@ pub use control::{
 pub use remote::{check_remote, FolderRemoteCheck, FolderRemoteEvent};
 pub use resume::{resume_all, startup};
 pub use runtime::FolderJobs;
+pub use source::{pick_done, pick_started, release_pick, release_tree_if_unused, tree_in_use};
 pub use view::{get_analysis, get_job, list_items, list_jobs, FolderItem, FolderItemPage, FolderJob};
 
 /// Hard cap on walked entries per job.

@@ -288,7 +288,7 @@ export type FolderJobState =
 export type FolderItemState =
   | "pending" | "uploading" | "done" | "skipped_exists" | "skipped_missing" | "failed" | "canceled" | "excluded";
 export type ExcludeReason =
-  | "symlink" | "special" | "unreadable" | "unreadable_dir" | "non_utf8" | "control_chars" | "key_too_long" | "file_too_large";
+  | "symlink" | "special" | "unreadable" | "unreadable_dir" | "non_utf8" | "control_chars" | "key_too_long" | "file_too_large" | "invalid_name";
 export type OverwritePolicy = "skip" | "overwrite";
 export type FolderItemFilter = "all" | "existing" | "excluded" | "failed" | "skipped" | "drift" | "hidden";
 export type LocalPathKind = "file" | "dir" | "other" | "missing";
@@ -361,6 +361,8 @@ export interface FolderJob {
   account_id: string;
   bucket: string;
   source_root: string;
+  /** Folder name for display; source_root may be a content:// URI on Android. */
+  display_name?: string;
   dest_prefix: string;
   state: FolderJobState;
   waiting: "network" | "rate_limited" | null;

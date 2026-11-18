@@ -10,7 +10,7 @@ use crate::db::folder_upload::{Drift, ExcludeReason, ItemKind, ItemRow, ItemStat
 use crate::db::transfers::{Transfer, TransferStatus};
 use crate::error::AppResult;
 use crate::store::PutOptions;
-use crate::transfer::source_guard::{file_id, inspect, FileId, Inspect};
+use crate::transfer::source_guard::{file_id, FileId, Inspect};
 use crate::transfer::SourceGuard;
 
 /// Current local version of an item, as checked just before enqueue.
@@ -57,7 +57,7 @@ impl<C: FolderCtx> Run<C> {
 
     /// Source check before upload: gone, now a link/special/outside the folder, or changed.
     pub(super) async fn pre_drift(&mut self, item: &ItemRow) -> AppResult<Option<Local>> {
-        let m = match inspect(&self.abs(&item.rel_path), &self.canon_root).await {
+        let m = match self.inspect_src(&self.src(item)).await {
             Inspect::Missing => {
                 self.finish(item.seq, ItemState::SkippedMissing, None).await?;
                 return Ok(None);
@@ -82,13 +82,16 @@ impl<C: FolderCtx> Run<C> {
         };
         let (size, mtime) = (m.len() as i64, mtime_ms(&m));
         let mut drift = item.drift;
-        let changed = size != item.size || mtime != item.mtime_ms;
+        let rule = super::source::stat_rule(&self.job);
+        let changed = !super::source::same_version(rule, (item.size, item.mtime_ms), (size, mtime));
         if changed {
             let d = if item.drift == Some(Drift::ChangedDuringUpload) { Drift::ChangedDuringUpload } else { Drift::Changed };
             self.ctx.db().fu_item_drift(&self.job.id, item.seq, size, mtime, d).await?;
             drift = Some(d);
         }
-        Ok(Some(Local { size, mtime_ms: mtime, drift, id: file_id(&m), changed }))
+        // Unchanged keeps the recorded stat, so the ownership tag matches the item row.
+        let mtime_ms = if changed { mtime } else { item.mtime_ms };
+        Ok(Some(Local { size, mtime_ms, drift, id: file_id(&m), changed }))
     }
 
     async fn start_file(&mut self, item: ItemRow) -> AppResult<()> {
@@ -129,7 +132,10 @@ impl<C: FolderCtx> Run<C> {
             opts.if_none_match = Some("*".into());
         }
         opts.user_metadata.insert(TAG_KEY.into(), tag(&self.job.id, item.seq, local.size, local.mtime_ms));
-        opts.source_guard = Some(SourceGuard { root: self.canon_root.clone(), id: local.id });
+        // SAF has no inode identity or links to guard against; each open is a fresh fd.
+        if !super::source::is_saf(&self.job) {
+            opts.source_guard = Some(SourceGuard { root: self.canon_root.clone(), id: local.id });
+        }
         if let Some(spec) = &self.enc {
             crate::transfer::encrypt::stamp(&mut opts, spec);
         }
@@ -141,7 +147,7 @@ impl<C: FolderCtx> Run<C> {
                 self.job.account_id.clone(),
                 self.job.bucket.clone(),
                 key,
-                self.abs(&item.rel_path),
+                self.src(&item),
                 opts,
                 self.sink(item.seq),
                 self.job.id.clone(),
@@ -203,6 +209,7 @@ impl<C: FolderCtx> Run<C> {
         let inf = Inflight {
             transfer_id: tid,
             rel_path: item.rel_path.clone(),
+            source: self.src(item),
             bytes_done: 0,
             bytes_total: Some(local.size as u64),
             size: local.size,

@@ -18,7 +18,7 @@ export function foldKinds(byExt: ExtStat[]): KindStat[] {
 }
 
 export const EXCLUDE_REASONS: ExcludeReason[] = [
-  "symlink", "special", "unreadable", "unreadable_dir", "non_utf8", "control_chars", "key_too_long", "file_too_large",
+  "symlink", "special", "unreadable", "unreadable_dir", "non_utf8", "control_chars", "key_too_long", "file_too_large", "invalid_name",
 ];
 
 export const excludedTotal = (c: Record<ExcludeReason, number>) =>

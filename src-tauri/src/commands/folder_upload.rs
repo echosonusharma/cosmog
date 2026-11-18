@@ -1,11 +1,11 @@
-//! Folder upload commands (desktop UI; they compile everywhere). Thin shells over `folder_upload`.
+//! Folder upload commands (desktop paths and Android SAF trees). Thin shells over `folder_upload`.
 
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::db::folder_upload::{ItemFilter, OverwritePolicy};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::folder_upload::{
     self as fu, FolderAnalysis, FolderAnalyzeEvent, FolderItemPage, FolderJob, FolderRemoteCheck,
     FolderRemoteEvent,
@@ -37,6 +37,33 @@ pub async fn local_path_kinds(paths: Vec<String>) -> AppResult<Vec<LocalPathKind
         });
     }
     Ok(out)
+}
+
+/// Android SAF tree pick for folder upload: `{ uri, display_name }`, uri normalized (pass it
+/// as `local_root`). Dismiss rejects with `canceled`; desktop always errors.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn fu_pick_tree() -> AppResult<crate::saf::SafTree> {
+    // Blocks grant releases from the moment the picker opens until the tree is pending.
+    let _active = crate::saf::PickActive::new();
+    let t = crate::saf::fu_pick_tree().await.map_err(|e| {
+        if e == "canceled" {
+            AppError::Canceled("tree pick canceled".into())
+        } else {
+            AppError::Internal(e)
+        }
+    })?;
+    // Protects the fresh grant from a release until analyze creates the job.
+    fu::pick_started(&t.uri);
+    Ok(t)
+}
+
+/// A picked tree that will not be used (re-pick of a different folder): drop its grant if unused.
+#[tracing::instrument(skip_all, err)]
+#[tauri::command]
+pub async fn fu_release_pick(state: State<'_, AppState>, uri: String) -> AppResult<()> {
+    fu::release_pick(&*state, &uri).await;
+    Ok(())
 }
 
 #[tracing::instrument(skip_all, err)]

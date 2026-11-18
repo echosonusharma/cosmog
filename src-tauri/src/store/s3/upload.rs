@@ -10,6 +10,7 @@ use super::util::{canceled, s3_err, ProgressThrottle};
 use super::{classify_aws, S3Store};
 use crate::error::{AppError, AppResult};
 use crate::store::{CannedAcl, ObjectStore, PutOptions, Sse};
+use crate::transfer::local_source;
 use crate::transfer::source_guard::open_checked;
 use crate::transfer::{CompletedPart as SavedPart, ResumeState, SourceGuard, TransferCtx, TransferEvent, UploadResult};
 
@@ -447,6 +448,8 @@ async fn source_body(source: &Path, guard: Option<&SourceGuard>, part: Option<(u
     let mut b = ByteStream::read_from();
     b = match guard {
         Some(g) => b.file(open_checked(source, g).await?),
+        // SAF documents have no path std can open: stream a fresh fd per body.
+        None if local_source::is_saf(source) => b.file(local_source::open_app(source).await?),
         None => b.path(source),
     };
     if let Some((offset, len)) = part {

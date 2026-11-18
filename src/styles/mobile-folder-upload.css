@@ -1,0 +1,61 @@
+/* mobile: folder upload modal, split button, bar item, job rows. */
+@media (max-width: 768px) {
+  .fu-source { overflow-wrap: anywhere; }
+  .fu-dest-meta { flex-wrap: wrap; row-gap: 2px; }
+  .fu-dir-row { grid-template-columns: 1fr 64px 60px; }
+  .fu-list-scroll { height: 40dvh; }
+
+  /* the approve label is long: full-width row above Cancel */
+  .fu-actions { flex-wrap: wrap; gap: 8px; }
+  .modal .fu-actions .fu-approve { flex: 1 1 100%; order: -1; min-width: 0; white-space: normal; }
+
+  /* bottom bar: drop the destination, let stats wrap */
+  .fu-bar-dest { display: none; }
+  .active-xfer-item-line-2:has(.fu-bar-current) { flex-wrap: wrap; row-gap: 2px; }
+  .fu-bar-current { flex: 1 1 100%; margin-left: 0; text-align: left; }
+  .fu-bar-btn { width: 32px; height: 32px; min-height: 32px; }
+
+  /* transfers page */
+  .fu-job-actions { flex-wrap: wrap; }
+  .fu-expanders .chip { width: auto; flex: 1 1 auto; padding: 6px 10px; }
+}
+
+/* mobile upload sheet (only rendered on phones) */
+.upload-sheet-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+}
+.upload-sheet {
+  width: 100%;
+  background: var(--panel);
+  border-top: 1px solid var(--border-2);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 6px;
+  animation: sheet-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.upload-sheet-grip {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--border-2);
+  align-self: center; margin-bottom: 6px;
+}
+.upload-sheet-title { font-size: 15px; font-weight: 600; padding: 2px 4px 6px; }
+.upload-sheet-item {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 12px; text-align: left;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  font: inherit; cursor: pointer;
+}
+.upload-sheet-item:active { background: var(--bg-active); }
+.upload-sheet-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.upload-sheet-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.upload-sheet-label { font-size: 15px; font-weight: 500; }
+.upload-sheet-desc { font-size: 12.5px; color: var(--text-muted); }
+.upload-sheet-cancel { margin-top: 6px; width: 100%; justify-content: center; text-align: center; }

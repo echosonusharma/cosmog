@@ -13,7 +13,7 @@ use super::{ResumeState, SourceStat, TransferCtx};
 const MAX_ATTEMPTS: u32 = 3;
 
 async fn stat_source(path: &Path) -> Option<SourceStat> {
-    let m = tokio::fs::metadata(path).await.ok()?;
+    let m = super::local_source::metadata(path).await.ok()?;
     Some(SourceStat {
         len: m.len(),
         mtime_secs: m

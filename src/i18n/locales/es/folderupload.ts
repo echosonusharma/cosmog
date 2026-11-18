@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "Subir carpeta",
   "folderUpload.entry.uploadFolderHere": "Subir carpeta aquí",
   "folderUpload.entry.more": "Más opciones de subida",
+  "folderUpload.sheet.files": "Archivos",
+  "folderUpload.sheet.filesDesc": "Elige uno o más archivos",
+  "folderUpload.sheet.folder": "Carpeta",
+  "folderUpload.sheet.folderDesc": "Sube una carpeta con todo su contenido",
   "folderUpload.entry.pickTitle": "Elige una carpeta para subir",
+
+  "folderUpload.source.internalStorage": "Almacenamiento interno",
+  "folderUpload.android.pickHintTitle": "Elige una subcarpeta",
+  "folderUpload.android.pickHint": "Android no permite compartir la raíz del almacenamiento, la carpeta Download ni Android/data. Elige una carpeta dentro de ellas.",
+  "folderUpload.android.pickAgain": "Android ya no tiene acceso a esta carpeta. Toca Reanudar y vuelve a elegir la misma carpeta.",
+  "folderUpload.android.pickFolderAgain": "Android ya no tiene acceso a esta carpeta. Vuelve a elegir la carpeta para subirla.",
+  "folderUpload.android.wrongFolder": "Esa es otra carpeta. Elige la carpeta desde la que empezó esta subida.",
+  "folderUpload.android.accessRestored": "Acceso a la carpeta restaurado. La subida continúa.",
 
   "folderUpload.drop.overlay": "Suelta archivos o una carpeta para subirlos",
   "folderUpload.drop.oneFolderTitle": "Suelta una sola carpeta a la vez",
@@ -86,6 +98,7 @@ export default {
   "folderUpload.excluded.control_chars": "El nombre contiene caracteres de control",
   "folderUpload.excluded.key_too_long": "Clave de más de 1024 bytes",
   "folderUpload.excluded.file_too_large": "Archivo de más de 5 TB",
+  "folderUpload.excluded.invalid_name": "Nombre no permitido (vacío, solo puntos, con barra o duplicado)",
   "folderUpload.excluded.linkTarget": "Enlace simbólico a {target} (nunca se sigue)",
 
   "folderUpload.overwrite.checking": "Buscando objetos existentes en el destino…",

@@ -83,10 +83,13 @@ pub async fn nw_add_watch(
                 key_prefix: key_prefix.unwrap_or_default(),
                 ignore_file,
                 full_scan_secs,
-                tree_uri,
+                tree_uri: tree_uri.clone(),
             },
         )
         .await?;
+    if let Some(u) = &tree_uri {
+        crate::folder_upload::pick_done(u);
+    }
 
     let watch = state
         .db
@@ -102,13 +105,17 @@ pub async fn nw_add_watch(
 #[tracing::instrument(skip_all, err)]
 #[tauri::command]
 pub async fn nw_pick_tree(_state: State<'_, AppState>) -> AppResult<crate::saf::SafTree> {
-    crate::saf::nw_pick_tree().await.map_err(|e| {
+    // Pending until nw_add_watch stores it, so no folder upload release drops the fresh grant.
+    let _active = crate::saf::PickActive::new();
+    let t = crate::saf::nw_pick_tree().await.map_err(|e| {
         if e == "canceled" {
             AppError::Canceled("tree pick canceled".into())
         } else {
             AppError::Internal(e)
         }
-    })
+    })?;
+    crate::folder_upload::pick_started(&t.uri);
+    Ok(t)
 }
 
 /// Mirror enabled-watch presence onto the Android NightWatchService (foreground service +
@@ -171,18 +178,9 @@ pub async fn nw_delete_watch(state: State<'_, AppState>, id: String) -> AppResul
     let tree_uri = state.db.get_watch(&id).await?.and_then(|w| w.tree_uri);
     crate::night_watcher::cancel_uploads(&state.transfers, Some(&id));
     state.db.delete_watch(&id).await?;
+    // Kept while another watch or an unfinished SAF folder upload reads the same tree.
     if let Some(uri) = tree_uri {
-        let shared = state
-            .db
-            .list_watches()
-            .await?
-            .iter()
-            .any(|w| w.tree_uri.as_deref() == Some(uri.as_str()));
-        if !shared {
-            if let Err(e) = crate::saf::release_tree_permission(uri).await {
-                tracing::warn!("release tree permission failed: {e}");
-            }
-        }
+        crate::folder_upload::release_tree_if_unused(&state.db, &uri).await;
     }
     nw_refresh_service(&state).await;
     Ok(())

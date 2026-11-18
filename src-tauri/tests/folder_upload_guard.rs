@@ -262,3 +262,34 @@ async fn startup_keeps_this_runs_analysis_and_errors_hide_paths() {
     assert_eq!(e.detail(), "gone-folder");
     assert!(!e.to_wire_string().contains("secret-parent"));
 }
+
+/// Cancel holds the scheduler lock while it waits for the walk to stop; the walk's error path
+/// must signal idle before it takes that lock (it once deadlocked every later control call).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancel_during_analysis_never_deadlocks() {
+    let mem = MemStore::new();
+    let (ctx, _db, acct) = make_ctx(mem.clone(), 2).await;
+    let src = tempfile::tempdir().unwrap();
+    for i in 0..50 {
+        write(src.path(), &format!("d{i}/f"), b"x");
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let tx = Mutex::new(tx);
+    let (ctx2, acct2, root) = (ctx.clone(), acct.clone(), src.path().to_str().unwrap().to_string());
+    let analysis = tokio::spawn(async move {
+        fu::analyze(&ctx2, &acct2, "b", &root, "", move |ev| {
+            if let fu::FolderAnalyzeEvent::Started { job_id } = ev {
+                let _ = tx.lock().unwrap().send(job_id);
+                // Holds the walk back until cancel owns the scheduler lock.
+                std::thread::sleep(Duration::from_millis(300));
+            }
+        })
+        .await
+    });
+    let id = tokio::task::spawn_blocking(move || rx.recv().unwrap()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), fu::cancel(&ctx, &id)).await.expect("cancel deadlocked").unwrap();
+    let res = tokio::time::timeout(Duration::from_secs(10), analysis).await.expect("analyze hung").unwrap();
+    assert_eq!(res.unwrap_err().code(), "canceled");
+    assert!(ctx.db.fu_get_job(&id).await.is_err(), "the discarded job is gone");
+    tokio::time::timeout(Duration::from_secs(5), fu::kick(&ctx)).await.expect("scheduler lock leaked");
+}

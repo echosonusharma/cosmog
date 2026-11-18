@@ -2,11 +2,11 @@ import { createMemo, createRoot, createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { listen } from "@tauri-apps/api/event";
 import { folderUploadListJobs } from "../api/folderUpload";
-import { isDesktopShell } from "../utils/platform";
+import { folderUploadPlatform } from "../utils/platform";
 import { notifyLanded } from "./landed";
 import type { FolderJob, FolderJobChangedEvent, FolderJobState } from "../types";
 
-// One shared poller + event listener for folder upload jobs (desktop only).
+// One shared poller + event listener for folder upload jobs (desktop and Android).
 const RUNNING_POLL_MS = 1000;
 const IDLE_POLL_MS = 5000;
 
@@ -17,7 +17,7 @@ export const isJobMoving = (j: FolderJob) => j.state === "running" || j.state ==
 
 const [jobs, setJobs] = createStore<FolderJob[]>([]);
 const [loaded, setLoaded] = createSignal(false);
-const [supported, setSupported] = createSignal(isDesktopShell);
+const [supported, setSupported] = createSignal(folderUploadPlatform);
 
 export { jobs as folderJobs, loaded as folderJobsLoaded, supported as folderUploadSupported };
 
@@ -76,7 +76,7 @@ export async function refreshFolderJobs(): Promise<void> {
 let started = false;
 /** Idempotent; called once by MainApp. */
 export function startFolderJobsPoller() {
-  if (started || !isDesktopShell) return;
+  if (started || !folderUploadPlatform) return;
   started = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const loop = async () => {

@@ -12,7 +12,7 @@ use crate::db::folder_upload::{ItemRow, ItemState, JobRow, JobState};
 use crate::db::transfers::{Transfer, TransferStatus};
 use crate::error::AppResult;
 use crate::store::ObjectStore;
-use crate::transfer::source_guard::{inspect, Inspect};
+use crate::transfer::source_guard::Inspect;
 
 const KEEP_FINISHED: i64 = 50;
 const FINISHED_TTL_SECS: i64 = 30 * 86_400;
@@ -159,8 +159,9 @@ async fn verify_uploaded<C: FolderCtx>(run: &mut Run<C>, item: &ItemRow) -> AppR
 /// `landed`, and the local file is still the version that was written.
 async fn verified<C: FolderCtx>(run: &Run<C>, item: &ItemRow) -> Option<Option<String>> {
     let etag = landed(&run.store, &run.job, item).await?;
-    let local = inspect(&run.abs(&item.rel_path), &run.canon_root).await;
-    let unchanged = matches!(&local, Inspect::File(m) if m.len() as i64 == item.size && mtime_ms(m) == item.mtime_ms);
+    let local = run.inspect_src(&run.src(item)).await;
+    let rule = super::source::stat_rule(&run.job);
+    let unchanged = matches!(&local, Inspect::File(m) if super::source::same_version(rule, (item.size, item.mtime_ms), (m.len() as i64, mtime_ms(m))));
     unchanged.then_some(etag)
 }
 
@@ -182,6 +183,9 @@ pub async fn startup<C: FolderCtx>(ctx: &C) {
     if let Err(e) = db.fu_prune_finished(KEEP_FINISHED, cutoff).await {
         tracing::warn!("folder upload prune failed: {e}");
     }
+    // After cleanup and prune: persisted grants nothing holds go (abandoned picks, a release
+    // the app died before).
+    super::source::sweep_grants(db).await;
     if let Err(e) = sweep_orphans(ctx).await {
         tracing::warn!("folder upload orphan sweep failed: {e}");
     }

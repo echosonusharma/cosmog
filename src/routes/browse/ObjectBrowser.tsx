@@ -35,9 +35,11 @@ import { ContextMenu, type CtxMenu } from "./ContextMenu";
 import { ListView } from "./ListView";
 import Spinner from "../../utils/Spinner";
 import { t, tp } from "../../i18n";
-import { isDesktopShell } from "../../utils/platform";
+import { folderUploadPlatform, isDesktopShell } from "../../utils/platform";
 import { FolderUploadModal } from "./folderUpload/FolderUploadModal";
 import { pickFolder } from "./folderUpload/pickFolder";
+import { resumeRepicked } from "../transfers/repickSource";
+import { sourceDisplayName } from "../../utils/sourceName";
 import { useDesktopDrop } from "./folderUpload/useDesktopDrop";
 
 export function ObjectBrowser(props: {
@@ -265,15 +267,18 @@ export function ObjectBrowser(props: {
   const [dragOver, setDragOver] = createSignal(false);
   const [pendingDrop, setPendingDrop] = createSignal<string[]>([]);
   const [pendingFolders, setPendingFolders] = createSignal<string[]>([]);
-  // Desktop folder upload: local root + target prefix of the open modal.
-  const [folderUpload, setFolderUpload] = createSignal<{ root: string; prefix: string } | null>(null);
+  // Folder upload: local root (path or SAF tree URI), its display name, target prefix.
+  const [folderUpload, setFolderUpload] = createSignal<{ root: string; name: string; prefix: string } | null>(null);
   async function startFolderUpload(prefix: string) {
     try {
-      const root = await pickFolder();
-      if (root) setFolderUpload({ root, prefix });
+      const picked = await pickFolder();
+      if (!picked) return;
+      // Android: picking a folder a paused job lost access to restores it; resume instead of a new upload.
+      if ((await resumeRepicked(picked.root)).length) return;
+      setFolderUpload({ ...picked, prefix });
     } catch (e) { toast.err(e); }
   }
-  const uploadFolder = isDesktopShell ? (prefix: string) => void startFolderUpload(prefix) : undefined;
+  const uploadFolder = folderUploadPlatform ? (prefix: string) => void startFolderUpload(prefix) : undefined;
 
   // Android back: unwind this browser's own overlays (most-modal first) before
   // the shell handles view/prefix navigation; selection clears last.
@@ -483,7 +488,7 @@ export function ObjectBrowser(props: {
     area: () => browserEl,
     enabled: () => currentView() === "browse" && showUpload() === false && !folderUpload(),
     onOver: setDragOver,
-    onFolder: (root) => setFolderUpload({ root, prefix: props.prefix }),
+    onFolder: (root) => setFolderUpload({ root, name: sourceDisplayName(root), prefix: props.prefix }),
     onFiles: (paths) => { setPendingDrop(paths); setShowUpload(props.prefix); },
   });
   function onDragOver(e: DragEvent) {
@@ -772,7 +777,7 @@ export function ObjectBrowser(props: {
 
       <Show when={folderUpload()} keyed>
         {(fu) => <FolderUploadModal accountId={props.accountId} bucket={props.bucket}
-                                    localRoot={fu.root} prefix={fu.prefix}
+                                    localRoot={fu.root} name={fu.name} prefix={fu.prefix}
                                     encrypted={(encStatus.latest ?? encStatus())?.enabled ?? false}
                                     onClose={() => { setFolderUpload(null); setRefresh((n) => n + 1); }} />}
       </Show>

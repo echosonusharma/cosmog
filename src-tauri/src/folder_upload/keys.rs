@@ -66,12 +66,25 @@ pub fn windows_unsafe(name: &str) -> bool {
         || name.ends_with(' ')
 }
 
-/// Local path of a '/'-joined rel path under `root`, using the OS separator.
-/// Last component of a local root: errors (and their logs) never carry the full path.
+/// Last component of a local root (folder name of a SAF tree): errors and logs never carry the full path.
 pub fn root_name(root: &str) -> String {
+    if crate::saf::is_content_uri(root) {
+        let name = crate::saf::uri::tree_display_name(root);
+        // Errors and logs are not localized; the UI localizes `display_name` itself.
+        return if name.is_empty() { "internal storage".into() } else { name };
+    }
     Path::new(root).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.to_string())
 }
 
+/// UI name: like `root_name`, but "" for the internal storage root so the UI can localize it.
+pub fn display_name(root: &str) -> String {
+    if crate::saf::is_content_uri(root) {
+        return crate::saf::uri::tree_display_name(root);
+    }
+    root_name(root)
+}
+
+/// Local path of a '/'-joined rel path under `root`, using the OS separator.
 pub fn abs_path(root: &Path, rel: &str) -> PathBuf {
     rel.split('/').fold(root.to_path_buf(), |p, c| p.join(c))
 }
@@ -123,6 +136,17 @@ mod tests {
         assert!(key_too_long("d/", &rel, false));
         let rel = "é".repeat(511) + "x";
         assert!(!key_too_long("", &rel, false), "1023 bytes");
+    }
+
+    #[test]
+    fn root_name_never_shows_the_full_source() {
+        assert_eq!(root_name("/home/u/Photos"), "Photos");
+        let uri = "content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera";
+        assert_eq!(root_name(uri), "Camera");
+        let storage = "content://com.android.externalstorage.documents/tree/primary%3A";
+        assert_eq!(root_name(storage), "internal storage", "errors never get an empty name");
+        assert_eq!(display_name(storage), "", "the UI localizes it");
+        assert_eq!(display_name("/home/u/Photos"), "Photos");
     }
 
     #[test]

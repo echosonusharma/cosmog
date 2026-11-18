@@ -29,3 +29,6 @@ export const isTauri = "__TAURI_INTERNALS__" in window;
 // Undecorated desktop window: the HTML titlebar is the only way to move or close it.
 export const isDesktopShell = isTauri && !isAndroid;
 document.documentElement.classList.toggle("desktop-shell", isDesktopShell);
+
+// Folder upload: native picker on desktop, SAF tree picker on Android. Drag-drop stays desktop only.
+export const folderUploadPlatform = isDesktopShell || (isTauri && isAndroid);

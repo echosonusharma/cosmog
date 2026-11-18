@@ -2,6 +2,7 @@
 //! and per-transfer [`TransferCtx`] threaded through ObjectStore put/get.
 
 pub mod encrypt;
+pub mod local_source;
 pub mod manager;
 mod semaphore;
 mod sink;

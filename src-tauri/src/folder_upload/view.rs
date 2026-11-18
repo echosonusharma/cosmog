@@ -38,7 +38,11 @@ pub struct FolderJob {
     pub id: String,
     pub account_id: String,
     pub bucket: String,
+    /// "path" or "saf" (`source_root` is then a tree URI).
+    pub source_kind: String,
     pub source_root: String,
+    /// Folder name to show: path basename or SAF tree folder name.
+    pub display_name: String,
     pub dest_prefix: String,
     pub state: JobState,
     pub waiting: Option<&'static str>,
@@ -113,6 +117,8 @@ async fn build<C: FolderCtx>(ctx: &C, row: JobRow) -> AppResult<FolderJob> {
         id: row.id,
         account_id: row.account_id,
         bucket: row.bucket,
+        display_name: super::keys::display_name(&row.source_root),
+        source_kind: row.source_kind,
         source_root: row.source_root,
         dest_prefix: row.dest_prefix,
         state: row.state,

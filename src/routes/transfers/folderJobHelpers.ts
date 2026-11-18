@@ -1,10 +1,19 @@
-import { basename } from "../../utils/fmt";
+import { isAndroid } from "../../utils/platform";
+import { isContentUri, sourceDisplayName } from "../../utils/sourceName";
 import { describeError, errCode } from "../../utils/errors";
 import { isKnownCode } from "../../utils/errorCodes";
 import { t, type TKey } from "../../i18n";
 import type { FolderJob } from "../../types";
 
-export const jobName = (j: FolderJob) => basename(j.source_root) || j.source_root;
+export const jobName = (j: FolderJob) => j.display_name || sourceDisplayName(j.source_root);
+/** Tooltip: full path on desktop, folder name for a SAF tree URI. */
+export const jobSourceTitle = (j: FolderJob) => (isContentUri(j.source_root) ? jobName(j) : j.source_root);
+
+/** Android: the folder grant is gone. A job resumes via Resume + re-pick; a new upload just re-picks. */
+export const sourceGoneHint = (raw: unknown, forJob = false): string =>
+  isAndroid && errCode(raw) === "folder_source_unavailable"
+    ? t(forJob ? "folderUpload.android.pickAgain" : "folderUpload.android.pickFolderAgain")
+    : "";
 /** Uploaded files; `counts.done` excludes folder markers, so it lines up with total_files. */
 export const filesDone = (j: FolderJob) => Math.max(0, j.counts.done ?? 0);
 
@@ -29,7 +38,7 @@ export function jobReason(j: FolderJob): JobReason | null {
   if (!isKnownCode(code)) return { title: t("folderUpload.job.pause.generic") };
   // pause_reason is a plain code; `error` holds the wire JSON with any detail.
   const d = describeError(errCode(j.error) === code ? j.error : { code, detail: "" });
-  return { title: t("folderUpload.job.pause.error", { reason: d.title }), desc: d.desc };
+  return { title: t("folderUpload.job.pause.error", { reason: d.title }), desc: sourceGoneHint({ code, detail: "" }, true) || d.desc };
 }
 
 export const needsEncryptionConfirm = (j: FolderJob) =>

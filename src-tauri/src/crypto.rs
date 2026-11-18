@@ -102,9 +102,14 @@ pub async fn encrypt_file_cancellable(
     recipient: x25519::Recipient,
     cancel: tokio_util::sync::CancellationToken,
 ) -> AppResult<()> {
-    let f_in = tokio::fs::File::open(src)
+    use crate::transfer::local_source;
+    let f_in = local_source::open(src)
         .await
-        .map_err(|e| AppError::Internal(format!("open {}: {e}", src.display())))?
+        .map_err(|e| match e.kind() {
+            // Lost SAF grant: pauses a folder job instead of failing the file.
+            std::io::ErrorKind::PermissionDenied if local_source::is_saf(src) => local_source::app_err(src, e),
+            _ => AppError::Internal(format!("open {}: {e}", src.display())),
+        })?
         .into_std()
         .await;
     encrypt_open_file_cancellable(f_in, dst, recipient, cancel).await

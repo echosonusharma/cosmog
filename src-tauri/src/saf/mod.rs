@@ -1,20 +1,24 @@
 //! JNI: a Java exception stays PENDING after Err and further JNI calls abort, so every fallible call clears it via `jni_err`.
 
+mod fd;
 mod picker;
 mod read;
 mod service;
 mod tree;
+pub mod uri;
+pub mod walk;
 mod write;
 
-pub use picker::{nw_pick_tree, SafTree};
+pub use fd::open_saf_fd;
+pub use picker::{fu_pick_tree, nw_pick_tree, pick_in_progress, PickActive, SafTree};
 pub use read::{hash_saf_document, read_saf_bytes, stage_saf_upload, SafStagedUpload};
 #[cfg(target_os = "android")]
 pub use service::nw_wakelock_idle;
 pub use service::{
     nw_can_schedule_exact_alarms, nw_request_exact_alarms, nw_wakelock_heartbeat,
-    set_nightwatch_boot_flag, set_nightwatch_service, set_transfer_service,
+    apply_transfer_service_holds, set_folder_service_hold, set_nightwatch_boot_flag, set_nightwatch_service, set_transfer_service,
 };
-pub use tree::{collect_tree_files, release_tree_permission, SafEntry};
+pub use tree::{collect_tree_files, persisted_tree_uris, release_tree_permission, SafEntry};
 pub use write::{delete_saf_document, finalize_saf_download, write_saf_bytes};
 
 /// True for SAF `content://` URIs that std::fs cannot open.

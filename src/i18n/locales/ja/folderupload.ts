@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "フォルダをアップロード",
   "folderUpload.entry.uploadFolderHere": "ここにフォルダをアップロード",
   "folderUpload.entry.more": "その他のアップロード方法",
+  "folderUpload.sheet.files": "ファイル",
+  "folderUpload.sheet.filesDesc": "1つ以上のファイルを選択",
+  "folderUpload.sheet.folder": "フォルダ",
+  "folderUpload.sheet.folderDesc": "フォルダを中身ごとアップロード",
   "folderUpload.entry.pickTitle": "アップロードするフォルダを選択",
+
+  "folderUpload.source.internalStorage": "内部ストレージ",
+  "folderUpload.android.pickHintTitle": "サブフォルダを選択してください",
+  "folderUpload.android.pickHint": "Android ではストレージのルート、Download フォルダ自体、Android/data は共有できません。その中のフォルダを選択してください。",
+  "folderUpload.android.pickAgain": "Android からこのフォルダにアクセスできなくなりました。「再開」をタップして同じフォルダを選び直してください。",
+  "folderUpload.android.pickFolderAgain": "Android からこのフォルダにアクセスできなくなりました。アップロードするにはフォルダを選び直してください。",
+  "folderUpload.android.wrongFolder": "別のフォルダです。このアップロードを開始したフォルダを選んでください。",
+  "folderUpload.android.accessRestored": "フォルダへのアクセスが戻りました。アップロードを続けます。",
 
   "folderUpload.drop.overlay": "ファイルまたはフォルダ 1 つをドロップしてアップロード",
   "folderUpload.drop.oneFolderTitle": "フォルダは 1 つずつドロップしてください",
@@ -78,6 +90,7 @@ export default {
   "folderUpload.excluded.control_chars": "名前に制御文字が含まれています",
   "folderUpload.excluded.key_too_long": "キーが 1024 バイトを超えています",
   "folderUpload.excluded.file_too_large": "ファイルが 5 TB を超えています",
+  "folderUpload.excluded.invalid_name": "使用できない名前 (空、ドットのみ、スラッシュを含む、または重複)",
   "folderUpload.excluded.linkTarget": "{target} へのシンボリックリンク（リンク先はたどりません）",
 
   "folderUpload.overwrite.checking": "アップロード先の既存オブジェクトを確認中…",

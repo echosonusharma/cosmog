@@ -15,10 +15,57 @@ fn nw_picker_class() -> Result<&'static jni::objects::GlobalRef, String> {
         .ok_or_else(|| "NwTreePicker class not cached (initNwClasses not called)".to_string())
 }
 
+/// Picks under way: a grant taken by the picker has no owner yet, so no release may run.
+static ACTIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn pick_in_progress() -> bool {
+    ACTIVE.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
+/// Held by a pick command until its tree is registered as pending.
+pub struct PickActive(());
+
+impl PickActive {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        ACTIVE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        PickActive(())
+    }
+}
+
+impl Drop for PickActive {
+    fn drop(&mut self) {
+        ACTIVE.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// NwTreePicker holds one pick's state: Night Watcher and folder upload picks queue here.
+static PICK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn nw_pick_tree() -> Result<SafTree, String> {
+    let _g = PICK_LOCK.lock().await;
+    pick_tree().await
+}
+
+/// Folder upload pick: the URI comes back normalized (the job's `source_root` form).
+pub async fn fu_pick_tree() -> Result<SafTree, String> {
+    let t = {
+        let _g = PICK_LOCK.lock().await;
+        pick_tree().await?
+    };
+    let Some(uri) = super::uri::normalize_tree_uri(&t.uri) else {
+        // Unusable here, but the picker already persisted it.
+        let _ = super::release_tree_permission(t.uri.clone()).await;
+        return Err(format!("not a folder tree: {}", t.uri));
+    };
+    let display_name = if t.display_name.is_empty() { super::uri::tree_display_name(&uri) } else { t.display_name };
+    Ok(SafTree { uri, display_name })
+}
+
 /// Kotlin poll() contract: null while pending, `"<treeUri>\n<name>"` (split on first '\n'),
 /// `"__NW_CANCELED__"`, or `"__NW_ERROR__<msg>"`.
 #[cfg(target_os = "android")]
-pub async fn nw_pick_tree() -> Result<SafTree, String> {
+async fn pick_tree() -> Result<SafTree, String> {
     tokio::task::spawn_blocking(move || -> Result<SafTree, String> {
         use jni::JavaVM;
 
@@ -93,6 +140,6 @@ pub async fn nw_pick_tree() -> Result<SafTree, String> {
 }
 
 #[cfg(not(target_os = "android"))]
-pub async fn nw_pick_tree() -> Result<SafTree, String> {
+async fn pick_tree() -> Result<SafTree, String> {
     Err("tree pick is Android-only".into())
 }

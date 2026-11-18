@@ -23,7 +23,8 @@ pub fn classify(code: &str) -> Class {
         "network_unreachable" | "dns_failure" | "connection_refused" | "request_timeout" => Class::Network,
         "rate_limited" | "service_unavailable" | "s3" => Class::Throttle,
         "access_denied" | "credentials_invalid" | "credentials_missing" | "access_key_invalid" | "token_expired"
-        | "clock_skew" | "quota_exceeded" | "bucket_not_found" | "invalid_region" | "tls_error" => Class::Pause,
+        | "clock_skew" | "quota_exceeded" | "bucket_not_found" | "invalid_region" | "tls_error"
+        | "folder_source_unavailable" => Class::Pause,
         "io" => Class::Io,
         "conflict" => Class::Conflict,
         "interrupted" => Class::Requeue,

@@ -20,10 +20,10 @@ Desktop and Android app for managing S3-compatible object storage. Tauri 2, Soli
 | `TransferService` | Foreground service (dataSync); keeps transfers alive in the background |
 | `NightWatchService` | Foreground service in its own `:nightwatch` process; hosts the headless sync loop |
 | `BootReceiver`, `NwRestartReceiver` | Re-arm Night Watcher after reboot / after the Android 14+ dataSync timeout |
-| `NwTreePicker` | SAF tree picker bridge, polled from Rust |
+| `NwTreePicker` | SAF tree picker bridge, polled from Rust; shared by Night Watcher and folder upload (`fu_pick_tree`), picks serialized by a Rust mutex |
 | `SecretStore` | EncryptedSharedPreferences backed by Android Keystore |
 
-Rust side: `saf/` (`read` upload staging + hashing, `write` download finalize, `tree` walk, `picker`, `service`) and `night_watcher_headless.rs`. Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8 cannot see JNI call sites). The generated Android project is committed under `src-tauri/gen/android/`.
+Rust side: `saf/` (`read` upload staging + hashing, `write` download finalize, `walk` streaming tree walk (one query per dir, visitor decides descent), `tree` Night Watcher file list on top of it, `fd` (`open_saf_fd`: `openFileDescriptor` + `detachFd`, regular files only), `uri` (tree URI normalization, document URIs, display names), `picker`, `service`) and `night_watcher_headless.rs`. `/proc/self/fd/N` cannot be reopened (FUSE EACCES), so every open of a document goes through ContentResolver; `transfer/local_source.rs` routes `content://` sources there for the whole upload pipeline (stat, single/multipart bodies, encryption). `TransferService` is held by the UI (`set_transfer_service`) OR a running folder job; a UI `false` never stops it while a folder runner is live. Any Kotlin class reached from Rust via JNI needs a proguard `-keep` rule (R8 cannot see JNI call sites). The generated Android project is committed under `src-tauri/gen/android/`.
 
 ---
 
@@ -67,7 +67,7 @@ src-tauri/
   src/store/      ObjectStore trait + S3Store (s3/: download, upload, copy, classify), logging, region retry, Android TLS
   src/transfer/   TransferManager (manager), worker, sink (progress + parts journal), semaphore, encrypt
   src/mcp/        Local MCP server (desktop only): mod, auth, tools, format
-  src/folder_upload/  Folder upload: walk, analyze, remote (check), engine + item (runner), control (scheduler), resume, keys, policy
+  src/folder_upload/  Folder upload: walk (+ walk_saf), analyze, source (path/SAF branch, grants), remote (check), engine + item (runner), control (scheduler), resume, keys, policy
   src/crypto.rs, secrets.rs, state.rs, scheduler.rs (auto-reindex), app_lifecycle.rs (tray/background-run)
   src/night_watcher/ (scan, reconcile, upload, fs, desktop), night_watcher_headless.rs, saf/, sync.rs, bulk.rs
   tests/          Integration tests (Night Watcher e2e needs --features nw-test-hooks)
@@ -93,7 +93,7 @@ Events: `Started`, `Progress`, `PartCompleted`, `Done`, `Failed`, `Canceled`.
 
 ## Folder Upload
 
-Desktop only: the UI is gated by `isDesktopShell`; the backend (`folder_upload/`, `commands/folder_upload.rs`) compiles everywhere. MCP has no folder upload. Persistence is `folder_upload_jobs` (one row per job) plus `folder_upload_items` (one row per walked entry).
+Desktop folders and Android SAF trees (`source_kind` `path` or `saf`); the backend (`folder_upload/`, `commands/folder_upload.rs`) compiles everywhere. MCP has no folder upload. Persistence is `folder_upload_jobs` (one row per job) plus `folder_upload_items` (one row per walked entry).
 
 **Lifecycle:** analyze (walk the local tree into items) -> remote check (live listing of the destination) -> approve -> run -> finish. Job states: `analyzing`, `analyzed`, `queued`, `running`, `paused`, `completed`, `completed_with_errors`, `canceled`, `failed`. `completed_with_errors` means some items failed, were `skipped_missing`, were canceled, or became un-uploadable after approval. `failed` is defined but never produced; `retry_failed` rejects it. `source_root` is stored canonical (links resolved, no `\\?\` prefix on Windows); the default destination name comes from the picked folder. Only one unfinished job may target the same source and destination (`folder_job_exists`).
 
@@ -114,6 +114,7 @@ Desktop only: the UI is gated by `isDesktopShell`; the backend (`folder_upload/`
 - **Counts:** per-state item counts live in `folder_upload_counts`, kept by triggers on `folder_upload_items`, so progress never scans the items.
 - **Limits:** 500,000 walked entries per job (hard, `folder_too_many_files`). Soft warnings: over 10,000 files, over 50 GiB, hidden files present, exclusions present, encrypted (temp space).
 - **History:** finished jobs stay until removed; removing aborts and deletes any rows they still hold. Startup keeps the newest 50 finished jobs and drops those older than 30 days. Deleting an account or bucket cancels its jobs first.
+- **Android (SAF):** `fu_pick_tree` returns `{ uri, display_name }` (uri normalized, persisted READ grant), passed as `local_root` to analyze. The job stores the tree URI as `source_root`; each file item stores its document URI in `source_ref`, which is also the transfer row's `local_path` so retries reopen it via JNI. The walk (`walk_saf.rs`) applies the desktop rules plus: virtual documents are `special`; names that are empty, `.`/`..`, contain `/` or repeat a sibling are `invalid_name`; a missing size falls back to opening the document, else `unreadable`. No source guard (no inode identity or links); drift (before upload, after upload, and on restart) compares size, plus mtime only for local storage (`com.android.externalstorage.documents`, where listing and fstat agree; 0 = unknown); other providers are size-only since they may serve cache copies. Preflight queries the tree root; a lost grant (preflight, per-file stat, or open during upload) pauses with `folder_source_unavailable`. On Android the job's Resume re-picks first (must be the same tree), and picking that tree for a new upload resumes the waiting jobs instead. The persisted grant is released (matched against `getPersistedUriPermissions` by normalized tree) only when no job holds it (unfinished or `completed_with_errors`), no picker is open, no pick awaits analyze or `nw_add_watch` (30 min), and no Night Watcher watch uses it; checked under the scheduler lock at job end, cancel, remove, on analyze refusing a pick, on `fu_release_pick` (re-pick of a different folder), and at startup for every persisted tree grant. Analyze signals idle before it takes that lock (cancel holds it while waiting). `FolderJob.display_name` / `FolderAnalysis.display_name` give the folder name for both kinds.
 - **Frontend:** the backend emits `folder-upload-changed` (`{ job_id, state }`). `state/folderJobs.ts` is the single shared poller (1 s while a job moves, 5 s idle, plus a refresh on each event); the Transfers page renders one `FolderJobRow` per job and its "Clear completed" also clears finished jobs. While a job moves, closing the window asks first if it would really quit (`app_close_quits`).
 
 ## Client-side Encryption

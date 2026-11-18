@@ -1,12 +1,24 @@
 import { createSignal, Show } from "solid-js";
 import { IconChevronD, IconFolder, IconUpload } from "../../../utils/icons";
 import { t } from "../../../i18n";
+import { isMobile } from "../../../utils/breakpoint";
+import { UploadSheet } from "./UploadSheet";
 
-// Desktop Upload button with a menu for "Upload files" / "Upload folder".
+// Upload button: split menu on desktop, a bottom sheet on phones.
 export function UploadSplitButton(props: { onUpload: () => void; onUploadFolder: () => void }) {
   const [open, setOpen] = createSignal(false);
   const run = (fn: () => void) => () => { setOpen(false); fn(); };
+  const [sheet, setSheet] = createSignal(false);
   return (
+    <Show when={!isMobile()} fallback={
+      <>
+        <button class="btn-primary toolbar-btn upload-btn" onClick={() => setSheet(true)}>
+          <IconUpload size={14} /> {t("common.upload")}
+        </button>
+        <UploadSheet open={sheet()} onClose={() => setSheet(false)}
+                     onUpload={props.onUpload} onUploadFolder={props.onUploadFolder} />
+      </>
+    }>
     <div class="fu-split">
       <button class="btn-primary toolbar-btn upload-btn fu-split-main" onClick={props.onUpload}>
         <IconUpload size={14} /> {t("common.upload")}
@@ -27,5 +39,6 @@ export function UploadSplitButton(props: { onUpload: () => void; onUploadFolder:
         </div>
       </Show>
     </div>
+    </Show>
   );
 }

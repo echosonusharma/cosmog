@@ -5,11 +5,12 @@ use super::own::{owner, Owner};
 use super::policy::{classify, throttle_delay, wire_code, Class, IO_MAX_ATTEMPTS, NET_MAX_ATTEMPTS, THROTTLE_MAX_ATTEMPTS};
 use super::runtime::{Inflight, Stop};
 use super::walk::mtime_ms;
+use super::source::{same_version, StatRule};
 use super::FolderCtx;
 use crate::db::folder_upload::{Drift, ItemState};
 use crate::db::transfers::{Transfer, TransferStatus};
 use crate::error::{AppError, AppResult};
-use crate::transfer::source_guard::{file_id, inspect, Inspect};
+use crate::transfer::source_guard::{file_id, Inspect};
 use crate::transfer::{ProgressSink, TransferEvent};
 
 impl<C: FolderCtx> Run<C> {
@@ -107,11 +108,14 @@ impl<C: FolderCtx> Run<C> {
     /// After upload: changed while uploading means one re-upload, then `source_changed`;
     /// no longer a regular file inside the folder is a failure.
     pub(super) async fn post_drift(&mut self, seq: i64, inf: &Inflight, etag: Option<String>) -> AppResult<()> {
-        let changed = match inspect(&self.abs(&inf.rel_path), &self.canon_root).await {
+        let rule = super::source::stat_rule(&self.job);
+        let changed = match self.inspect_src(&inf.source).await {
             Inspect::File(m) => {
                 let (size, mtime) = (m.len() as i64, mtime_ms(&m));
-                // Another inode (replaced file) counts as a change even with an equal stat.
-                (file_id(&m) != inf.file_id || size != inf.size || mtime != inf.mtime_ms).then_some((size, mtime))
+                // Another inode (replaced file) counts as a change even with an equal stat; SAF fds have no stable one.
+                let replaced = rule == StatRule::Full && file_id(&m) != inf.file_id;
+                let changed = replaced || !same_version(rule, (inf.size, inf.mtime_ms), (size, mtime));
+                changed.then_some((size, mtime))
             }
             // Deleted after a complete upload: what was uploaded was the file.
             Inspect::Missing | Inspect::Error(_) => None,

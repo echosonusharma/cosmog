@@ -1,4 +1,4 @@
-/* Folder upload (desktop): approval modal, item lists, job rows, resume banner. */
+/* Folder upload: approval modal, item lists, job rows, resume banner. */
 
 /* ── modal ─────────────────────────────────────────────────────────────── */
 .modal.fu-modal { max-width: 760px; width: 94vw; max-height: 90vh; overflow: hidden; }

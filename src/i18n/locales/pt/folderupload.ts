@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "Enviar pasta",
   "folderUpload.entry.uploadFolderHere": "Enviar pasta aqui",
   "folderUpload.entry.more": "Mais opções de envio",
+  "folderUpload.sheet.files": "Arquivos",
+  "folderUpload.sheet.filesDesc": "Escolha um ou mais arquivos",
+  "folderUpload.sheet.folder": "Pasta",
+  "folderUpload.sheet.folderDesc": "Envie uma pasta com tudo o que tem dentro",
   "folderUpload.entry.pickTitle": "Escolha uma pasta para enviar",
+
+  "folderUpload.source.internalStorage": "Armazenamento interno",
+  "folderUpload.android.pickHintTitle": "Escolha uma subpasta",
+  "folderUpload.android.pickHint": "O Android não permite compartilhar a raiz do armazenamento, a própria pasta Download ou Android/data. Escolha uma pasta dentro delas.",
+  "folderUpload.android.pickAgain": "O Android não tem mais acesso a esta pasta. Toque em Retomar e escolha a mesma pasta novamente.",
+  "folderUpload.android.pickFolderAgain": "O Android não tem mais acesso a esta pasta. Escolha a pasta novamente para enviá-la.",
+  "folderUpload.android.wrongFolder": "Essa é outra pasta. Escolha a pasta em que este envio começou.",
+  "folderUpload.android.accessRestored": "Acesso à pasta restaurado. O envio continua.",
 
   "folderUpload.drop.overlay": "Solte arquivos ou uma pasta para enviar",
   "folderUpload.drop.oneFolderTitle": "Solte uma pasta por vez",
@@ -86,6 +98,7 @@ export default {
   "folderUpload.excluded.control_chars": "O nome contém caracteres de controle",
   "folderUpload.excluded.key_too_long": "Chave com mais de 1024 bytes",
   "folderUpload.excluded.file_too_large": "Arquivo com mais de 5 TB",
+  "folderUpload.excluded.invalid_name": "Nome não permitido (vazio, só pontos, com barra ou duplicado)",
   "folderUpload.excluded.linkTarget": "Link simbólico para {target} (nunca é seguido)",
 
   "folderUpload.overwrite.checking": "Verificando objetos existentes no destino…",

@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "Upload folder",
   "folderUpload.entry.uploadFolderHere": "Upload folder here",
   "folderUpload.entry.more": "More upload options",
+  "folderUpload.sheet.files": "Files",
+  "folderUpload.sheet.filesDesc": "Pick one or more files",
+  "folderUpload.sheet.folder": "Folder",
+  "folderUpload.sheet.folderDesc": "Upload a folder with everything inside",
   "folderUpload.entry.pickTitle": "Choose a folder to upload",
+
+  "folderUpload.source.internalStorage": "Internal storage",
+  "folderUpload.android.pickHintTitle": "Pick a subfolder",
+  "folderUpload.android.pickHint": "Android does not allow sharing the storage root, Download itself, or Android/data. Pick a folder inside them instead.",
+  "folderUpload.android.pickAgain": "Android no longer has access to this folder. Tap Resume and pick the same folder again.",
+  "folderUpload.android.pickFolderAgain": "Android no longer has access to this folder. Pick the folder again to upload it.",
+  "folderUpload.android.wrongFolder": "That is a different folder. Pick the folder this upload started from.",
+  "folderUpload.android.accessRestored": "Folder access restored. The upload continues.",
 
   "folderUpload.drop.overlay": "Drop files or one folder to upload",
   "folderUpload.drop.oneFolderTitle": "Drop one folder at a time",
@@ -86,6 +98,7 @@ export default {
   "folderUpload.excluded.control_chars": "Name contains control characters",
   "folderUpload.excluded.key_too_long": "Key longer than 1024 bytes",
   "folderUpload.excluded.file_too_large": "File larger than 5 TB",
+  "folderUpload.excluded.invalid_name": "Name not allowed (empty, dots only, has a slash, or a duplicate)",
   "folderUpload.excluded.linkTarget": "Symbolic link to {target} (never followed)",
 
   "folderUpload.overwrite.checking": "Checking the destination for existing objects…",

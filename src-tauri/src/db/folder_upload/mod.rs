@@ -117,6 +117,8 @@ str_enum!(ExcludeReason {
     ControlChars => "control_chars",
     KeyTooLong => "key_too_long",
     FileTooLarge => "file_too_large",
+    // SAF only: empty, '.', '..', contains '/', or repeats a sibling's name.
+    InvalidName => "invalid_name",
 });
 
 str_enum!(Drift {

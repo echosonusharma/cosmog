@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "Загрузить папку",
   "folderUpload.entry.uploadFolderHere": "Загрузить папку сюда",
   "folderUpload.entry.more": "Другие варианты загрузки",
+  "folderUpload.sheet.files": "Файлы",
+  "folderUpload.sheet.filesDesc": "Выберите один или несколько файлов",
+  "folderUpload.sheet.folder": "Папка",
+  "folderUpload.sheet.folderDesc": "Загрузите папку со всем содержимым",
   "folderUpload.entry.pickTitle": "Выберите папку для загрузки",
+
+  "folderUpload.source.internalStorage": "Внутренняя память",
+  "folderUpload.android.pickHintTitle": "Выберите вложенную папку",
+  "folderUpload.android.pickHint": "Android не позволяет открыть доступ к корню хранилища, самой папке Download или Android/data. Выберите папку внутри них.",
+  "folderUpload.android.pickAgain": "У Android больше нет доступа к этой папке. Нажмите «Возобновить» и выберите ту же папку заново.",
+  "folderUpload.android.pickFolderAgain": "У Android больше нет доступа к этой папке. Выберите папку заново, чтобы загрузить её.",
+  "folderUpload.android.wrongFolder": "Это другая папка. Выберите папку, с которой началась эта загрузка.",
+  "folderUpload.android.accessRestored": "Доступ к папке восстановлен. Загрузка продолжается.",
 
   "folderUpload.drop.overlay": "Перетащите файлы или одну папку для загрузки",
   "folderUpload.drop.oneFolderTitle": "Перетаскивайте по одной папке",
@@ -102,6 +114,7 @@ export default {
   "folderUpload.excluded.control_chars": "Имя содержит управляющие символы",
   "folderUpload.excluded.key_too_long": "Ключ длиннее 1024 байт",
   "folderUpload.excluded.file_too_large": "Файл больше 5 ТБ",
+  "folderUpload.excluded.invalid_name": "Недопустимое имя (пустое, только точки, со слешем или дубликат)",
   "folderUpload.excluded.linkTarget": "Символическая ссылка на {target} (не разыменовывается)",
 
   "folderUpload.overwrite.checking": "Проверка существующих объектов в месте назначения…",

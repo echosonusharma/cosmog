@@ -458,6 +458,8 @@ pub fn run() {
             commands::browse::browse_prefix,
 
             commands::folder_upload::local_path_kinds,
+            commands::folder_upload::fu_pick_tree,
+            commands::folder_upload::fu_release_pick,
             commands::folder_upload::folder_upload_analyze,
             commands::folder_upload::folder_upload_check_remote,
             commands::folder_upload::folder_upload_get_analysis,

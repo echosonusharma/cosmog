@@ -20,7 +20,7 @@ pub(super) enum WalkMsg {
 }
 
 const BATCH: usize = 1000;
-const PROGRESS_EVERY: Duration = Duration::from_millis(250);
+pub(super) const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
 struct Frame {
     abs: PathBuf,
@@ -49,16 +49,26 @@ fn os_hidden(_m: &Metadata) -> bool {
     false
 }
 
-struct Walker<'a> {
+pub(super) struct Walker<'a> {
     dest: &'a str,
     tx: &'a mpsc::Sender<WalkMsg>,
-    stats: Stats,
+    pub stats: Stats,
     seq: i64,
     batch: Vec<NewItem>,
+    /// Taken by the next `push` (SAF document URI of that item).
+    pub source_ref: Option<String>,
 }
 
-impl Walker<'_> {
-    fn push(&mut self, kind: ItemKind, rel: String, size: i64, mtime: i64, hidden: bool, link: Option<String>, excl: Option<ExcludeReason>) -> AppResult<()> {
+impl<'a> Walker<'a> {
+    pub(super) fn new(dest: &'a str, tx: &'a mpsc::Sender<WalkMsg>) -> Self {
+        Self { dest, tx, stats: Stats::default(), seq: 0, batch: Vec::with_capacity(BATCH), source_ref: None }
+    }
+
+    pub(super) fn send(&self, msg: WalkMsg) -> AppResult<()> {
+        self.tx.blocking_send(msg).map_err(|_| AppError::Canceled("analysis".into()))
+    }
+
+    pub(super) fn push(&mut self, kind: ItemKind, rel: String, size: i64, mtime: i64, hidden: bool, link: Option<String>, excl: Option<ExcludeReason>) -> AppResult<()> {
         // key_too_long is only decided for uploadable items; fu_set_dest re-evaluates it later.
         let excl = excl.or_else(|| key_too_long(self.dest, &rel, kind == ItemKind::Dir).then_some(ExcludeReason::KeyTooLong));
         if let Some(r) = excl {
@@ -70,7 +80,7 @@ impl Walker<'_> {
             seq: self.seq,
             kind,
             rel_path: rel,
-            source_ref: None,
+            source_ref: self.source_ref.take(),
             size,
             mtime_ms: mtime,
             ext,
@@ -85,7 +95,7 @@ impl Walker<'_> {
         Ok(())
     }
 
-    fn flush(&mut self) -> AppResult<()> {
+    pub(super) fn flush(&mut self) -> AppResult<()> {
         if self.batch.is_empty() {
             return Ok(());
         }
@@ -95,7 +105,7 @@ impl Walker<'_> {
 }
 
 pub(super) fn walk(root: &Path, dest: &str, cancel: &CancellationToken, tx: &mpsc::Sender<WalkMsg>) -> AppResult<Stats> {
-    let mut w = Walker { dest, tx, stats: Stats::default(), seq: 0, batch: Vec::with_capacity(BATCH) };
+    let mut w = Walker::new(dest, tx);
     let mut probe = Probe::new();
     let mut stack = vec![Frame { abs: root.to_path_buf(), rel: String::new(), hidden_dir: None }];
     let mut entries: u64 = 0;

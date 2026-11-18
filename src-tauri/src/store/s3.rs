@@ -878,8 +878,12 @@ impl ObjectStore for S3Store {
         opts: PutOptions,
         ctx: TransferCtx,
     ) -> AppResult<UploadResult> {
-        let meta = tokio::fs::metadata(&source).await?;
-        let total = meta.len();
+        use crate::transfer::local_source;
+        // SAF: the worker's stat just opened this document; another JNI open adds nothing.
+        let total = match ctx.source_stat {
+            Some(st) if local_source::is_saf(&source) => st.len,
+            _ => local_source::metadata_app(&source).await?.len(),
+        };
 
         ctx.progress.emit(TransferEvent::Started {
             transfer_id: ctx.transfer_id.clone(),

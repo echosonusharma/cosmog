@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "上传文件夹",
   "folderUpload.entry.uploadFolderHere": "上传文件夹到此处",
   "folderUpload.entry.more": "更多上传选项",
+  "folderUpload.sheet.files": "文件",
+  "folderUpload.sheet.filesDesc": "选择一个或多个文件",
+  "folderUpload.sheet.folder": "文件夹",
+  "folderUpload.sheet.folderDesc": "上传整个文件夹及其内容",
   "folderUpload.entry.pickTitle": "选择要上传的文件夹",
+
+  "folderUpload.source.internalStorage": "内部存储",
+  "folderUpload.android.pickHintTitle": "请选择子文件夹",
+  "folderUpload.android.pickHint": "Android 不允许共享存储根目录、Download 文件夹本身或 Android/data。请选择其中的子文件夹。",
+  "folderUpload.android.pickAgain": "Android 已无法访问此文件夹。请点按“继续”并重新选择同一文件夹。",
+  "folderUpload.android.pickFolderAgain": "Android 已无法访问此文件夹。请重新选择该文件夹以上传。",
+  "folderUpload.android.wrongFolder": "这是另一个文件夹。请选择此上传开始时的文件夹。",
+  "folderUpload.android.accessRestored": "已恢复文件夹访问权限，上传继续。",
 
   "folderUpload.drop.overlay": "拖放文件或一个文件夹以上传",
   "folderUpload.drop.oneFolderTitle": "一次只能拖放一个文件夹",
@@ -78,6 +90,7 @@ export default {
   "folderUpload.excluded.control_chars": "名称包含控制字符",
   "folderUpload.excluded.key_too_long": "键超过 1024 字节",
   "folderUpload.excluded.file_too_large": "文件超过 5 TB",
+  "folderUpload.excluded.invalid_name": "名称不允许 (为空、仅含点、包含斜杠或重复)",
   "folderUpload.excluded.linkTarget": "指向 {target} 的符号链接（从不跟随）",
 
   "folderUpload.overwrite.checking": "正在检查目标位置是否已有对象…",

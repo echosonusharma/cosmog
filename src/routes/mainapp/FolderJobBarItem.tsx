@@ -5,7 +5,7 @@ import { IconFolder, IconPause } from "../../utils/icons";
 import { folderUploadPause } from "../../api/folderUpload";
 import { refreshFolderJobs } from "../../state/folderJobs";
 import { toast } from "../../state/toast";
-import { createJobRate, filesDone, jobName, jobPct, jobReason } from "../transfers/folderJobHelpers";
+import { createJobRate, filesDone, jobName, jobPct, jobReason, jobSourceTitle } from "../transfers/folderJobHelpers";
 import type { FolderJob } from "../../types";
 
 // One folder job in the bottom bar: progress, files, speed, time left, current file.
@@ -34,7 +34,7 @@ export function FolderJobBarItem(props: { job: FolderJob }) {
       <span class="active-xfer-dir upload"><IconFolder size={12} /></span>
       <div class="active-xfer-item-body">
         <div class="active-xfer-item-line-1">
-          <span class="active-xfer-name fu-bar-name truncate" title={j().source_root}>{jobName(j())}</span>
+          <span class="active-xfer-name fu-bar-name truncate" title={jobSourceTitle(j())}>{jobName(j())}</span>
           <span class="fu-bar-dest truncate">{t("folderUpload.job.dest", { bucket: j().bucket, prefix: j().dest_prefix })}</span>
           <Show when={j().state === "queued"}>
             <span class="fu-bar-state">{t(`folderUpload.job.state.${j().state}` as TKey)}</span>

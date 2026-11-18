@@ -28,6 +28,8 @@ pub struct RunnerHandle {
 pub struct Inflight {
     pub transfer_id: String,
     pub rel_path: String,
+    /// What the transfer reads: file path or SAF document URI.
+    pub source: std::path::PathBuf,
     pub bytes_done: u64,
     pub bytes_total: Option<u64>,
     /// Stat at enqueue; a different stat after Done means it changed during upload.

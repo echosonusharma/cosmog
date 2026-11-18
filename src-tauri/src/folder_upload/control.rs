@@ -7,6 +7,7 @@ use tokio::sync::watch;
 
 use super::runtime::{RunnerHandle, Stop};
 use super::resume as rs;
+use super::source::{hold_service, release_job_tree};
 use super::{engine, set_state, view, FolderCtx, FolderJob};
 use crate::db::folder_upload::{JobState, OverwritePolicy, RemoteState};
 use crate::error::{AppError, AppResult};
@@ -35,6 +36,7 @@ async fn kick_locked<C: FolderCtx>(ctx: &C) {
         return;
     }
     spawn_runner(ctx, &job.id);
+    hold_service(true);
 }
 
 // Boxed so the runner -> kick -> runner cycle has a nameable future type.
@@ -49,9 +51,21 @@ fn spawn_runner<C: FolderCtx>(ctx: &C, job_id: &str) {
     *rt.runner.lock().unwrap() = Some(RunnerHandle { stop: stop_tx, done: done_rx });
     let (ctx, id) = (ctx.clone(), job_id.to_string());
     tokio::spawn(async move {
-        engine::run_job(ctx.clone(), id, stop_rx).await;
+        engine::run_job(ctx.clone(), id.clone(), stop_rx).await;
         done_tx.send_replace(true);
-        kick_boxed(ctx).await;
+        kick_boxed(ctx.clone()).await;
+        let jobs = ctx.jobs().clone();
+        {
+            // Under the scheduler lock, so a runner kicked meanwhile is seen.
+            let _guard = jobs.sched.lock().await;
+            if !jobs.any_runner_live() {
+                hold_service(false);
+            }
+        }
+        // The holding rule (completed_with_errors keeps it for retry) is re-read under the lock.
+        if let Ok(j) = ctx.db().fu_get_job(&id).await {
+            release_job_tree(&ctx, &j.source_kind, &j.source_root, false).await;
+        }
     });
 }
 
@@ -158,6 +172,7 @@ pub async fn cancel<C: FolderCtx>(ctx: &C, job_id: &str) -> AppResult<()> {
             ctx.db().fu_delete_job(job_id).await?;
             ctx.jobs().forget(job_id);
             ctx.notify(job_id, JobState::Canceled);
+            release_job_tree(ctx, &job.source_kind, &job.source_root, true).await;
             Ok(())
         }
         s if s.is_finished() => Ok(()),
@@ -166,7 +181,9 @@ pub async fn cancel<C: FolderCtx>(ctx: &C, job_id: &str) -> AppResult<()> {
                 return Ok(());
             }
             let store = ctx.store_for(&job.account_id).await?;
-            rs::cancel_cleanup(ctx, &store, job_id).await
+            rs::cancel_cleanup(ctx, &store, job_id).await?;
+            release_job_tree(ctx, &job.source_kind, &job.source_root, true).await;
+            Ok(())
         }
     }
 }
@@ -197,6 +214,7 @@ pub async fn remove<C: FolderCtx>(ctx: &C, job_id: &str) -> AppResult<()> {
     rs::purge_rows(ctx, &store, job_id).await?;
     ctx.db().fu_delete_job(job_id).await?;
     ctx.jobs().forget(job_id);
+    release_job_tree(ctx, &job.source_kind, &job.source_root, false).await;
     Ok(())
 }
 

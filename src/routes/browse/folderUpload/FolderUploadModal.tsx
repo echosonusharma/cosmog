@@ -1,6 +1,9 @@
 import { onCleanup, onMount, Show } from "solid-js";
 import { confirmDialog } from "../../../state/confirm";
-import { formatBytes, basename } from "../../../utils/fmt";
+import { formatBytes } from "../../../utils/fmt";
+import { useBackHandler } from "../../../utils/androidBack";
+import { isContentUri } from "../../../utils/sourceName";
+import { sourceGoneHint } from "../../transfers/folderJobHelpers";
 import { ErrorBody } from "../../../utils/ErrorBody";
 import { ScrollFade } from "../../../utils/ScrollFade";
 import Spinner from "../../../utils/Spinner";
@@ -19,13 +22,15 @@ export function FolderUploadModal(props: {
   accountId: string;
   bucket: string;
   localRoot: string;
+  /** Folder name; localRoot may be a content:// URI on Android. */
+  name: string;
   prefix: string;
   encrypted: boolean;
   onClose: () => void;
 }) {
   const flow = createFolderFlow({
     accountId: props.accountId, bucket: props.bucket, localRoot: props.localRoot,
-    initialDest: `${props.prefix}${basename(props.localRoot)}/`,
+    initialDest: `${props.prefix}${props.name}/`,
   });
   onCleanup(flow.discard);
 
@@ -82,6 +87,10 @@ export function FolderUploadModal(props: {
     props.onClose();
   }
 
+  // Never show a raw SAF URI; desktop keeps the full path.
+  const sourceLabel = () => (isContentUri(props.localRoot) ? props.name : props.localRoot);
+  useBackHandler(() => true, () => { void requestClose(); return true; });
+
   let dialogEl: HTMLDivElement | undefined;
   onMount(() => {
     dialogEl?.focus();
@@ -101,7 +110,7 @@ export function FolderUploadModal(props: {
            ref={dialogEl} onClick={(e) => e.stopPropagation()}>
         <div class="modal-title" id="fu-modal-title">{t("folderUpload.title")}</div>
         <div class="modal-label">{t("folderUpload.analyze.source")}</div>
-        <div class="modal-sub fu-source" title={props.localRoot}>{props.localRoot}</div>
+        <div class="modal-sub fu-source" title={sourceLabel()}>{sourceLabel()}</div>
         <DestinationField flow={flow} bucket={props.bucket} exampleRel={exampleRel()} disabled={flow.approving()} />
 
         <Show when={flow.phase() === "scanning"}>
@@ -131,6 +140,7 @@ export function FolderUploadModal(props: {
           <div class="fu-error">
             <div class="fu-card-title">{t("folderUpload.analyze.failedTitle")}</div>
             <ErrorBody error={flow.error()} />
+            <Show when={sourceGoneHint(flow.error())}>{(h) => <div class="fu-note">{h()}</div>}</Show>
           </div>
         </Show>
 
@@ -149,7 +159,10 @@ export function FolderUploadModal(props: {
         </Show>
 
         <Show when={flow.approveError()}>
-          <div class="fu-error"><ErrorBody error={flow.approveError()} /></div>
+          <div class="fu-error">
+            <ErrorBody error={flow.approveError()} />
+            <Show when={sourceGoneHint(flow.approveError())}>{(h) => <div class="fu-note">{h()}</div>}</Show>
+          </div>
         </Show>
         <Show when={hint()}><div class="fu-note faint">{hint()}</div></Show>
 

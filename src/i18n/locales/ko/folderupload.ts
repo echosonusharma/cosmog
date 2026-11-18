@@ -7,7 +7,19 @@ export default {
   "folderUpload.entry.uploadFolder": "폴더 업로드",
   "folderUpload.entry.uploadFolderHere": "여기에 폴더 업로드",
   "folderUpload.entry.more": "업로드 옵션 더 보기",
+  "folderUpload.sheet.files": "파일",
+  "folderUpload.sheet.filesDesc": "하나 이상의 파일 선택",
+  "folderUpload.sheet.folder": "폴더",
+  "folderUpload.sheet.folderDesc": "폴더와 안의 모든 항목 업로드",
   "folderUpload.entry.pickTitle": "업로드할 폴더 선택",
+
+  "folderUpload.source.internalStorage": "내부 저장소",
+  "folderUpload.android.pickHintTitle": "하위 폴더를 선택하세요",
+  "folderUpload.android.pickHint": "Android에서는 저장소 루트, Download 폴더 자체, Android/data를 공유할 수 없습니다. 그 안의 폴더를 선택하세요.",
+  "folderUpload.android.pickAgain": "Android에서 더 이상 이 폴더에 접근할 수 없습니다. 재개를 누르고 같은 폴더를 다시 선택하세요.",
+  "folderUpload.android.pickFolderAgain": "Android에서 더 이상 이 폴더에 접근할 수 없습니다. 업로드하려면 폴더를 다시 선택하세요.",
+  "folderUpload.android.wrongFolder": "다른 폴더입니다. 이 업로드를 시작한 폴더를 선택하세요.",
+  "folderUpload.android.accessRestored": "폴더 접근 권한이 복원되었습니다. 업로드를 계속합니다.",
 
   "folderUpload.drop.overlay": "업로드할 파일이나 폴더 하나를 여기에 놓으세요",
   "folderUpload.drop.oneFolderTitle": "폴더는 한 번에 하나씩 놓아 주세요",
@@ -78,6 +90,7 @@ export default {
   "folderUpload.excluded.control_chars": "이름에 제어 문자가 있음",
   "folderUpload.excluded.key_too_long": "키가 1024바이트를 초과함",
   "folderUpload.excluded.file_too_large": "파일이 5TB를 초과함",
+  "folderUpload.excluded.invalid_name": "허용되지 않는 이름 (비어 있음, 점만 있음, 슬래시 포함 또는 중복)",
   "folderUpload.excluded.linkTarget": "{target}을(를) 가리키는 심볼릭 링크(따라가지 않음)",
 
   "folderUpload.overwrite.checking": "대상 위치에 이미 있는 객체를 확인하는 중…",

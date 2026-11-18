@@ -13,6 +13,14 @@ function channel<T>(cb: (e: T) => void): Channel<T> {
 export const localPathKinds = (paths: string[]): Promise<LocalPathKind[]> =>
   invoke("local_path_kinds", { paths });
 
+/** Android only: SAF folder picker; rejects with code "canceled" when dismissed. */
+export const folderUploadPickTree = (): Promise<{ uri: string; display_name: string }> =>
+  invoke("fu_pick_tree");
+
+/** Android: a picked tree that will not be used; the backend drops its grant if nothing else needs it. */
+export const folderUploadReleasePick = (uri: string): Promise<void> =>
+  invoke("fu_release_pick", { uri });
+
 export const folderUploadAnalyze = (
   accountId: string,
   bucket: string,

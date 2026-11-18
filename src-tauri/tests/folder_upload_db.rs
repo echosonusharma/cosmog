@@ -811,3 +811,51 @@ async fn mark_remote_is_indexed_on_a_large_job() {
     assert_eq!(c.pending, 200_000);
     assert!(t.elapsed() < std::time::Duration::from_millis(50));
 }
+
+#[tokio::test]
+async fn saf_tree_is_in_use_until_jobs_finish_and_watches_go() {
+    use cosmog_lib::db::night_watcher::NewWatch;
+    use cosmog_lib::folder_upload::tree_in_use;
+
+    let (db, _td) = common::tmp_db().await;
+    let acct = seed_account(&db).await;
+    let tree = "content://com.android.externalstorage.documents/tree/primary%3ADCIM";
+    // Same tree, other spelling: lowercase escape.
+    let alt = "content://com.android.externalstorage.documents/tree/primary%3aDCIM";
+    db.fu_insert_job(NewJob {
+        id: "s1".into(),
+        account_id: acct.clone(),
+        bucket: "b".into(),
+        source_kind: "saf".into(),
+        source_root: tree.into(),
+        dest_prefix: "".into(),
+    })
+    .await
+    .unwrap();
+    assert!(tree_in_use(&db, alt).await.unwrap(), "an unfinished job holds the tree");
+    let other = "content://com.android.externalstorage.documents/tree/primary%3ADCIM%2FCamera";
+    assert!(!tree_in_use(&db, other).await.unwrap(), "a subfolder is another tree");
+
+    db.fu_set_state("s1", JobState::CompletedWithErrors, None, None).await.unwrap();
+    assert!(tree_in_use(&db, tree).await.unwrap(), "retry_failed can reopen it: still held");
+    db.fu_set_state("s1", JobState::Completed, None, None).await.unwrap();
+    assert!(!tree_in_use(&db, tree).await.unwrap(), "completed jobs release it");
+
+    db.insert_watch(
+        "w1",
+        NewWatch {
+            account_id: acct.clone(),
+            bucket: "b".into(),
+            local_dir: "DCIM".into(),
+            key_prefix: "".into(),
+            ignore_file: None,
+            full_scan_secs: 300,
+            tree_uri: Some(alt.into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(tree_in_use(&db, tree).await.unwrap(), "a Night Watcher watch holds it");
+    db.delete_watch("w1").await.unwrap();
+    assert!(!tree_in_use(&db, tree).await.unwrap());
+}

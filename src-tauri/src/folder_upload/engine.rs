@@ -28,7 +28,7 @@ pub(super) struct Run<C: FolderCtx> {
     pub store: Arc<dyn ObjectStore>,
     pub tx: mpsc::UnboundedSender<(i64, TransferEvent)>,
     pub enc: Option<EncryptSpec>,
-    /// Canonical source root; every source path must resolve inside it.
+    /// Canonical source root; every source path must resolve inside it (empty for SAF).
     pub canon_root: PathBuf,
     /// Items whose key holds a stale object this job wrote: replace it (after a HEAD) next time.
     pub replace_own: HashSet<i64>,
@@ -182,11 +182,7 @@ impl<C: FolderCtx> Run<C> {
 
     /// Root reachable and encryption unchanged, else the job pauses before any work.
     async fn preflight(&mut self) -> AppResult<Option<Outcome>> {
-        let root = std::path::Path::new(&self.job.source_root);
-        let canon = tokio::fs::canonicalize(root).await.ok();
-        // The stored root is canonical: resolving elsewhere now means a link in it was re-pointed.
-        let same = canon.as_deref().is_some_and(|c| crate::transfer::source_guard::display_root(c) == root);
-        let ok = same && matches!(tokio::fs::metadata(root).await, Ok(m) if m.is_dir()) && tokio::fs::read_dir(root).await.is_ok();
+        let (ok, canon) = super::source::root_available(&self.job).await;
         if !ok {
             let e = AppError::FolderSourceUnavailable(keys::root_name(&self.job.source_root));
             return Ok(Some(Outcome::Paused(e.code().into(), Some(e.to_wire_string()))));
