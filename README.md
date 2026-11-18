@@ -10,7 +10,9 @@
 
 </div>
 
-> **Early development.** Cosmog is actively being built, you may encounter bugs.
+> [!WARNING]
+> **Early development, not production grade.** Cosmog is actively being worked on and features change often. You may hit bugs.
+> Don't rely on it as the only copy or only tool for critical data. Keep independent backups of anything that matters.
 > If something breaks, [open an issue](https://github.com/echosonusharma/cosmog/issues) and we'll fix it.
 
 <div align="center">
@@ -26,6 +28,7 @@
 - 🗂️ **Browse** buckets and folders with fast column navigation
 - 📤 **Upload and download** with a background queue, progress tracking, and retry
 - 📁 **Upload whole folders** with a pre-upload summary, overwrite check, and resume after restart (desktop only)
+- 🗑️ **Delete** files or whole folders in one go, with progress and cancel, running in the background
 - 👁️ **Preview** images, audio, PDFs, spreadsheets, JSON, XML, text, and code without downloading
 - ✏️ **Create and edit** text based files (md, json, txt, and more, with a mime type of your choice), spreadsheets, and images (crop, rotate, flip) directly in the app
 - 🔍 **Search** across your entire bucket with full-text search
