@@ -2,11 +2,12 @@ import { onCleanup, onMount, Show } from "solid-js";
 import { confirmDialog } from "../../../state/confirm";
 import { formatBytes, basename } from "../../../utils/fmt";
 import { ErrorBody } from "../../../utils/ErrorBody";
+import { ScrollFade } from "../../../utils/ScrollFade";
 import Spinner from "../../../utils/Spinner";
 import { language, t, tp } from "../../../i18n";
 import { createFolderFlow } from "./flow";
 import { excludedTotal } from "./kinds";
-import { AnalysisSummary } from "./AnalysisSummary";
+import { SummaryDetails, SummaryHead } from "./AnalysisSummary";
 import { ExcludedSection } from "./ExcludedSection";
 import { OverwriteSection } from "./OverwriteSection";
 import { DestinationField } from "./DestinationField";
@@ -135,13 +136,15 @@ export function FolderUploadModal(props: {
 
         <Show when={flow.phase() === "summary" && a()}>
           {(x) => (
-            <div class="fu-scroll">
-              <AnalysisSummary a={x()} />
-              <ExcludedSection jobId={x().job_id} counts={x().excluded} reload={flow.checkGen()} />
+            // Decision items first (what lands, what gets replaced), details after.
+            <ScrollFade class="fu-scroll">
+              <SummaryHead a={x()} />
               <Show when={!nothing()} fallback={<div class="fu-note">{t("folderUpload.analyze.nothing")}</div>}>
                 <OverwriteSection flow={flow} jobId={x().job_id} encrypted={x().encrypted} />
               </Show>
-            </div>
+              <ExcludedSection jobId={x().job_id} counts={x().excluded} reload={flow.checkGen()} />
+              <SummaryDetails a={x()} />
+            </ScrollFade>
           )}
         </Show>
 

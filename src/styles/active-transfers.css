@@ -69,7 +69,9 @@
 
 .active-xfer-item-line-2 {
   display: flex;
+  align-items: baseline;
   gap: 6px;
+  min-width: 0;
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;

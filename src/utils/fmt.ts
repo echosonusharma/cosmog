@@ -36,3 +36,12 @@ export function extOf(name: string): string {
   const i = name.lastIndexOf(".");
   return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
 }
+
+/** Compact duration in the largest fitting unit, e.g. "45 sec", "3 min", "1.5 hr". */
+export function formatDuration(sec: number): string {
+  const unit = (n: number, u: string, digits = 0) =>
+    new Intl.NumberFormat(language(), { style: "unit", unit: u, unitDisplay: "short", maximumFractionDigits: digits }).format(n);
+  if (sec < 60) return unit(Math.max(1, Math.round(sec)), "second");
+  if (sec < 3600) return unit(Math.round(sec / 60), "minute");
+  return unit(sec / 3600, "hour", 1);
+}

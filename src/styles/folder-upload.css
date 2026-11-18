@@ -4,7 +4,26 @@
 .modal.fu-modal { max-width: 760px; width: 94vw; max-height: 90vh; overflow: hidden; }
 .modal.fu-modal:focus { outline: none; }
 .fu-source { font-family: var(--font-mono); }
-.fu-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 4px; display: flex; flex-direction: column; gap: 10px; }
+/* Scroll body runs to the modal edge so the bar sits on the frame, not mid-content. */
+.fu-scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  margin: 0 -22px; padding: 2px 22px 8px;
+  display: flex; flex-direction: column; gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+/* Mobile modal padding is 16px (mobile-forms.css); keep the scrollbar inside the clip. */
+@media (max-width: 768px) { .fu-scroll { margin: 0 -16px; padding: 2px 16px 8px; } }
+.fu-scroll::-webkit-scrollbar { width: 6px; }
+.fu-scroll::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+/* Fade the cut-off edge instead of slicing a row. */
+.fu-scroll[data-overflow="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.fu-largest .stats-section-title { margin-top: 0; }
+.fu-more { align-self: flex-start; }
 .fu-actions { justify-content: flex-end; flex-shrink: 0; }
 .fu-approve { min-width: 180px; }
 .fu-scan { display: flex; flex-direction: column; gap: 8px; }
@@ -141,3 +160,12 @@
   font-size: 12px; color: var(--text);
 }
 .fu-resume-text { flex: 1; min-width: 0; }
+
+/* ── bottom bar: folder job row ────────────────────────────────────────── */
+.active-xfer-name.fu-bar-name { flex: 0 1 auto; font-weight: 600; }
+.fu-bar-dest { flex: 1 1 auto; min-width: 0; color: var(--faint); font-family: var(--font-mono); font-size: 11px; }
+.fu-bar-state { flex-shrink: 0; font-size: 11px; color: var(--text-muted); }
+.fu-bar-pct { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.fu-bar-btn { flex-shrink: 0; width: 22px; height: 22px; align-self: center; }
+.fu-bar-sep { color: var(--faint); }
+.fu-bar-current { flex: 1 1 0; min-width: 0; margin-left: 12px; text-align: right; color: var(--text-soft); }

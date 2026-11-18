@@ -60,3 +60,37 @@ export function badgeClass(j: FolderJob): string {
     default: return j.state;
   }
 }
+
+// Speed is averaged over this window; ETA shows once a few seconds of samples exist.
+const RATE_WINDOW_MS = 10_000;
+const RATE_MIN_MS = 2_000;
+
+/** Upload speed (bytes/s) and seconds left for a job, from its bytes_done samples. */
+export function createJobRate(job: () => FolderJob) {
+  const samples: { t: number; b: number }[] = [];
+  let jobId = "";
+  const sample = () => {
+    const j = job();
+    const now = Date.now();
+    // A bar row can be handed another job when the list shifts.
+    if (j.id !== jobId) { jobId = j.id; samples.length = 0; }
+    const last = samples[samples.length - 1];
+    // Paused or restarted (bytes went down): start over.
+    if (j.state !== "running" || (last && j.bytes_done < last.b)) samples.length = 0;
+    else if (!last || last.b !== j.bytes_done || now - last.t >= 1000) samples.push({ t: now, b: j.bytes_done });
+    while (samples.length > 2 && now - samples[0].t > RATE_WINDOW_MS) samples.shift();
+  };
+  const speed = (): number | null => {
+    sample();
+    if (samples.length < 2) return null;
+    const a = samples[0], b = samples[samples.length - 1];
+    const dt = b.t - a.t;
+    return dt >= RATE_MIN_MS ? ((b.b - a.b) * 1000) / dt : null;
+  };
+  const etaSec = (): number | null => {
+    const s = speed();
+    const left = job().total_bytes - job().bytes_done;
+    return s && s > 0 && left > 0 ? left / s : null;
+  };
+  return { speed, etaSec };
+}

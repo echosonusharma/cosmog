@@ -1,4 +1,4 @@
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Donut } from "../charts/Donut";
 import { foldTop } from "../charts/palette";
 import { formatBytes } from "../../../utils/fmt";
@@ -30,13 +30,7 @@ function DirList(props: { title: string; dirs: DirStat[] }) {
   );
 }
 
-export function AnalysisSummary(props: { a: FolderAnalysis }) {
-  const kinds = createMemo(() => foldKinds(props.a.by_ext));
-  const segments = createMemo(() => foldTop(kinds(), 6, props.a.total_bytes,
-    (k) => t(`folderUpload.kind.${k.kind}` as TKey), (k) => k.bytes, t("folderUpload.kind.other")));
-  const exts = createMemo(() => props.a.by_ext.slice(0, 8));
-  const maxExt = createMemo(() => Math.max(1, ...exts().map((e) => e.bytes)));
-  const total = () => props.a.total_bytes || 1;
+export function SummaryHead(props: { a: FolderAnalysis }) {
   const tempSpace = () => props.a.largest_file_bytes * (appSettings()?.transfer_concurrency ?? 3);
 
   return (
@@ -72,6 +66,26 @@ export function AnalysisSummary(props: { a: FolderAnalysis }) {
         </div>
       </Show>
 
+    </div>
+  );
+}
+
+// Collapsed length of the largest-folders and largest-files lists.
+const TOP_N = 5;
+
+export function SummaryDetails(props: { a: FolderAnalysis }) {
+  const kinds = createMemo(() => foldKinds(props.a.by_ext));
+  const segments = createMemo(() => foldTop(kinds(), 6, props.a.total_bytes,
+    (k) => t(`folderUpload.kind.${k.kind}` as TKey), (k) => k.bytes, t("folderUpload.kind.other")));
+  const exts = createMemo(() => props.a.by_ext.slice(0, 8));
+  const maxExt = createMemo(() => Math.max(1, ...exts().map((e) => e.bytes)));
+  const total = () => props.a.total_bytes || 1;
+  const [all, setAll] = createSignal(false);
+  const shown = <T,>(xs: T[]) => (all() ? xs : xs.slice(0, TOP_N));
+  const longest = () => Math.max(props.a.top_dirs.length, props.a.largest_files.length);
+
+  return (
+    <div class="fu-summary">
       <Show when={props.a.total_bytes > 0}>
         <div class="stats-cols">
           <div class="stats-col">
@@ -119,20 +133,32 @@ export function AnalysisSummary(props: { a: FolderAnalysis }) {
         </div>
       </Show>
 
-      <DirList title={t("folderUpload.summary.largestFolders")} dirs={props.a.top_dirs} />
-
-      <Show when={props.a.largest_files.length > 0}>
-        <div class="stats-section-title">{t("folderUpload.summary.largestFiles")}</div>
-        <div class="stats-largest">
-          <For each={props.a.largest_files}>
-            {(f) => (
-              <div class="stats-largest-row" title={f.rel_path}>
-                <span class="stats-largest-name truncate">{f.rel_path}</span>
-                <span class="stats-bar-val">{formatBytes(f.size)}</span>
+      <Show when={props.a.top_dirs.length > 0 || props.a.largest_files.length > 0}>
+        <div class="stats-cols fu-largest">
+          <div class="stats-col">
+            <DirList title={t("folderUpload.summary.largestFolders")} dirs={shown(props.a.top_dirs)} />
+          </div>
+          <div class="stats-col">
+            <Show when={props.a.largest_files.length > 0}>
+              <div class="stats-section-title">{t("folderUpload.summary.largestFiles")}</div>
+              <div class="stats-largest">
+                <For each={shown(props.a.largest_files)}>
+                  {(f) => (
+                    <div class="stats-largest-row" title={f.rel_path}>
+                      <span class="stats-largest-name truncate">{f.rel_path}</span>
+                      <span class="stats-bar-val">{formatBytes(f.size)}</span>
+                    </div>
+                  )}
+                </For>
               </div>
-            )}
-          </For>
+            </Show>
+          </div>
         </div>
+        <Show when={longest() > TOP_N}>
+          <button class="btn-secondary fu-link-btn fu-more" onClick={() => setAll(!all())}>
+            {all() ? t("folderUpload.summary.showFewer") : t("folderUpload.summary.showAll", { count: longest() })}
+          </button>
+        </Show>
       </Show>
 
       <Show when={props.a.windows_unsafe_names > 0}>
