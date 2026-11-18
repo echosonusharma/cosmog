@@ -10,10 +10,9 @@
 
 </div>
 
-> [!WARNING]
-> **Early development, not production grade.** Cosmog is actively being worked on and features change often. You may hit bugs.
-> Don't rely on it as the only copy or only tool for critical data. Keep independent backups of anything that matters.
-> If something breaks, [open an issue](https://github.com/echosonusharma/cosmog/issues) and we'll fix it.
+> [!NOTE]
+> **Cosmog is in active development.** Features change often and you may hit bugs, so keep your own backups of critical data.
+> Found a problem? [Open an issue](https://github.com/echosonusharma/cosmog/issues) and we'll fix it.
 
 <div align="center">
 
