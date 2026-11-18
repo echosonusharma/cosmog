@@ -48,8 +48,21 @@ jobs:
           else
             BODY=$(git log --pretty=format:"- %s")
           fi
+          # checkout can turn the tag lightweight; refetch to read an annotated tag's message
+          DESC=""
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}" || true
+            if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" = "tag" ]; then
+              DESC=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" | sed '/-----BEGIN PGP SIGNATURE-----/,$d')
+            fi
+          fi
           {
             echo "body<<CHANGELOG_EOF"
+            if [ -n "$DESC" ]; then
+              echo "$DESC"
+              echo
+              echo "## Changes"
+            fi
             echo "$BODY"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
