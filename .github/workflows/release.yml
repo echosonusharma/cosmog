@@ -118,6 +118,9 @@ jobs:
           ./"$NAME" --appimage-extract >/dev/null
           rm -f squashfs-root/.DirIcon
           cp squashfs-root/Cosmog.png squashfs-root/.DirIcon
+          # extraction leaves dirs 0700; appimagetool rejects non-world-readable AppDirs
+          chmod -R a+rX squashfs-root
+          chmod a+rx squashfs-root/AppRun
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           rm "$NAME"
