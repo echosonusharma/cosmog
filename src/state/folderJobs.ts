@@ -3,6 +3,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { listen } from "@tauri-apps/api/event";
 import { folderUploadListJobs } from "../api/folderUpload";
 import { isDesktopShell } from "../utils/platform";
+import { notifyLanded } from "./landed";
 import type { FolderJob, FolderJobChangedEvent, FolderJobState } from "../types";
 
 // One shared poller + event listener for folder upload jobs (desktop only).
@@ -39,6 +40,19 @@ export function onFolderJobsUpdate(fn: Listener) { listeners.push(fn); }
 const isMissingCommand = (e: unknown) =>
   /command (\S+ )?not found|unknown command/i.test(e instanceof Error ? e.message : String(e));
 
+// Last seen done count and state per job, to tell browsers when new objects landed.
+const lastSeen = new Map<string, { done: number; state: FolderJobState }>();
+function announceLanded(list: FolderJob[]) {
+  for (const j of list) {
+    const prev = lastSeen.get(j.id);
+    const done = j.counts.done ?? 0;
+    lastSeen.set(j.id, { done, state: j.state });
+    if (!prev) continue;
+    const ended = !FINISHED_JOB_STATES.includes(prev.state) && FINISHED_JOB_STATES.includes(j.state);
+    if (ended || done > prev.done) notifyLanded(j.account_id, j.bucket, j.dest_prefix, ended ? "end" : "job");
+  }
+}
+
 let reqSeq = 0;
 let appliedSeq = 0;
 export async function refreshFolderJobs(): Promise<void> {
@@ -49,6 +63,7 @@ export async function refreshFolderJobs(): Promise<void> {
     if (seq <= appliedSeq) return;
     appliedSeq = seq;
     list.sort((a, b) => b.created_at - a.created_at);
+    announceLanded(list);
     setJobs(reconcile(list, { key: "id" }));
     const first = !loaded();
     setLoaded(true);

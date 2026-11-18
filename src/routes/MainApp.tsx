@@ -39,6 +39,7 @@ import { finalizeSafDownload, takeSafFinalize, discardSafDownload } from "./brow
 import { invoke } from "@tauri-apps/api/core";
 import { Sidebar } from "./mainapp/Sidebar";
 import { MobileHeader } from "./mainapp/MobileHeader";
+import { notifyLanded } from "../state/landed";
 import { ActiveTransfersBar } from "./mainapp/ActiveTransfersBar";
 import { FolderResumeBanner } from "./mainapp/FolderResumeBanner";
 import { watchFolderJobNotifications } from "./mainapp/folderJobNotify";
@@ -169,6 +170,11 @@ export default function MainApp() {
         const dir  = up ? "upload" : "download";
         const tx   = (k: XferKind, extra?: Record<string, string>) =>
           t(`shell.xfer.${dir}.${k}` as TKey, { name, bucket: x.bucket, account: acct, ...extra });
+        if (up && x.status === "done" && !notifiedEnd.has(x.id)) {
+          notifyLanded(x.account_id, x.bucket, x.key.slice(0, x.key.lastIndexOf("/") + 1), "file");
+          // Night watcher rows skip the notify path below, so mark them here or they re-announce every poll.
+          if (x.origin === "nightwatch") notifiedEnd.add(x.id);
+        }
         // Night watcher is a silent background sync: skip start/progress/done
         // notifications, surface only failures.
         if (x.origin === "nightwatch" && x.status !== "failed") continue;

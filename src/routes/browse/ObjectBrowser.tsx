@@ -1,4 +1,5 @@
-import { createSignal, createResource, For, Show, createEffect, onMount, onCleanup, ErrorBoundary, untrack } from "solid-js";
+import { createSignal, createResource, For, Show, createEffect, onMount, onCleanup, ErrorBoundary, untrack, on } from "solid-js";
+import { uploadsLanded } from "../../state/landed";
 import { createPagedBrowse } from "../../utils/usePagedBrowse";
 import {
   searchObjects, bucketIndexStatus,
@@ -187,6 +188,46 @@ export function ObjectBrowser(props: {
       setRefreshing(false);
     }
   }
+  // Uploads into this bucket show up without a manual refresh: a cache re-read when they touch
+  // this folder (slowed while a job runs, skipped during search), and one refresh when a job
+  // ends (a live re-list of this folder for indexed buckets).
+  const LANDED_MS = 2500;
+  const LANDED_JOB_MS = 10_000;
+  let landedTimer: ReturnType<typeof setTimeout> | undefined;
+  let landedDue = 0;
+  let landedEnd = false;
+  const clearLanded = () => { clearTimeout(landedTimer); landedTimer = undefined; landedEnd = false; };
+  onCleanup(clearLanded);
+  createEffect(on(() => [props.accountId, props.bucket], clearLanded, { defer: true }));
+  createEffect(on(uploadsLanded, (l) => {
+    if (!l || l.accountId !== props.accountId || l.bucket !== props.bucket) return;
+    const end = l.kind === "end";
+    if (!end) {
+      const p = props.prefix;
+      if (searchQuery() || !(l.prefix.startsWith(p) || p.startsWith(l.prefix))) return;
+    }
+    landedEnd ||= end;
+    // A pending timer covers this event unless this one is due sooner.
+    const due = Date.now() + (l.kind === "job" ? LANDED_JOB_MS : LANDED_MS);
+    if (landedTimer && landedDue <= due) return;
+    clearTimeout(landedTimer);
+    landedDue = due;
+    const { accountId, bucket } = props;
+    landedTimer = setTimeout(async () => {
+      landedTimer = undefined;
+      const final = landedEnd;
+      landedEnd = false;
+      if (accountId !== props.accountId || bucket !== props.bucket) return;
+      try {
+        const st = indexStatus.latest ?? indexStatus();
+        if (final && st?.enabled && st.last_full_sync_at != null) {
+          await syncPrefix(accountId, bucket, props.prefix, false);
+        }
+      } catch { /* best-effort; the cache re-read below still runs */ }
+      setRefresh((n) => n + 1);
+    }, due - Date.now());
+  }, { defer: true }));
+
   const { state: browseData, loadMore: browseLoadMore } = createPagedBrowse(() => ({
     accountId: props.accountId,
     bucket: props.bucket,
@@ -720,8 +761,7 @@ export function ObjectBrowser(props: {
         <UploadModal accountId={props.accountId} bucket={props.bucket} prefix={showUpload() as string}
                      initialFiles={pendingDrop()}
                      encrypted={(encStatus.latest ?? encStatus())?.enabled ?? false}
-                     onClose={() => { setShowUpload(false); setPendingDrop([]); }}
-                     onQueued={() => { const t = setTimeout(() => setRefresh((n) => n + 1), 1500); onCleanup(() => clearTimeout(t)); }} />
+                     onClose={() => { setShowUpload(false); setPendingDrop([]); }} />
       </Show>
 
       <Show when={folderUpload()} keyed>
