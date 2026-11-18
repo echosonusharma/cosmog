@@ -12,6 +12,7 @@ import type { CachedObjectMeta } from "../../types";
 import type { PagedBrowseState } from "../../utils/usePagedBrowse";
 import Spinner from "../../utils/Spinner";
 import { t, tp } from "../../i18n";
+import { DeletingBadge } from "./DeletingBadge";
 
 export type ListItem =
   | { kind: "folder"; sub: string }
@@ -40,6 +41,7 @@ export function ListView(props: {
   /** Desktop only. */
   onUploadFolder?: () => void;
   pendingFolders?: string[];
+  isDeleting?: (key: string) => boolean;
 }) {
   const listItems = createMemo<ListItem[]>(() => {
     const d = props.browseData;
@@ -177,6 +179,8 @@ export function ListView(props: {
                         <Show when={item().kind === "folder"}>
                           <button
                             class="obj-row folder-row"
+                            classList={{ "is-deleting": !!props.isDeleting?.((item() as { kind: "folder"; sub: string }).sub) }}
+                            disabled={!!props.isDeleting?.((item() as { kind: "folder"; sub: string }).sub)}
                             style={`height:${LIST_ROW_H}px;width:100%`}
                             onClick={() => navigateToPrefix((item() as { kind: "folder"; sub: string }).sub)}
                             onContextMenu={(e) => props.onCtxFolder(e, (item() as { kind: "folder"; sub: string }).sub)}
@@ -185,6 +189,7 @@ export function ListView(props: {
                               <span class="obj-checkbox-spacer" />
                               <FileIcon name={(item() as { kind: "folder"; sub: string }).sub} folder />
                               <span class="obj-name">{basename((item() as { kind: "folder"; sub: string }).sub.replace(/\/$/, ""))}</span>
+                              <Show when={props.isDeleting?.((item() as { kind: "folder"; sub: string }).sub)}><DeletingBadge /></Show>
                             </div>
                             <div class="obj-type">{t("browse.list.folder")}</div>
                             <div class="obj-size" />
@@ -197,7 +202,8 @@ export function ListView(props: {
                             const obj = () => (item() as { kind: "file"; obj: CachedObjectMeta }).obj;
                             return (
                               <div
-                                class={`obj-row ${props.selected.has(obj().key) ? "selected" : ""}`}
+                                class="obj-row"
+                                classList={{ selected: props.selected.has(obj().key), "is-deleting": !!props.isDeleting?.(obj().key) }}
                                 style={`height:${LIST_ROW_H}px`}
                                 onClick={(e) => {
                                   if (e.metaKey || e.ctrlKey) props.onToggleSel(obj().key);
@@ -211,6 +217,7 @@ export function ListView(props: {
                                          onChange={() => props.onToggleSel(obj().key)} />
                                   <FileIcon name={obj().basename} contentType={obj().content_type} />
                                   <span class="obj-name">{obj().basename}</span>
+                                  <Show when={props.isDeleting?.(obj().key)}><DeletingBadge /></Show>
                                 </div>
                                 <div class="obj-type">{obj().key.endsWith("/") ? t("browse.list.folder") : fileTypeLabel(obj().basename)}</div>
                                 <div class="obj-size">{formatBytes(obj().size)}</div>

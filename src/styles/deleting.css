@@ -1,0 +1,22 @@
+/* Rows whose object or folder is being deleted: dimmed, inert, with a spinner badge. */
+.obj-row.is-deleting,
+.col-pane-item.is-deleting,
+.col-pane-row.is-deleting {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
+.deleting-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.deleting-badge .spinner-svg { color: var(--red); }
+
+/* Narrow columns: spinner only. */
+.col-pane-item .deleting-badge-text { display: none; }

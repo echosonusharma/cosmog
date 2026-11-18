@@ -6,10 +6,9 @@ import {
   enableBucketIndex, disableBucketIndex, reindexBucket, syncPrefix,
 } from "../../api/search";
 import { getBucketEncryptionStatus, hasEncryptionIdentity } from "../../api/encryption";
-import {
-  deleteObject, deleteObjects, presignGet,
-  listKeysUnderPrefix, createFolder,
-} from "../../api/objects";
+import { deleteObject, presignGet, createFolder, headObject } from "../../api/objects";
+import { runFolderDelete, runKeysDelete } from "./deleteJobs";
+import { isKeyDeleting } from "../../state/deleteOps";
 import { notify } from "../../utils/notify";
 import {
   navigateToPrefix, currentView,
@@ -40,9 +39,6 @@ import { isDesktopShell } from "../../utils/platform";
 import { FolderUploadModal } from "./folderUpload/FolderUploadModal";
 import { pickFolder } from "./folderUpload/pickFolder";
 import { useDesktopDrop } from "./folderUpload/useDesktopDrop";
-
-// S3 DeleteObjects limit per call.
-const DELETE_BATCH = 1000;
 
 export function ObjectBrowser(props: {
   accountId: string;
@@ -327,6 +323,8 @@ export function ObjectBrowser(props: {
   // has pane/overlay feedback, and a badge flash causes jitter.
   const showSyncing = () => refreshing();
 
+  const deleting = (key: string) => isKeyDeleting(props.accountId, props.bucket, key);
+
   function toggleSel(key: string) {
     const s = new Set<string>(selected());
     s.has(key) ? s.delete(key) : s.add(key);
@@ -348,32 +346,45 @@ export function ObjectBrowser(props: {
     });
     if (!ok) return;
     try {
-      const keys = await listKeysUnderPrefix(accountId, bucket, sub);
-      const errors: Array<{ key: string; message: string }> = [];
-      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
-        const res = await deleteObjects(accountId, bucket, keys.slice(i, i + DELETE_BATCH));
-        errors.push(...res.errors);
-      }
+      const res = await runFolderDelete(accountId, bucket, sub);
       if (sameTarget(accountId, bucket)) {
-        if (previewTarget()?.key.startsWith(sub)) setPreviewTarget(null);
+        dropPreviewUnder(accountId, bucket, sub, res.canceled || !!res.error || res.failed > 0);
+        // Selection is per folder; leftovers under `sub` just get deselected.
         setSelected((prev) => new Set([...prev].filter((k) => !k.startsWith(sub))));
         setPendingFolders((prev) => prev.filter((f) => !f.startsWith(sub)));
         setRefresh((n) => n + 1);
       }
-      if (errors.length) {
+      if (res.canceled) {
+        toast.info(t("browse.delete.canceledTitle"), t("browse.delete.canceledBody", { deleted: res.deleted, name: sub }));
+      } else if (res.error) {
+        toast.warn(
+          t("browse.delete.failedAfter", { deleted: res.deleted, name: sub, message: errMsg(res.error) }),
+          t("browse.delete.failedTitle"),
+        );
+      } else if (res.firstError) {
         toast.warn(
           t("browse.delete.partialFolder", {
-            deleted: keys.length - errors.length, failed: errors.length, sub,
-            key: errors[0].key, message: errors[0].message,
+            deleted: res.deleted, failed: res.failed, sub,
+            key: res.firstError.key, message: res.firstError.message,
           }),
           t("browse.delete.partialTitle"),
         );
-        return;
+      } else {
+        notify(t("browse.delete.folderDone"), `${sub} · ${bucket}`, {
+          largeBody: t("browse.delete.folderDoneLarge", { sub, bucket }),
+        });
       }
-      notify(t("browse.delete.folderDone"), `${sub} · ${bucket}`, {
-        largeBody: t("browse.delete.folderDoneLarge", { sub, bucket }),
-      });
     } catch (e) { toast.err(e); }
+  }
+
+  // After a partial folder delete, keep the preview only if its object still exists.
+  function dropPreviewUnder(accountId: string, bucket: string, sub: string, partial: boolean) {
+    const key = previewTarget()?.key;
+    if (!key?.startsWith(sub)) return;
+    if (!partial) { setPreviewTarget(null); return; }
+    headObject(accountId, bucket, key).catch(() => {
+      if (sameTarget(accountId, bucket) && previewTarget()?.key === key) setPreviewTarget(null);
+    });
   }
 
   async function handleDelete(obj: CachedObjectMeta) {
@@ -406,40 +417,33 @@ export function ObjectBrowser(props: {
       danger: true,
     });
     if (!ok) return;
-    try {
-      // S3 caps a delete call at 1000 keys.
-      const res: Awaited<ReturnType<typeof deleteObjects>> = { deleted: [], errors: [] };
-      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
-        const part = await deleteObjects(accountId, bucket, keys.slice(i, i + DELETE_BATCH));
-        res.deleted.push(...part.deleted);
-        res.errors.push(...part.errors);
-      }
-      if (sameTarget(accountId, bucket)) {
-        const gone = new Set(res.deleted);
-        if (previewTarget() && gone.has(previewTarget()!.key)) setPreviewTarget(null);
-        // Failed keys stay selected so the user can retry.
-        setSelected(new Set(res.errors.map((e) => e.key)));
-        setRefresh((n) => n + 1);
-      }
-      if (res.errors.length) {
-        const first = res.errors[0];
-        toast.warn(
-          t("browse.delete.partialBucket", {
-            deleted: res.deleted.length, failed: res.errors.length, bucket,
-            key: first.key, message: first.message,
-          }),
-          t("browse.delete.partialTitle"),
-        );
-      } else {
-        const n = res.deleted.length;
-        notify(tp("browse.delete.bulkDone", n), bucket, {
-          largeBody: tp("browse.delete.bulkDoneLarge", n, { bucket }),
-        });
-      }
-    } catch (e) {
-      toast.err(e);
-      // Earlier batches may have gone through; show the real state.
-      if (sameTarget(accountId, bucket)) setRefresh((n) => n + 1);
+    // Rows show their own deleting state; leftovers are reselected at the end.
+    if (sameTarget(accountId, bucket)) setSelected(new Set<string>());
+    const res = await runKeysDelete(accountId, bucket, keys);
+    if (sameTarget(accountId, bucket)) {
+      const gone = new Set(res.deleted);
+      if (previewTarget() && gone.has(previewTarget()!.key)) setPreviewTarget(null);
+      // Failed and skipped keys get reselected so the user can retry.
+      setSelected((prev) => new Set([...prev, ...keys.filter((k) => !gone.has(k))]));
+      setRefresh((n) => n + 1);
+    }
+    if (res.error) { toast.err(res.error); return; }
+    if (res.canceled) {
+      toast.info(t("browse.delete.canceledTitle"), t("browse.delete.canceledBody", { deleted: res.deleted.length, name: bucket }));
+    } else if (res.errors.length) {
+      const first = res.errors[0];
+      toast.warn(
+        t("browse.delete.partialBucket", {
+          deleted: res.deleted.length, failed: res.errors.length, bucket,
+          key: first.key, message: first.message,
+        }),
+        t("browse.delete.partialTitle"),
+      );
+    } else {
+      const n = res.deleted.length;
+      notify(tp("browse.delete.bulkDone", n), bucket, {
+        largeBody: tp("browse.delete.bulkDoneLarge", n, { bucket }),
+      });
     }
   }
 
@@ -669,6 +673,7 @@ export function ObjectBrowser(props: {
                     onCtxFile={openCtx}
                     onCtxPane={(e, prefix) => setCtxMenu({ kind: "pane", x: e.clientX, y: e.clientY, prefix })}
                     refresh={refresh()}
+                    isDeleting={deleting}
                     pendingFolders={pendingFolders().filter((f) => {
                       const rel = f.slice(pfx.length);
                       return f.startsWith(pfx) && rel.replace(/\/$/, "").indexOf("/") === -1;
@@ -689,6 +694,7 @@ export function ObjectBrowser(props: {
             return f.startsWith(props.prefix) && rel.replace(/\/$/, "").indexOf("/") === -1;
           })}
           onLoadMore={browseLoadMore}
+          isDeleting={deleting}
           hasSel={hasSel()}
           selected={selected()}
           visible={viewMode() === "list"}

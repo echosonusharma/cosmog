@@ -8,6 +8,7 @@ import { FileIcon, IconChevronR, IconMore } from "../../utils/icons";
 import type { CachedObjectMeta } from "../../types";
 import Spinner from "../../utils/Spinner";
 import { t } from "../../i18n";
+import { DeletingBadge } from "./DeletingBadge";
 
 export const COL_ITEM_H = 30; // px — must match .col-pane-item height in CSS
 
@@ -27,6 +28,7 @@ function ColumnPaneVirtual(props: {
   onCtxFolder?: (e: MouseEvent, sub: string) => void;
   onCtxFile?: (e: MouseEvent, obj: CachedObjectMeta) => void;
   onCtxPane?: (e: MouseEvent) => void;
+  isDeleting?: (key: string) => boolean;
 }) {
   let scrollEl!: HTMLDivElement;
 
@@ -58,26 +60,36 @@ function ColumnPaneVirtual(props: {
                 }}>
                   <Show when={item().kind === "folder"}>
                     <button
-                      class={`col-pane-item fill-cell ${props.selectedKey === (item() as { kind: "folder"; key: string }).key ? "selected" : ""}`}
+                      class="col-pane-item fill-cell"
+                      classList={{
+                        selected: props.selectedKey === (item() as { kind: "folder"; key: string }).key,
+                        "is-deleting": !!props.isDeleting?.((item() as { kind: "folder"; key: string }).key),
+                      }}
+                      disabled={!!props.isDeleting?.((item() as { kind: "folder"; key: string }).key)}
                       onClick={() => props.onSelectFolder((item() as { kind: "folder"; key: string }).key)}
                       onContextMenu={(e) => props.onCtxFolder?.(e, (item() as { kind: "folder"; key: string }).key)}
                     >
                       <FileIcon name={(item() as { kind: "folder"; key: string }).key} folder />
                       <span class="col-pane-name">{basename((item() as { kind: "folder"; key: string }).key.replace(/\/$/, ""))}</span>
-                      <IconChevronR size={12} class="col-pane-chev" />
+                      <Show when={props.isDeleting?.((item() as { kind: "folder"; key: string }).key)}
+                            fallback={<IconChevronR size={12} class="col-pane-chev" />}>
+                        <DeletingBadge />
+                      </Show>
                     </button>
                   </Show>
                   <Show when={item().kind === "file"}>
                     {(() => {
                       const obj = () => (item() as { kind: "file"; obj: CachedObjectMeta }).obj;
                       return (
-                        <div class="col-pane-row">
+                        <div class="col-pane-row" classList={{ "is-deleting": !!props.isDeleting?.(obj().key) }}>
                           <button
                             class={`col-pane-item fill-cell ${props.selectedKey === obj().key ? "selected" : ""}`}
+                            disabled={!!props.isDeleting?.(obj().key)}
                             onClick={() => props.onSelectFile(obj())}
                           >
                             <FileIcon name={obj().basename} contentType={obj().content_type} />
                             <span class="col-pane-name">{obj().basename}</span>
+                            <Show when={props.isDeleting?.(obj().key)}><DeletingBadge /></Show>
                           </button>
                           <button
                             class="col-kebab icon-btn"
@@ -122,6 +134,7 @@ export function ColumnPane(props: {
   onCtxPane?: (e: MouseEvent, prefix: string) => void;
   refresh: number;
   pendingFolders?: string[];
+  isDeleting?: (key: string) => boolean;
 }) {
   const { state, loadMore } = createPagedBrowse(() => ({
     accountId: props.accountId,
@@ -173,6 +186,7 @@ export function ColumnPane(props: {
           onCtxFolder={props.onCtxFolder}
           onCtxFile={props.onCtxFile}
           onCtxPane={(e) => props.onCtxPane?.(e, props.prefix)}
+          isDeleting={props.isDeleting}
         />
       </Show>
     </Show>

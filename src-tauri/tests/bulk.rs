@@ -1,9 +1,27 @@
 mod common;
+#[path = "common/mem_store.rs"]
+mod mem_store;
 
 use cosmog_lib::bulk::{delete_folder, download_directory};
 use cosmog_lib::db::transfers::TransferStatus;
 use cosmog_lib::transfer::{ProgressSink, TransferManager};
+use cosmog_lib::transfer::TransferEvent;
+use mem_store::MemStore;
+use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
+
+fn seed_mem(store: &MemStore, prefix: &str, n: usize) {
+    let mut objs = store.objects.lock().unwrap();
+    for i in 0..n {
+        objs.insert(format!("{prefix}{i:05}"), b"x".to_vec());
+    }
+}
+
+fn collecting_sink() -> (ProgressSink, Arc<Mutex<Vec<TransferEvent>>>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let ev = events.clone();
+    (ProgressSink::from_fn(move |e| ev.lock().unwrap().push(e)), events)
+}
 
 async fn wait_done(transfers: &TransferManager, ids: &[String]) {
     for _ in 0..60 {
@@ -146,4 +164,81 @@ async fn download_directory_roundtrip() {
     );
 
     common::cleanup_bucket(&store, &bucket).await;
+}
+
+#[tokio::test]
+async fn delete_folder_reports_structured_capped_errors_and_listing_progress() {
+    let store = MemStore::new();
+    seed_mem(&store, "x/deny/", 150);
+    seed_mem(&store, "x/ok/", 5);
+    seed_mem(&store, "y/", 3);
+    store.delete_deny.lock().unwrap().push("x/deny/".into());
+    let (db, _td) = common::tmp_db().await;
+    let (sink, events) = collecting_sink();
+
+    let r = delete_folder(&db, store.clone(), "acct", "b", "x/", sink, "tid".into(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!((r.deleted, r.failed, r.found), (5, 150, 155));
+    assert_eq!(r.errors.len(), cosmog_lib::bulk::MAX_DELETE_ERRORS);
+    assert_eq!(r.errors[0].key, "x/deny/00000");
+    assert_eq!(r.errors[0].message, "denied");
+    assert!(!r.canceled && r.error.is_none());
+    // Denied and out-of-prefix keys survive.
+    assert_eq!(store.objects.lock().unwrap().len(), 153);
+
+    let ev = events.lock().unwrap();
+    // Listing progress (found, nothing deleted yet) precedes the delete progress.
+    let progress: Vec<(u64, Option<u64>)> = ev
+        .iter()
+        .filter_map(|e| match e {
+            TransferEvent::Progress { bytes_done, bytes_total, .. } => Some((*bytes_done, *bytes_total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(progress, vec![(0, Some(155)), (5, Some(155))]);
+    assert!(matches!(ev.last(), Some(TransferEvent::Done { .. })));
+}
+
+#[tokio::test]
+async fn delete_folder_cancel_between_batches_returns_partial_counts() {
+    let store = MemStore::new();
+    seed_mem(&store, "big/", 1500);
+    let (db, _td) = common::tmp_db().await;
+    let cancel = CancellationToken::new();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (ev, c) = (events.clone(), cancel.clone());
+    // Cancel as soon as the first batch lands.
+    let sink = ProgressSink::from_fn(move |e: TransferEvent| {
+        if matches!(e, TransferEvent::Progress { bytes_done, .. } if bytes_done > 0) {
+            c.cancel();
+        }
+        ev.lock().unwrap().push(e);
+    });
+
+    let r = delete_folder(&db, store.clone(), "acct", "b", "big/", sink, "tid".into(), cancel)
+        .await
+        .unwrap();
+    assert!(r.canceled);
+    assert_eq!((r.deleted, r.failed, r.found), (1000, 0, 1500));
+    assert!(r.error.is_none());
+    assert_eq!(store.objects.lock().unwrap().len(), 500);
+    assert!(matches!(events.lock().unwrap().last(), Some(TransferEvent::Canceled { .. })));
+}
+
+#[tokio::test]
+async fn delete_folder_hard_failure_keeps_counts() {
+    let store = MemStore::new();
+    seed_mem(&store, "f/", 4);
+    *store.fail.lock().unwrap() = Some("access_denied");
+    let (db, _td) = common::tmp_db().await;
+    let (sink, events) = collecting_sink();
+
+    let r = delete_folder(&db, store.clone(), "acct", "b", "f/", sink, "tid".into(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!r.canceled);
+    assert_eq!((r.deleted, r.found), (0, 4));
+    assert!(r.error.as_deref().unwrap().contains("access_denied"));
+    assert!(matches!(events.lock().unwrap().last(), Some(TransferEvent::Failed { .. })));
 }

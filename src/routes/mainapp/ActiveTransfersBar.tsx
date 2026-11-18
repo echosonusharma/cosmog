@@ -6,24 +6,33 @@ import { pct } from "../transfers/helpers";
 import { IconArrowUpLine, IconArrowDownLine } from "../../utils/icons";
 import { movingFolderJobs } from "../../state/folderJobs";
 import { FolderJobBarItem } from "./FolderJobBarItem";
+import { deleteOps } from "../../state/deleteOps";
+import { DeleteOpBarItem } from "./DeleteOpBarItem";
 
 export function ActiveTransfersBar() {
   const list = () => activeTransfers();
   // A folder job counts as one item, however many files it holds.
   const jobs = () => movingFolderJobs();
+  const count = () => list().length + jobs().length + deleteOps.length;
+  // The Transfers page doesn't list deletes; with only deletes the bar has nowhere to go.
+  const navigable = () => list().length + jobs().length > 0;
 
   return (
-    <Show when={list().length + jobs().length > 0}>
-      <div class="active-xfer-bar" role="button" tabIndex={0} onClick={() => setCurrentView("transfers")}>
+    <Show when={count() > 0}>
+      <div class="active-xfer-bar" classList={{ "deletes-only": !navigable() }} role="button" tabIndex={0}
+           onClick={() => { if (navigable()) setCurrentView("transfers"); }}>
         <div class="active-xfer-summary">
           <span class="active-xfer-count">
-            {tp("shell.xfer.count", list().length + jobs().length)}
+            {tp("shell.xfer.count", count())}
           </span>
         </div>
 
         {/* Index, not For: the poll publishes freshly-created objects every
             second, so For would tear down and recreate every row per tick. */}
         <div class="active-xfer-list">
+          <Index each={deleteOps}>
+            {(op) => <DeleteOpBarItem op={op()} />}
+          </Index>
           <Index each={jobs()}>
             {(j) => <FolderJobBarItem job={j()} />}
           </Index>

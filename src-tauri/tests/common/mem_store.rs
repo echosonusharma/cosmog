@@ -42,6 +42,8 @@ pub struct MemStore {
     pub inm_unsupported: Mutex<bool>,
     /// Listings claim more results but give no continuation token.
     pub truncate_listing: Mutex<bool>,
+    /// delete_objects reports a per-key AccessDenied for keys starting with any of these.
+    pub delete_deny: Mutex<Vec<String>>,
     pub uploads: Mutex<HashMap<String, Upload>>,
     pub puts: Mutex<u64>,
     /// Every part sent: (upload_id, part number).
@@ -255,7 +257,21 @@ impl ObjectStore for MemStore {
         self.meta.lock().unwrap().remove(key);
         Ok(())
     }
-    async fn delete_objects(&self, _: &str, _: &[String]) -> AppResult<DeleteObjectsResult> { unsupported() }
+    async fn delete_objects(&self, _: &str, keys: &[String]) -> AppResult<DeleteObjectsResult> {
+        self.check()?;
+        let deny = self.delete_deny.lock().unwrap().clone();
+        let mut out = DeleteObjectsResult { deleted: Vec::new(), errors: Vec::new() };
+        let mut objects = self.objects.lock().unwrap();
+        for k in keys {
+            if deny.iter().any(|d| k.starts_with(d.as_str())) {
+                out.errors.push(DeleteObjectError { key: k.clone(), code: Some("AccessDenied".into()), message: Some("denied".into()) });
+            } else {
+                objects.remove(k);
+                out.deleted.push(k.clone());
+            }
+        }
+        Ok(out)
+    }
     async fn delete_object_version(&self, _: &str, _: &str, _: &str) -> AppResult<()> { unsupported() }
     async fn restore_object_version(&self, _: &str, _: &str, _: &str) -> AppResult<()> { unsupported() }
     async fn list_object_versions(&self, _: &str, _: Option<&str>, _: Option<String>) -> AppResult<(Vec<ObjectVersion>, Option<String>)> { unsupported() }

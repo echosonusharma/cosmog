@@ -12,15 +12,134 @@ use crate::error::{AppError, AppResult};
 use crate::store::{ListOptions, ObjectStore};
 use crate::transfer::{ProgressSink, TransferEvent};
 
+/// Per-key errors kept in a result; `failed` still counts every one.
+pub const MAX_DELETE_ERRORS: usize = 100;
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BulkDeleteError {
+    pub key: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BulkDeleteResult {
     pub deleted: u64,
     pub failed: u64,
-    pub errors: Vec<String>,
+    /// Keys listed so far.
+    pub found: u64,
+    /// First `MAX_DELETE_ERRORS` per-key failures.
+    pub errors: Vec<BulkDeleteError>,
+    pub canceled: bool,
+    /// Wire error of a hard failure (listing or a whole batch); counts cover the work before it.
+    pub error: Option<String>,
+}
+
+const DELETE_BATCH: usize = 1000;
+
+struct DeleteRun<'a> {
+    db: &'a Db,
+    store: Arc<dyn ObjectStore>,
+    account_id: &'a str,
+    bucket: &'a str,
+    sink: ProgressSink,
+    transfer_id: String,
+    cancel: CancellationToken,
+    result: BulkDeleteResult,
+}
+
+impl DeleteRun<'_> {
+    fn canceled(&self) -> AppResult<()> {
+        if self.cancel.is_cancelled() {
+            return Err(AppError::Canceled("delete_folder".into()));
+        }
+        Ok(())
+    }
+
+    /// Progress: `bytes_done` = deleted, `bytes_total` = keys found so far (not final).
+    fn progress(&self) {
+        self.sink.emit(TransferEvent::Progress {
+            transfer_id: self.transfer_id.clone(),
+            bytes_done: self.result.deleted,
+            bytes_total: Some(self.result.found),
+        });
+    }
+
+    async fn flush(&mut self, buffer: &mut Vec<String>) -> AppResult<()> {
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        self.canceled()?;
+        let keys = std::mem::take(buffer);
+        let outcome = self.store.delete_objects(self.bucket, &keys).await?;
+        for k in &outcome.deleted {
+            let _ = self.db.cache_remove_object(self.account_id, self.bucket, k).await;
+            self.result.deleted += 1;
+        }
+        for e in outcome.errors {
+            self.result.failed += 1;
+            if self.result.errors.len() < MAX_DELETE_ERRORS {
+                self.result.errors.push(BulkDeleteError {
+                    key: e.key,
+                    message: e.message.or(e.code).unwrap_or_else(|| "unknown".into()),
+                });
+            }
+        }
+        self.progress();
+        Ok(())
+    }
+
+    async fn run(&mut self, prefix: &str) -> AppResult<()> {
+        let mut continuation: Option<String> = None;
+        let mut buffer: Vec<String> = Vec::with_capacity(DELETE_BATCH);
+        let mut deleted_at_restart: u64 = 0;
+        loop {
+            self.canceled()?;
+            let page = tokio::select! {
+                _ = self.cancel.cancelled() => return Err(AppError::Canceled("delete_folder".into())),
+                p = self.store.list_objects(
+                    self.bucket,
+                    ListOptions {
+                        prefix: Some(prefix.to_string()),
+                        delimiter: None,
+                        continuation: continuation.clone(),
+                        max_keys: Some(1000),
+                    },
+                ) => p?,
+            };
+            self.result.found += page.objects.len() as u64;
+            self.progress();
+
+            for obj in page.objects {
+                buffer.push(obj.key);
+                if buffer.len() >= DELETE_BATCH {
+                    self.flush(&mut buffer).await?;
+                }
+            }
+
+            if !page.is_truncated {
+                break;
+            }
+            continuation = page.continuation;
+            if continuation.is_none() {
+                // No token: relisting from the top only advances while keys keep
+                // disappearing. Stop once a round deletes nothing.
+                self.flush(&mut buffer).await?;
+                if self.result.deleted == deleted_at_restart {
+                    return Err(AppError::Internal(
+                        "listing is truncated without a continuation token and no further keys could be deleted".into(),
+                    ));
+                }
+                deleted_at_restart = self.result.deleted;
+            }
+        }
+        self.flush(&mut buffer).await
+    }
 }
 
 /// Recursively delete under `prefix` via batched DeleteObjects (1000 keys/call),
-/// mirroring deletions into the local cache; `bytes_done` reports the deleted count.
+/// mirroring deletions into the local cache. Cancel and hard failures still return
+/// Ok with partial counts (`canceled` / `error`); the sink gets the matching terminal.
+#[allow(clippy::too_many_arguments)]
 pub async fn delete_folder(
     db: &Db,
     store: Arc<dyn ObjectStore>,
@@ -35,146 +154,31 @@ pub async fn delete_folder(
         transfer_id: transfer_id.clone(),
         bytes_total: None,
     });
-
-    let mut result = BulkDeleteResult::default();
-    let mut continuation: Option<String> = None;
-    const BATCH: usize = 1000;
-    let mut buffer: Vec<String> = Vec::with_capacity(BATCH);
-    let mut deleted_at_restart: u64 = 0;
-
-    let job: AppResult<()> = async {
-        loop {
-            if cancel.is_cancelled() {
-                return Err(AppError::Canceled(format!("delete_folder {prefix}")));
-            }
-            let page = tokio::select! {
-                _ = cancel.cancelled() => return Err(AppError::Canceled(format!("delete_folder {prefix}"))),
-                p = store.list_objects(
-                    bucket,
-                    ListOptions {
-                        prefix: Some(prefix.to_string()),
-                        delimiter: None,
-                        continuation: continuation.clone(),
-                        max_keys: Some(1000),
-                    },
-                ) => p?,
-            };
-
-            for obj in &page.objects {
-                buffer.push(obj.key.clone());
-                if buffer.len() >= BATCH {
-                    flush(
-                        &store,
-                        db,
-                        account_id,
-                        bucket,
-                        &mut buffer,
-                        &mut result,
-                        &sink,
-                        &transfer_id,
-                    )
-                    .await?;
-                }
-            }
-
-            if page.is_truncated {
-                continuation = page.continuation;
-                if continuation.is_none() {
-                    // No token: relisting from the top only advances while keys keep
-                    // disappearing. Stop once a round deletes nothing.
-                    if !buffer.is_empty() {
-                        flush(
-                            &store,
-                            db,
-                            account_id,
-                            bucket,
-                            &mut buffer,
-                            &mut result,
-                            &sink,
-                            &transfer_id,
-                        )
-                        .await?;
-                    }
-                    if result.deleted == deleted_at_restart {
-                        return Err(AppError::Internal(
-                            "listing is truncated without a continuation token and no further keys could be deleted".into(),
-                        ));
-                    }
-                    deleted_at_restart = result.deleted;
-                }
-            } else {
-                break;
-            }
-        }
-        if !buffer.is_empty() {
-            flush(
-                &store,
-                db,
-                account_id,
-                bucket,
-                &mut buffer,
-                &mut result,
-                &sink,
-                &transfer_id,
-            )
-            .await?;
-        }
-        Ok(())
-    }
-    .await;
-
+    let mut run = DeleteRun {
+        db,
+        store,
+        account_id,
+        bucket,
+        sink,
+        transfer_id,
+        cancel,
+        result: BulkDeleteResult::default(),
+    };
+    let job = run.run(prefix).await;
+    let DeleteRun { sink, transfer_id, mut result, .. } = run;
     match job {
-        Ok(()) => {
-            sink.emit(TransferEvent::Done {
-                transfer_id,
-                etag: None,
-            });
-            Ok(result)
-        }
-        Err(AppError::Canceled(m)) => {
+        Ok(()) => sink.emit(TransferEvent::Done { transfer_id, etag: None }),
+        Err(AppError::Canceled(_)) => {
+            result.canceled = true;
             sink.emit(TransferEvent::Canceled { transfer_id });
-            Err(AppError::Canceled(m))
         }
         Err(e) => {
-            sink.emit(TransferEvent::Failed {
-                transfer_id,
-                error: e.to_wire_string(),
-            });
-            Err(e)
+            let wire = e.to_wire_string();
+            result.error = Some(wire.clone());
+            sink.emit(TransferEvent::Failed { transfer_id, error: wire });
         }
     }
-}
-
-async fn flush(
-    store: &Arc<dyn ObjectStore>,
-    db: &Db,
-    account_id: &str,
-    bucket: &str,
-    buffer: &mut Vec<String>,
-    result: &mut BulkDeleteResult,
-    sink: &ProgressSink,
-    transfer_id: &str,
-) -> AppResult<()> {
-    let keys = std::mem::take(buffer);
-    let outcome = store.delete_objects(bucket, &keys).await?;
-    for k in &outcome.deleted {
-        let _ = db.cache_remove_object(account_id, bucket, k).await;
-        result.deleted += 1;
-    }
-    for e in &outcome.errors {
-        result.failed += 1;
-        result.errors.push(format!(
-            "{}: {}",
-            e.key,
-            e.message.as_deref().unwrap_or("unknown")
-        ));
-    }
-    sink.emit(TransferEvent::Progress {
-        transfer_id: transfer_id.to_string(),
-        bytes_done: result.deleted,
-        bytes_total: None,
-    });
-    Ok(())
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
